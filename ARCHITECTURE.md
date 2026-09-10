@@ -58,7 +58,7 @@ in the visitor's browser against a public RPC, so it has no operator to fail.
 | Testnet explorer | `https://explorer.testnet.chain.robinhood.com` |
 | Testnet faucet | `https://faucet.testnet.chain.robinhood.com` |
 | Gas token | ETH |
-| Stack | Arbitrum Orbit (Nitro). `block.number` on this chain already equals the L2 height; `ArbSys.arbBlockNumber()` returns the same value. Uniswap's `BlockNumberish` uses ArbSys. |
+| Stack | Arbitrum Orbit (Nitro). The EVM's `block.number` follows Ethereum; `ArbSys.arbBlockNumber()` and RPC `eth_blockNumber` expose the chain's own height. Uniswap's `BlockNumberish` uses ArbSys. |
 | Block time | The chain's own blocks: ≈ 0.10 s. **The EVM's `block.number`: ≈ 12 s**, because this is an Arbitrum Orbit chain and `block.number` is the Ethereum block number. **4 hours ≈ 1,200 blocks.** See below. |
 | Cancun (EIP-1153) | Supported (Uniswap v4 and launcher run on it) |
 

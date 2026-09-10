@@ -15,7 +15,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT_DIR="${1:-$HERE/../chain/abis}"
+# The public protocol repository has no sibling chain workspace.
+DEFAULT_OUT_DIR="$HERE/abis"
+if [[ -f "$HERE/../chain/package.json" ]]; then
+  DEFAULT_OUT_DIR="$HERE/../chain/abis"
+fi
+OUT_DIR="${1:-$DEFAULT_OUT_DIR}"
 
 export PATH="$PATH:$HOME/.foundry/bin"
 

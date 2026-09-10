@@ -1,0 +1,23 @@
+{
+  "chainId": 46630,
+  "network": "robinhood-testnet",
+  "deployedAt": "2026-09-09T14:39:24Z",
+  "commit": "c70a421",
+  "contracts": {
+    "KAY9Token": "0x9C3930219b9A744a52837E86f042DbE3BB937d71",
+    "KAY9TeamVesting": "0x7a0de420865e4D08b274CF64dbF3240DEe3036C1",
+    "KAY9Genesis": "0x555737331Ac485fE073Fee47Ee9f05404A52579d",
+    "KAY9LiquidityLock": "0xcBf1F5b023d422C9525199a8687cF74be846472F",
+    "KAY9AuditorRegistry": "0x410B5A3bFe7db78EDdF1fCF8421430cAba9bE683",
+    "KAY9Pricing": "0x573af7997f7DF452D9315D0309E222644BA83508",
+    "KAY9Registry": "0x926B7fE2c67806D85Fd5feF5375ef07a690bC765",
+    "KAY9AuditHub": "0xfa5c2e0D3496Cf323b3BD46fE1814c2084e9C152",
+    "KAY9AccessVault": "0xb65f3aDcFC6A5c98e11faB23721Ca5F8f2148e9C",
+    "KAY9ScanRegistry": "0x0cEb7E43200256A668506668c9e88BD5434cFa87",
+    "Timelock": "0x0c4a77648A8D30E2318d8a7Ba2B1cb5abe55b37C",
+    "Treasury": "0x3eA30E2611fe20Ca4e8A45095AA61c153cE23433"
+  },
+  "codeHashes": {
+    "KAY9Token": "0x014787a2c34eec56f50170191b93752618e8fef702d6d3d7add3ee509e91b56d"
+  }
+}

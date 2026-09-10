@@ -1,25 +1,30 @@
 # KAY9 protocol
 
-KAY9 is a fixed-supply token, a fair-launch continuous clearing auction with permanently locked
-liquidity, and an on-chain audit protocol, on Robinhood Chain (mainnet 4663, testnet 46630). This
-repository is the protocol's public surface: the contracts themselves and the specifications that
-bind them, kept in sync with what is actually deployed. The website (kay9.io) is a UI over this;
-these contracts are the source of truth.
+This is the public contract and specification repository for KAY9 on Robinhood
+Chain (mainnet 4663, testnet 46630). Read [WHITEPAPER.md](WHITEPAPER.md) for the
+protocol, token, trust model, status, and limitations.
 
-Read [`WHITEPAPER.md`](WHITEPAPER.md) for the public-facing summary — problem, protocol, token,
-trust model, current status, roadmap, and known limitations, all in one document.
+Audit access uses refundable KAY9 locks and on-chain quotas. There is no per-audit
+token payment or escrow in the audit hub. The binding specifications are
+[ARCHITECTURE.md](ARCHITECTURE.md), [CONTRACT_INTERFACES.md](docs/CONTRACT_INTERFACES.md),
+and [ACCESS_MODEL.md](docs/ACCESS_MODEL.md). See [CONTRACTS.md](docs/CONTRACTS.md)
+and [SECURITY.md](docs/SECURITY.md) for contract behavior and the threat model.
 
-Nobody pays for an audit. Locking KAY9 unlocks quota in `KAY9AccessVault` and the full amount
-returns when the lock ends — no fee, no yield, no escrow of a requester's tokens. See
-[`docs/ACCESS_MODEL.md`](docs/ACCESS_MODEL.md) and [`docs/AUDIT_PROTOCOL.md`](docs/AUDIT_PROTOCOL.md).
+The [deployment records](deployments) mirror the main project. An empty mainnet
+record means no configured deployment; source availability does not mean the
+protocol has launched. Testnet records are not mainnet deployments.
 
-The binding specification lives in [`ARCHITECTURE.md`](ARCHITECTURE.md) and
-[`docs/CONTRACT_INTERFACES.md`](docs/CONTRACT_INTERFACES.md). Per-contract documentation is in
-[`docs/CONTRACTS.md`](docs/CONTRACTS.md) and the threat model in [`docs/SECURITY.md`](docs/SECURITY.md).
+This repository is synchronized from the main project's contracts, selected
+public specifications, and deployment records using `scripts/sync-protocol.mjs`
+in that project. Contract sources and tests are copied unchanged. Documentation
+links are adapted to this layout. Website and worker source, operational runbooks,
+internal review notes, environment files, keys, and runtime data are not included.
+References marked “main project; not included here” describe that excluded scope.
+Paths in prose may retain the main layout: `packages/contracts/` maps to this
+repository's root, and `packages/chain/deployments/` maps to `deployments/`.
 
-A handful of docs mentioned by name in these specs — the deployment runbook, launch-readiness
-checklist, and internal review/status notes — are operational rather than specificational, and stay
-in the main project repository rather than here.
+The root LICENSE covers KAY9 code; vendored dependencies retain their own SPDX
+license identifiers and notices.
 
 ## Layout
 
@@ -32,12 +37,15 @@ src/
   KAY9AuditorRegistry.sol    operator set and quorum, owned by the timelock
   KAY9Pricing.sol            KAY9/ETH TWAP x Chainlink ETH/USD, owned by the timelock
   KAY9Registry.sol           append-only report log
-  KAY9AuditHub.sol           requests, escrow, quorum settlement, refunds
+  KAY9AuditHub.sol           quota-backed requests, attestation, quorum settlement
+  KAY9AccessVault.sol        refundable access locks, tier allowances, quota restoration
+  KAY9ScanRegistry.sol       append-only commitments to batches of watchdog scans
   libraries/                 tick, price, emission-schedule and calendar helpers
   interfaces/uniswap/        vendored Uniswap structs and the calls KAY9 makes
   interfaces/external/       Chainlink AggregatorV3Interface
 script/
   Deploy.s.sol               mainnet and generic deployment
+  DeployWatchdog.s.sol        watchdog registry and governance before the token exists
   Launch.s.sol               derives LaunchParams and writes the owner Safe calldata
   Testnet.s.sol              testnet rehearsal, deploys the missing launcher stack
   ComputeVesting.s.sol       TGE -> +6 / +12 calendar month timestamps
@@ -73,7 +81,7 @@ forge test -vv                                 # offline suite: unit, fuzz, inva
 FOUNDRY_PROFILE=ci forge test -vv              # heavier fuzz and invariant budgets
 forge fmt                                      # format
 forge snapshot                                 # write .gas-snapshot
-./export-abis.sh ./abis                        # write one JSON per contract (default path assumes the monorepo this was exported from)
+./export-abis.sh                               # write ABIs into ./abis
 slither . --config-file slither.config.json    # static analysis
 ```
 
