@@ -6,6 +6,9 @@ repository is the protocol's public surface: the contracts themselves and the sp
 bind them, kept in sync with what is actually deployed. The website (kay9.io) is a UI over this;
 these contracts are the source of truth.
 
+Read [`WHITEPAPER.md`](WHITEPAPER.md) for the public-facing summary — problem, protocol, token,
+trust model, current status, roadmap, and known limitations, all in one document.
+
 Nobody pays for an audit. Locking KAY9 unlocks quota in `KAY9AccessVault` and the full amount
 returns when the lock ends — no fee, no yield, no escrow of a requester's tokens. See
 [`docs/ACCESS_MODEL.md`](docs/ACCESS_MODEL.md) and [`docs/AUDIT_PROTOCOL.md`](docs/AUDIT_PROTOCOL.md).
