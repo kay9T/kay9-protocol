@@ -1,0 +1,282 @@
+# KAY9 Roadmap
+
+Everything below is either built and waiting, or a named piece of work with a stated
+precondition. Nothing here is a promise of a price, a return, or a reward.
+
+Dates are expressed relative to **TGE**, the moment `KAY9Genesis.launch()` is signed, because
+that is the one date the owner controls and every other date hangs off it. When the owner picks
+the absolute date, it goes in the table in §8 and the relative weeks become calendar dates.
+
+---
+
+## The order changed: the watchdog ships first
+
+This document used to treat TGE as the pivot — harden, launch the token, then bring the product
+up behind it. That order is now inverted, and the inversion is not cosmetic.
+
+**What ships before there is a token at all:** token discovery, free automatic basic scans of
+whatever the chain launches, the permanent `KAY9ScanRegistry` record, the live feed, token pages,
+the badge, the integration standard and the documentation. None of it needs $KAY9 to exist, none
+of it asks anybody for money, and `DeployWatchdog.s.sol` deploys it with no token, no oracle and
+no access vault anywhere in it.
+
+**What waits for TGE:** the access lock, and only the access lock. Deep and forensic audits are
+gated on locking KAY9, so they cannot go live in their final form until KAY9 exists. Everything
+else about them — the engine, the quorum, the registry, the report format — is testable and tested
+without it.
+
+**Why.** A risk product asking to be trusted has to be checkable first. Launching a token and then
+building the thing it is supposed to pay for gets the order of proof backwards, and on a chain
+producing tens of thousands of token launches a day, "another token that promises a product" is
+the single least distinctive thing KAY9 could be.
+
+So the phases below still read in the same sequence, but the gate between §1 and §2 is no longer
+"we are ready to launch" — it is the fourteen conditions in
+[`docs/LAUNCH_READINESS.md`](LAUNCH_READINESS.md), four of which require the watchdog to have been
+live and unattended on mainnet for 30 days with its record independently reconstructed by somebody
+outside the project. If a gate is open on the date, the date moves.
+
+## 0. What is already done
+
+The product changed after the first end-to-end build: pay-per-audit was removed and replaced by the
+access lock in `KAY9AccessVault`. The contracts have been rewritten for it; the tests, the services
+and the website are being rewritten now. `docs/STATUS.md` is the current state, and this table
+deliberately does not claim more than it says.
+
+| Item | State |
+|---|---|
+| Nine contracts, governance wiring | rewritten for the access model |
+| Contract tests | rewritten for `KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`, `KAY9Pricing`; invariant handler and reentrancy suite still being rewritten |
+| Adversarial security review | done against the previous contracts; must be repeated against these |
+| Static analysis | done against the previous contracts; must be re-run, the vault has never been analysed |
+| Website | being rewritten for the access model |
+| Analysis engine, EVM and Solana adapters | written; tier boundaries being revised for a browser-side basic scan |
+| Auditor job, quorum signing, TWAP keeper | being rewritten for attestation and scale-to-zero |
+| Continuous integration and deployment | GitHub Actions |
+| Token discovery | ten verified sources on Robinhood Chain; a live pass over 20,000 blocks found 1,459 tokens in nine requests |
+| `KAY9ScanRegistry` and Merkle batching | written and tested; deployed nowhere yet |
+| Automatic scan pipeline | `services/discovery-worker` now wires discovery, scanning, publishing and committing into one deployable scheduled job; not yet deployed or run |
+| Watchdog deployment script | `DeployWatchdog.s.sol`, no token in it |
+| Deep/forensic beta intake, pre-token | `beta`/`beta-api` written and tested (`services/audit-worker`) — a free, walletless queue feeding the existing `publishWatchdogReport` quorum path; not yet deployed |
+| Score calibration against real tokens | four tokens, three systematic defects found and fixed; needs 50+ including known rugs |
+| Live feed, watchdog dashboard, token pages | on kay9.io, rendering "not deployed yet" until the registry exists |
+| Documentation | 21 documents |
+
+## 1. Before launch — the watchdog runs, and hardening
+
+No token exists yet, so this phase has no deadline pressure. Do not compress it.
+
+This is also the phase in which the watchdog goes live on mainnet and stays live: deploy
+`DeployWatchdog.s.sol`, authorise a scanner, and let discovery and automatic scanning run
+unattended while the hardening below proceeds. The 30 days of unattended operation that gate 1
+requires can only accumulate in real time, so starting it early costs nothing and starting it late
+delays everything. `services/discovery-worker` (`services/discovery-worker/deploy/README.md`) is
+the job that does this — written and tested against `services/watchdog`'s existing discovery and
+scan-pass logic, not yet deployed. Standing it up on a real schedule, against a real
+`setScanner`-authorised key, is what starts the 30-day clock.
+
+- **Finish the rewrite.** Tests, services and website. Nothing below starts until `forge test` is
+  green against the access-model contracts and the invariant suite drives the new job states.
+- **Re-run static analysis and the adversarial review.** Both were done against contracts that no
+  longer exist. `KAY9AccessVault` holds other people's money and has never been through either.
+- **Testnet rehearsal.** Run the full cycle on Robinhood testnet 46630: deploy, launch, bid from
+  several accounts, end the auction, migrate, lock the position, settle the unsold supply, bind the
+  oracle — and then the access model: lock, request, attest with two auditors, dispute with three,
+  expire an unanswered job, renew, and unlock the whole principal. This is scripted in
+  `docs/DEPLOYMENT.md` §3 and §3.1 and needs only a funded testnet key.
+- **Confirm the jurisdiction.** The owner confirms which jurisdiction they operate from and obtains
+  professional legal and tax review for it before launch. No contract property can substitute for
+  this and no test can catch its absence; `docs/DEPLOYMENT.md` §2 lists what the review has to cover.
+- **Owner wallets.** Owner Safe, team beneficiary, creator-fee recipient, three auditor addresses.
+  Nothing deploys until these exist and none of them may be a developer key.
+- **An independent audit, if the launch valuation justifies it.** The Uniswap Liquidity
+  Launcher, the Continuous Clearing Auction and Uniswap v4 are already audited by OpenZeppelin,
+  Spearbit and ABDK, and KAY9 uses them as deployed rather than forking them. What is unaudited
+  by a third party is the roughly 2,000 lines of KAY9 code around them. At a four-figure opening
+  valuation a third-party code audit costs more than the protocol holds; above that it is
+  negligence not to get one. Decide by looking at the floor and graduation figures you choose.
+- **A published bug bounty.** Cheap, immediate, and it signals the right thing. Scope it to
+  `packages/contracts/src`, and state the payout source honestly: the protocol has no revenue, so a
+  bounty is funded by the owner or it is not funded. Do not announce one that has no source.
+- **Exact unlock timestamps.** The 6 and 12 month team unlocks are calendar dates computed from
+  TGE and burned into the contract at deployment. They are printed for review before signing and
+  can never be changed afterwards.
+
+**Precondition to leave this phase:** the rehearsal passed end to end, and the owner has read
+the final launch report in `docs/DEPLOYMENT.md` §6.
+
+## 2. TGE — launch week
+
+| When | What | Who acts |
+|---|---|---|
+| T-7d | Deploy contracts to Robinhood mainnet, verify every one on Blockscout | owner signs |
+| T-7d | Publish addresses, flip the repository public | anyone |
+| T-2d | Announce the auction window and the floor and graduation figures | owner |
+| T-0 | `KAY9Genesis.launch()`, auction opens | **owner signs** |
+| T-0 + 4h | Auction closes, final clearing price fixed | automatic |
+| T-0 + 4h | `LBPStrategy.migrate()` creates the v4 pool and mints the position | anyone |
+| T-0 + 4h | `KAY9LiquidityLock.lock()` makes the liquidity permanent | anyone |
+| T-0 + 4h | `KAY9Genesis.settle()` turns unsold supply into locked liquidity | anyone |
+| T-0 + 4h | Team tranche 1 unlocks, 10,000,000 KAY9, 1 percent | permissionless release |
+
+Everything after the owner's single signature is permissionless. That is the point: no step
+depends on the team being alive, awake or willing.
+
+**`NEXT_PUBLIC_ALLOW_INDEXING` is not on this table, on purpose.** It used to be tied to T-7d,
+which quietly contradicted §0's whole premise — a product that has to earn attention before it
+asks for money cannot also be invisible to search engines for the entire time it is doing that
+(R33 in KAY9-REVIEW.md). Whether the site is ready for search engines is a question about the
+product — is the live feed real, are token and report pages meaningful landing content, is nothing
+thin or private exposed — and has no fixed relationship to TGE. It can be enabled before, at, or
+after this table's dates, on its own evidence, the same way a `docs/LAUNCH_READINESS.md` gate
+closes: on demonstrated readiness, not a calendar offset from a token event.
+
+## 3. Weeks 1–4 — the access model and the auditors go live
+
+The contracts ship at launch; this is turning the service on, in the order the dependencies force.
+
+- **Bind `KAY9Pricing` to the new pool** through the 48 hour timelock, then start the keeper. Until
+  the TWAP has 30 minutes of observations and passes every check, `quoteLock` reverts and no access
+  period can be opened. That refusal is deliberate: a manipulated or stale price would let somebody
+  open a period for a fraction of what it should require. The website must say the price is not
+  available yet rather than show a placeholder.
+- **Complete the vault handover.** `accessVault.transferOwnership(timelock)` runs at deployment but
+  is `Ownable2Step`, so the timelock's `acceptOwnership()` is a scheduled governance call that takes
+  48 hours. Until it executes the deployer key still owns the vault. This is the first thing to
+  verify after launch, not the last.
+- **First access locks.** The first depositor is the first real test of the claim the whole model
+  makes, so watch one period end to end on mainnet: lock, spend the allowance, unlock, and confirm
+  the balance came back whole.
+- **Three auditors running, quorum 2 of 3**, each as a scheduled job that scales to zero, with the
+  optional nudge wired from the site.
+- **First deep audits.** Expect the first published report to score something badly; that is the
+  product working, not a problem.
+- **The browser basic scan public**, running client-side against a public RPC with no wallet and no
+  KAY9.
+
+**Known gap to close here:** the analysis engine needs an archive node to resolve token deployers
+and read historical state. The public Robinhood RPC is pruned and answers a historical `eth_getCode`
+with `metadata is not found`. Until an auditor runs or rents one, creator-history signals report as
+unmeasured rather than clean.
+
+## 4. Months 2–3 — reading, integrating, monitoring
+
+The audience beyond the individual buyer is builders. This phase is about being consumable.
+
+- **Registry integration.** `latestSummary`, `latestSummaryForToken` and `scoreHistory` already
+  exist so that a wallet, DEX or launchpad can render KAY9 risk with one contract call and no
+  KAY9-operated API. The work is documenting them as an integration surface, publishing a minimal
+  client, and finding the first integrator. Nothing here requires a new contract.
+- **Risk over time on the site.** The registry appends, so an asset has a score history rather than
+  a score. Show it as a history, always with `committedAt`, and never render `latest` as current
+  safety.
+- **Continuous monitoring live.** The scheduled delta sweep of assets that already have a report —
+  owner or admin changed, proxy implementation changed, LP position moved or unlocked, top holder
+  share crossed a threshold, deployer moved funds — publishing quorum-signed alerts through
+  `publishWatchdogReport` with flag bit 19 set. Nobody pays for these and nobody asked for them,
+  which is the point.
+- **BNB Chain** analysis live. Needs an explorer API key and an RPC endpoint.
+- **Solana** analysis live: mint and freeze authority, token-2022 extensions, holder concentration.
+  Engine 1.3 also reads Raydium CPMM/Orca pool state and searches bounded mint initialization
+  history. Executable depth, creator reputation and historical snapshots remain open; standard RPC
+  scans cannot produce pinned quorum reports.
+- Registry browsing across all three chains in one view.
+
+KAY9 itself does not bridge. Analysing a chain never requires a token on it, and no wrapped KAY9
+will be created to fake presence somewhere.
+
+## 5. Months 3–6 — depth
+
+- **Forensic tier fully exercised.** The contracts ship with `TIER_FORENSIC` active at a $500 lock
+  target, one forensic and four deep audits per period, and `upgrade` from a live deep period. The
+  work is the analysis depth behind it: deeper wallet clustering and funding-source tracing.
+- **Analysis coverage.** v3 and v4 position ownership so `UNLOCKED_LIQUIDITY` becomes measurable,
+  creator-history liquidity checks, Solana AMM state decoding, and a read-only simulation path to
+  turn the honeypot heuristic into a demonstrated result. `docs/WATCHDOG.md` §10 has the detail.
+- **Report permanence.** Move report bodies to Arweave alongside IPFS so the on-chain hash always
+  resolves. A pinned body nobody serves is a broken link with a valid hash.
+- **A mirrored frontend.** The site is a static export specifically so the whole thing can be pinned
+  to IPFS. Publishing that hash is the proof that kay9.io is a convenience. The basic scan runs in
+  the browser, so a mirror is a fully working scanner and not a brochure.
+
+## 6. Months 6–12 — making the auditors independent
+
+This is the honest weak point of V1 and it is worth stating plainly, because it is a fact about the
+launch configuration rather than a risk about the design.
+
+At launch there are three signing keys, three secret stores and three identities in
+`KAY9AuditorRegistry`, but **not three independent platform operators**. Opening accounts on three
+genuinely independent commercial clouds requires a payment card this project does not have, so
+auditor A runs as an Azure Container Apps job in the owner's subscription, auditor B as a GitHub
+Actions workflow in a separate repository the owner also controls, and only auditor C is held by an
+independent operator. A two-of-three quorum protects against one dishonest or compromised auditor.
+It does not protect against a compromise of the owner's own accounts, because that is two of the
+three. `docs/AUDITOR_NETWORK.md` §4.3 and `docs/SECURITY.md` §2.6 say this in full, and the website
+says it too.
+
+The fix is a move, not a mechanism, and it has a precondition rather than a date:
+
+- **Auditor B onto Google Cloud Run and auditor C onto AWS Lambda**, both of which scale to zero on
+  their free tiers, as soon as either a funding method exists or independent operators volunteer to
+  run them. This is the single highest-value change on this roadmap, because it is the only one that
+  changes what the quorum actually guarantees.
+- **Grow the auditor set past three** through the timelock, raising the threshold with it, so that a
+  single platform outage or a single compromised operator matters even less.
+- **Publish which platform runs which auditor** and keep it current, so that the claim can be
+  checked rather than trusted.
+- Team tranche 2 unlocks at TGE + 6 calendar months, 40,000,000 KAY9, taking the cumulative total to
+  5 percent. Tranche 3 at TGE + 12 months brings it to 9 percent. Both are enforced by immutable
+  timestamps and neither can be accelerated.
+
+**Precondition to call this phase done:** no two auditors share an operator, an account, or a
+credential store, and `docs/SECURITY.md` §2.6 can be deleted rather than reworded.
+
+## 7. Not on the roadmap, on purpose
+
+Listing these matters as much as the roadmap itself, because a roadmap that promises things the
+contracts cannot do is a liability.
+
+- **No presale, no private round, no IPO.** The auction is the only sale. Adding a presale would
+  contradict the audit engine's own risk signals, require changing a fixed distribution, and
+  give early buyers a better price than everyone else.
+- **No staking rewards for holders.** The contracts mint nothing and there is no yield to pay.
+  Any "rewards" claim would be paid out of somebody else's principal.
+- **No governance token promises.** The 48 hour timelock is administrative safety, not a vote.
+  Do not describe it as governance.
+- **No additional minting, ever.** There is no mint function to call.
+- **No LP withdrawal.** The position sits in Uniswap's FeeSplitter, which has no withdrawal
+  path. This cannot be added later.
+- **No pay-per-audit.** Not a fee, not a price per audit, not an escrow, not a treasury cut, not a
+  burn of a requester's KAY9. Access is a lock and the principal comes back in full. This is not a
+  pricing decision waiting to be revisited: a per-audit fee puts the analyst on the payroll of the
+  analysed, and every good score then looks bought whatever the code actually does. Reintroducing it
+  would require a new `KAY9AuditHub`, and the reason not to would not have changed.
+- **No yield on locked KAY9.** No APY, no reward, no emission, no share of anything, and no
+  slashing. `KAY9AccessVault` mints nothing and receives nothing beyond the principal it will
+  return. A lock is access, not an investment, and the moment it pays a return it becomes one.
+- **No paid green badges.** There is nothing to pay. A creator can request an audit of their own
+  token and score 25/100, and the report says who requested it.
+
+## 8. Dates the owner sets
+
+Fill these in and the relative weeks above become a calendar.
+
+| Item | Value |
+|---|---|
+| Target TGE, date and time UTC | to be set |
+| Auction duration | 4 hours, about 1,200 blocks |
+| Floor FDV, USD | to be set, reference 1,000 |
+| Graduation FDV, USD | to be set, reference 10,000 |
+| Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment |
+| Team unlock, tranche 3 | TGE + 12 calendar months, computed at deployment |
+| Deep access lock USD target | 100, changeable only through the 48 hour timelock |
+| Forensic access lock USD target | 500, changeable only through the 48 hour timelock |
+| Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
+| Jurisdiction confirmed, with professional review | to be confirmed by the owner before launch |
+
+## 9. How this document stays honest
+
+Every dated claim here is either a contract constant, a value the owner sets before signing, or
+a piece of work with its precondition named. When a phase slips, the date changes and the reason
+is written down. Nothing moves from §7 into the roadmap without a contract change, an audit and
+a note explaining what changed and why.

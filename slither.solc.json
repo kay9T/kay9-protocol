@@ -1,0 +1,25 @@
+{
+  "solc_remaps": [
+    "forge-std/=lib/forge-std/src/",
+    "ds-test/=lib/forge-std/lib/ds-test/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "@uniswap/v4-core/=lib/v4-core/",
+    "v4-core/=lib/v4-core/",
+    "@uniswap/v4-periphery/=lib/v4-periphery/",
+    "v4-periphery/=lib/v4-periphery/",
+    "solmate/=lib/v4-core/lib/solmate/",
+    "permit2/=lib/permit2/",
+    "solady/=lib/solady/src/",
+    "@solady/=lib/solady/",
+    "@uniswap/blocknumberish/=lib/blocknumberish/",
+    "blocknumberish/=lib/blocknumberish/",
+    "@uniswap/uerc20-factory/=lib/uerc20-factory/",
+    "uerc20-factory/=lib/uerc20-factory/",
+    "liquidity-launcher/=lib/liquidity-launcher/",
+    "continuous-clearing-auction/=lib/continuous-clearing-auction/"
+  ],
+  "solc_args": "--optimize --optimize-runs 200 --evm-version cancun --via-ir",
+  "exclude_dependencies": true,
+  "filter_paths": "lib/|test/|script/"
+}
