@@ -32,7 +32,7 @@ the single least distinctive thing KAY9 could be.
 
 So the phases below still read in the same sequence, but the gate between §1 and §2 is no longer
 "we are ready to launch" — it is the fourteen conditions in
-[`docs/LAUNCH_READINESS.md`](LAUNCH_READINESS.md), four of which require the watchdog to have been
+`docs/LAUNCH_READINESS.md` (main project; not included here), four of which require the watchdog to have been
 live and unattended on mainnet for 30 days with its record independently reconstructed by somebody
 outside the project. If a gate is open on the date, the date moves.
 

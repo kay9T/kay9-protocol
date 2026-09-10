@@ -21,7 +21,7 @@ help:
 	@echo "snapshot        write .gas-snapshot"
 	@echo "fmt / fmt-check format sources"
 	@echo "slither         static analysis"
-	@echo "abis            export ABIs into packages/chain/abis"
+	@echo "abis            export ABIs into the chain workspace, or ./abis when standalone"
 	@echo "deploy-dry      simulate the mainnet deployment without broadcasting"
 	@echo "deploy-testnet  broadcast the testnet rehearsal"
 	@echo "launch-preview  derive and print the launch parameters"

@@ -916,7 +916,7 @@ own rate-limit budget.
 Discovery, the queue and the cursors need no database (§5 of `docs/TOKEN_DISCOVERY.md` explains why
 that is a requirement rather than a preference), so the fixed hosting is one container that scales
 to zero plus a static site. Both sit inside the free grants at the volumes in the first three rows.
-Figures in [`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
+Figures in `docs/DEPLOYMENT.md` (main project; not included here).
 
 ---
 

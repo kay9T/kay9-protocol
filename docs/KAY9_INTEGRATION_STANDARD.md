@@ -183,7 +183,7 @@ MIT-licensed like everything else here.
 
 If you are on the other side of this — a project that wants an automated audit to reach a fairer
 conclusion — implement `IKAY9Auditable`
-([`packages/contracts/src/interfaces/IKAY9Auditable.sol`](../packages/contracts/src/interfaces/IKAY9Auditable.sol)).
+([`packages/contracts/src/interfaces/IKAY9Auditable.sol`](../src/interfaces/IKAY9Auditable.sol)).
 
 It lets a token declare its controller, name the addresses that hold supply for a stated reason (a
 vesting contract is not a whale), point at its documentation, and state its timelock delay.
@@ -198,7 +198,7 @@ which usually lowers uncertainty rather than risk.
 
 ## 9. Addresses
 
-Contract addresses are in [`packages/chain/deployments/<chainId>.json`](../packages/chain/deployments)
+Contract addresses are in [`packages/chain/deployments/<chainId>.json`](../deployments)
 and are exported by `@kay9/chain`:
 
 ```ts

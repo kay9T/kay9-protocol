@@ -285,6 +285,6 @@ to do would be a liability:
 | Telegram — community | https://t.me/KAY9Pack |
 
 Every figure, constant, and mechanism described in this document is drawn from the protocol's own
-implementation documentation in this repository (`ARCHITECTURE.md`, `docs/ACCESS_MODEL.md`,
-`docs/AUDITOR_NETWORK.md`, `docs/TOKENOMICS.md`, `docs/ROADMAP.md`), which is the authoritative
-source if anything here and the code ever disagree — the code wins.
+implementation documentation (`ARCHITECTURE.md`, `docs/ACCESS_MODEL.md`, `docs/AUDITOR_NETWORK.md`,
+`docs/TOKENOMICS.md`, `docs/ROADMAP.md`), which are the authoritative source if
+anything here and the code ever disagree — the code wins.

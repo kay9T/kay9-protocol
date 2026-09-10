@@ -367,7 +367,7 @@ Those two entry points reach every source file in `src/`.
 
 **Result: 52 findings across the two runs, none of them a real defect, and no high-severity finding
 at all.** The full list with a disposition for each is in
-[`../packages/contracts/SLITHER.md`](../packages/contracts/SLITHER.md). Summary:
+[`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
 
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|

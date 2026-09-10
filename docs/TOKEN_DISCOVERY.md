@@ -4,7 +4,7 @@ How KAY9 finds out that a token exists, without anybody telling it.
 
 Nothing in this document is a plan. Every address, event hash and rate below was measured against
 Robinhood Chain mainnet (4663) on **2026-09-08**, and the catalogue the code reads from is
-[`services/watchdog/src/discovery/sources.ts`](../services/watchdog/src/discovery/sources.ts),
+`services/watchdog/src/discovery/sources.ts` (main project; not included here),
 which carries the same evidence next to each entry. Re-verify before production: launchpads
 redeploy, and a topic0 that no longer appears is a source that has moved.
 
@@ -145,7 +145,7 @@ Three measured limits, all re-verified 2026-09-08:
    requests succeeded reliably at 100 items. Log queries are therefore serialised with a gap, and
    a rate limit is treated as "wait", not as an error to surface.
 
-[`logs.ts`](../services/watchdog/src/discovery/logs.ts) is the only place that talks to
+`logs.ts` (main project; not included here) is the only place that talks to
 `eth_getLogs` for discovery, and it:
 
 - **shrinks before the ceiling, not after** — a chunk that comes back with ≥9,000 logs halves the
@@ -206,7 +206,7 @@ this product may never say is "trust our index". Losing every cursor costs time,
 discovery replays from any block, and a token seen twice is deduplicated by address.
 
 The scan record itself lives on-chain in
-[`KAY9ScanRegistry`](../packages/contracts/src/KAY9ScanRegistry.sol), committed in Merkle batches,
+[`KAY9ScanRegistry`](../src/KAY9ScanRegistry.sol), committed in Merkle batches,
 with the batch document content-addressed. Anyone can rebuild the whole feed from those two things
 and never ask kay9.io for anything.
 
@@ -238,7 +238,7 @@ to spare. Serialising them with a 250 ms gap keeps a pass under ten seconds.
 
 The scanning that follows is what costs, and it scales with how much of the queue is drained
 rather than with how much the chain produced. Figures per scan volume are in
-[`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
+`docs/DEPLOYMENT.md` (main project; not included here).
 
 **A dedicated RPC is required before this runs continuously.** The public endpoint refuses three
 log queries in a row; it is adequate for a five-minute discovery pass and not for draining a scan

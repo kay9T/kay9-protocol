@@ -3,6 +3,17 @@ out/
 broadcast/
 foundry-pp/
 script/output/*.json
+abis/
+
+# This directory is also distributed as a standalone public repository.
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+keystore/
+keystores/
 
 # Third-party dependencies are reinstalled by ./setup.sh rather than committed; together
 # they are about 260 MB. The two Uniswap upstream source trees this project compiles
