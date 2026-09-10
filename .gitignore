@@ -1,0 +1,13 @@
+cache/
+out/
+broadcast/
+foundry-pp/
+script/output/*.json
+
+# Third-party dependencies are reinstalled by ./setup.sh rather than committed; together
+# they are about 260 MB. The two Uniswap upstream source trees this project compiles
+# against are pinned copies that setup.sh cannot fetch at the right commit, so they are
+# committed and explicitly re-included below.
+lib/*
+!lib/liquidity-launcher/
+!lib/continuous-clearing-auction/
