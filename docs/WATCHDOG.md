@@ -572,7 +572,8 @@ signature simply attests alone, which costs one extra transaction and changes no
 
 ### 7.6 The keeper
 
-Every `POKE_INTERVAL_MS` (60 s by default) the keeper logs `pricingStatus()` and calls `poke()` if
+Every `POKE_INTERVAL_MS` (120 s by default; the contract tolerates a 300 s gap) the keeper logs
+`pricingStatus()` and the account balance, and calls `poke()` if
 the observation ring has not yet seen the current block. The call is simulated first; a revert means
 another keeper already observed this block, which is a no-op and is logged at debug level, not as an
 incident.
@@ -581,6 +582,13 @@ Running more than one keeper is safe and is the point. The pool observation ring
 access locks quotable, and it should not depend on one process staying up. If every keeper stops,
 `quoteLock` reverts and new locks are refused; **`unlock` keeps working regardless**, because it
 reads no oracle.
+
+Measured on the 2026-09-11 testnet rehearsal: with `maxObservationGap` at 300 s and the window at
+30 minutes, a keeper outage of a little over five minutes made every `lock`, `renew`, `upgrade` and
+`quoteLock` revert `PricingUnavailable(3)` within nine minutes of the last poke, and the ring needed
+about thirty minutes of uninterrupted pokes afterwards before the gap aged out of the window and
+quotes came back. Treat the keeper as part of the access model's uptime, run two of them, and alert
+on a gap over 120 s rather than on `available` flipping, which is the symptom half an hour later.
 
 ### 7.7 The basic scan runs in the browser
 
