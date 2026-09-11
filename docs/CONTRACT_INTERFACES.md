@@ -81,8 +81,9 @@ contract KAY9Genesis is Ownable2Step {
     uint256 public constant LIQUIDITY_RESERVE   = 455_000_000e18;
     uint24  public constant POOL_FEE            = 10_000;   // 1 %
     int24   public constant POOL_TICK_SPACING   = 200;
-    uint64  public constant MIN_DURATION_BLOCKS = 36_000;   // ~1 h at 0.1 s
+    uint64  public constant MIN_DURATION_BLOCKS = 36_000;   // ~1 h at 0.1 s, on the auction's clock (ArbSys)
     uint64  public constant MAX_DURATION_BLOCKS = 864_000;  // ~24 h
+    function chainBlockNumber() external view returns (uint256);  // the clock launch windows are validated on: ArbSys.arbBlockNumber() here, block.number elsewhere
     uint256 public constant DUST_THRESHOLD      = 1_000e18;
     uint256 public constant RELAUNCH_DELAY      = 48 hours;
 
@@ -169,7 +170,9 @@ contract KAY9Pricing is Ownable2Step {
     uint8 public constant TIER_DEEP = 1;
     uint8 public constant TIER_FORENSIC = 2;
 
-    function configurePool(PoolKey calldata key) external;    // onlyOwner, once (pool must be initialized; must contain KAY9 and native ETH)
+    uint24 public constant POOL_FEE = 10_000;                 // the official pool fee, 1 %
+    int24  public constant POOL_TICK_SPACING = 200;           // the official pool tick spacing
+    function configurePool(PoolKey calldata key) external;    // onlyOwner, once (pool must be initialized; must be native ETH / KAY9 at fee 10000, tick spacing 200; the hook is not constrained because `recover` builds a hookless pool)
     function poke() external;                                 // permissionless observation; no-op inside the same block or inside MIN_OBSERVATION_INTERVAL
     uint64 public constant MIN_OBSERVATION_INTERVAL = 4;      // seconds; CARDINALITY * this exceeds MAX_TWAP_WINDOW
     function pricingStatus() external view returns (PricingStatus memory);
@@ -251,9 +254,10 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     function canRequest(address account, uint8 tier) external view returns (bool);
 
     function consume(address account, uint8 tier) external returns (uint64 periodStartedAt);  // only auditHub
-    function restore(address account, uint8 tier, uint64 periodStartedAt) external;           // only auditHub; no-op unless the period still matches
+    function restore(address account, uint8 tier, uint64 periodStartedAt) external;           // only auditHub or a retired hub; no-op unless the period still matches
+    function isRetiredHub(address hub) external view returns (bool);                          // a hub `setAuditHub` replaced; may still restore, never consume
 
-    function setAuditHub(address auditHub_) external;              // onlyOwner (Timelock)
+    function setAuditHub(address auditHub_) external;              // onlyOwner (Timelock); the previous hub becomes a retired hub
     function setQuota(uint8 tier, uint32 deepQuota, uint32 forensicQuota) external;  // onlyOwner (Timelock)
     function setLockDuration(uint64 seconds_) external;            // onlyOwner (Timelock), within [MIN, MAX]
 
@@ -270,10 +274,21 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     error NotAnUpgrade(uint8 tier);
     error InvalidLockDuration();
     error InvalidQuota();
+    error ZeroRequirement();
 }
 ```
 
 Rules that the tests pin and that the rest of the system may rely on:
+
+- **A period never opens on a zero requirement.** If the oracle's arithmetic ever quotes zero KAY9
+  for a tier — a USD target set so low, or a KAY9 price so high, that the requirement truncates —
+  `lock`, `renew` and `upgrade` revert `ZeroRequirement`. A record with `lockedKay9 == 0` is what
+  the vault uses to mean "no record", so writing one would open a period that `consume` could not
+  see; refusing is the only honest answer.
+- **A retired hub can still give quota back.** `setAuditHub` marks the hub it replaces as retired.
+  A retired hub may call `restore` and nothing else, so a job that was pending on the old hub when
+  governance moved to a new one can still expire or dispute and return its unit to the period that
+  paid for it. `consume` stays with the current hub alone.
 
 - **The requirement is frozen for the period.** `lock` reads the oracle once, stores `quotedKay9`
   and never reads it again. A later KAY9 price move never asks the depositor for more, and never
@@ -293,7 +308,7 @@ Rules that the tests pin and that the rest of the system may rely on:
   `PricingUnavailable`, so nobody gets a suspiciously cheap period during an outage.
 - **Quota is consumed on the chain, by the hub, not by any website.** `consume` is callable only by
   the configured audit hub and returns the period it debited, so a later `restore` cannot credit a
-  different period.
+  different period. `restore` is accepted from the configured hub and from any hub it has replaced.
 
 ## KAY9ScanRegistry
 
@@ -320,7 +335,7 @@ struct ScanBatch {
     uint32  count;           // scans in the batch
     uint32  engineVersion;
     uint64  committedAt;     // block.timestamp
-    uint64  committedBlock;  // block.number — Ethereum's, on this Orbit chain
+    uint64  committedBlock;  // the chain's own height (ArbSys on this Orbit chain), the number an explorer shows
     address scanner;
     string  uri;             // content-addressed batch document
 }
@@ -483,7 +498,7 @@ struct Job {
     uint8   tier;                    // 1 deep, 2 forensic
     uint8   declaredRequesterKind;   // 0 unknown, 1 independent, 2 token creator, 3 integration
     uint64  requestedAt;              // the analysis pin: a Unix timestamp, resolved per-chain
-    uint64  requestedBlock;           // block.number at request time; Ethereum height on this Orbit
+    uint64  requestedBlock;           // the chain's own height at request time (ArbSys); auditors still pin by requestedAt
                                        // chain, kept for the audit trail only — never an RPC pin
     uint64  accessPeriodStartedAt;   // the vault period the quota unit came from
     uint64  slaSeconds;              // the service level in force at request time, frozen for the job's life
@@ -525,9 +540,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     uint256 public jobCount;
 
     function requestAudit(bytes32 chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind) external returns (uint256 jobId);
-    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // reportId is 0 until quorum lands
+    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands
     function markExpired(uint256 jobId) external;                                    // permissionless once the SLA has elapsed; restores the quota unit
-    function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);
+    function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor
     function watchdogReportCommitted(bytes32 digest) external view returns (bool);
 
     function getJob(uint256 jobId) external view returns (Job memory);
@@ -552,6 +567,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     error InvalidRequesterKind(uint8 kind);
     error NoSignatures();
     error NotAnAuditor(address signer);
+    error SubmitterNotAnAuditor(address caller);
     error AlreadyAttested(uint256 jobId, address auditor);
     error SignersNotSorted(address previous, address current);
     error QuorumNotMet(uint256 provided, uint256 required);
@@ -566,8 +582,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
 **The vault arrives after the hub.** The watchdog goes live before $KAY9 exists, and `KAY9Registry`
 binds to its hub immutably, so the hub must be the final one from its first deployment — but the
 vault holds KAY9 and cannot exist yet. So the hub deploys with `accessVault == address(0)`:
-`requestAudit` reverts `AccessVaultNotSet`, and `publishWatchdogReport` — permissionless, no quota,
-no requester — works from day one, which is how deep and forensic reports are published in beta.
+`requestAudit` reverts `AccessVaultNotSet`, and `publishWatchdogReport` — no quota, no requester,
+submitted by any active auditor — works from day one, which is how deep and forensic reports are
+published in beta.
 Governance calls `setAccessVault` exactly once at launch; a second call reverts
 `AccessVaultAlreadySet`, so the binding ends up as permanent as an immutable would have been.
 
@@ -581,9 +598,21 @@ verbatim, which is why every surface labels it as declared.
 
 Each auditor takes exactly one position per job. `attest` accepts one or more 65-byte ECDSA
 signatures over the EIP-712 digest of `(jobId, result)`; every recovered signer must be an active
-auditor and must not have attested this job already. A relay holding two agreeing signatures sends
-them in one transaction, which is the ordinary path; a disagreeing auditor sends its own signature
-in its own transaction.
+auditor and must not have attested this job already. An auditor holding a peer's agreeing signature
+sends both in one transaction, which is the ordinary path; a disagreeing auditor sends its own
+signature in its own transaction.
+
+**The submitter must itself be an active auditor**, for `attest` and for `publishWatchdogReport`
+alike, and the reason is the one field the signatures do not cover. `reportURI` is deliberately
+outside the signed struct (three auditors pinning identical bytes to three backends is not a
+disagreement), so whoever lands the finalising transaction chooses the URI the registry records,
+permanently. Signatures travel through a relay that anybody can read, so an open `attest` would have
+let a stranger race the auditors and write a pointer of their choosing into the permanent log. The
+body is still bound by `reportHash`, so the substitution could never change a score — but the record
+would carry a dead or hostile pointer forever. Gating the submitter to the auditor set means the
+worst case is one of three keyed operators, attributable by `msg.sender`, which is inside the threat
+model the quorum already accepts. `markExpired` stays permissionless: nobody can put anything into
+the log with it.
 
 - The moment one digest reaches `auditors.threshold()` votes **from auditors who are still in the
   active set**, the job finalises against that result and the record is appended to the registry.

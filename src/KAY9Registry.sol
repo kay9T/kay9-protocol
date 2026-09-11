@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
+
 /// @notice The fixed-size, on-chain part of an audit. The report body itself lives off-chain and is
 ///         pinned by reportURI; reportHash binds that document to this record.
 /// @dev Trust scores run from 0 (worst observed) to 100 (nothing risky found). Higher is always
@@ -54,7 +56,7 @@ struct ReportRecord {
 ///      it never replaces. `latest` therefore means "most recent snapshot", and every reader is
 ///      expected to render `committedAt` next to it.
 /// @custom:security-contact security@kay9.io
-contract KAY9Registry {
+contract KAY9Registry is BlockNumberish {
     /// @notice Emitted for every appended report.
     /// @param reportId The index of the new record.
     /// @param chainKey The CAIP-2 chain key hash of the audited asset.
@@ -146,7 +148,7 @@ contract KAY9Registry {
                 result: result,
                 signers: signers,
                 committedAt: uint64(block.timestamp),
-                committedBlock: uint64(block.number)
+                committedBlock: uint64(_getBlockNumberish())
             })
         );
         _history[assetKey(result.chainKey, result.assetId)].push(reportId);

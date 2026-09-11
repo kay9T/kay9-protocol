@@ -160,10 +160,11 @@ Three measured limits, all re-verified 2026-09-08:
 Every block number in discovery is **the chain's own height** — what `eth_blockNumber` returns and
 an explorer shows, advancing about every 0.1 s. That is what `eth_getLogs` ranges are expressed in.
 
-It is **not** the `block.number` a contract reads on this chain, which is Ethereum's and advances
-about every 12 s. The two differ by a factor of about 120. This project has already made that
-mistake once, in the auction window arithmetic, where it turned a four-hour launch into three
-weeks; see `docs/RESEARCH.md`.
+It is **not** the `block.number` a contract reads on this chain, which is the parent chain's and
+advances about every 12 s. The two differ by a factor of about 120. The auction and, since
+2026-09-11, every KAY9 contract read the chain's own height through `ArbSys`; the one revision that
+compared a launch window against `block.number` produced an auction that was over before its first
+bid. See `docs/RESEARCH.md`.
 
 ---
 

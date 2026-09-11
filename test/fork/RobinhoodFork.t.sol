@@ -37,9 +37,12 @@ import {ChainAddresses, RobinhoodAddresses} from "../../script/config/RobinhoodA
 ///         mainnet. The suite skips itself when ROBINHOOD_RPC_URL is not set, so it never blocks a
 ///         local run.
 /// @dev Robinhood Chain is an Arbitrum Orbit chain, so the launcher stack reads the auction clock
-///      from the ArbSys precompile at address 0x64 rather than from `block.number`. On a fork
-///      `vm.roll` moves `block.number` but leaves the precompile answering the pinned height, so
-///      every time this suite moves the clock it mocks `arbBlockNumber()` as well.
+///      from the ArbSys precompile at address 0x64 rather than from `block.number`, and since
+///      2026-09-11 so does `KAY9Genesis`. The suite models the two clocks the way the real chain
+///      has them: `block.number` is pinned once to a parent-chain-like height and never moved, the
+///      precompile is given code so `BlockNumberish` detects it at construction, and every time the
+///      auction clock has to advance only `arbBlockNumber()` is mocked. A `KAY9Genesis` that still
+///      read `block.number` anywhere would fail here, which is the regression this guards.
 contract RobinhoodForkTest is Test {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
@@ -50,13 +53,11 @@ contract RobinhoodForkTest is Test {
     /// @notice The `arbBlockNumber()` selector.
     bytes4 internal constant ARB_BLOCK_NUMBER = 0xa3b1b31d;
 
-    /// @notice A four-hour auction at the measured 0.1 s cadence.
-    /// @notice Four hours, in the block number a contract sees: 14,400 s / 12 s.
-    /// @dev Not 144,000. That figure came from this chain's own 0.1 s cadence, but the EVM's
-    ///      `block.number` here is the Ethereum block number and advances every 12 s, so 144,000
-    ///      is about three weeks and is now rejected by KAY9Genesis.MAX_DURATION_BLOCKS. See the
-    ///      note on MIN_DURATION_BLOCKS for the measurement that established this.
-    uint64 internal constant FOUR_HOURS_BLOCKS = 1_200;
+    /// @notice A four-hour auction on the auction's own clock: 14,400 s at the chain's 0.1 s cadence.
+    /// @dev The auction reads `ArbSys.arbBlockNumber()` through Uniswap's `BlockNumberish`, and so
+    ///      does `KAY9Genesis`; neither reads `block.number`, which on this Orbit chain is the
+    ///      parent chain's height. See the note on `KAY9Genesis.MIN_DURATION_BLOCKS`.
+    uint64 internal constant FOUR_HOURS_BLOCKS = 144_000;
 
     /// @notice The floor valuation used for the rehearsal, in whole US dollars.
     uint256 internal constant FLOOR_FDV_USD = 1_000;
@@ -94,6 +95,11 @@ contract RobinhoodForkTest is Test {
     /// @notice The auction clock, tracked so it can be pushed into the ArbSys mock.
     uint64 internal currentBlock;
 
+    /// @notice A parent-chain-like `block.number`, deliberately far below the auction clock.
+    /// @dev 25,951,849 was `Multicall3.getBlockNumber()` on mainnet on 2026-09-11, while ArbSys
+    ///      answered 59,983,529. The gap is what the earlier, wrong revision of the vault was blind to.
+    uint64 internal constant PARENT_CHAIN_BLOCK = 25_951_849;
+
     /// @notice Sets up the fork and deploys the genesis vault against the canonical addresses.
     function setUp() public {
         string memory rpc = vm.envOr("ROBINHOOD_RPC_URL", string(""));
@@ -125,7 +131,11 @@ contract RobinhoodForkTest is Test {
         ethUsdE8 = uint256(answer);
 
         currentBlock = uint64(_arbBlockNumber());
+        // Give the precompile code so `BlockNumberish` constructors detect ArbSys the way they do
+        // on the real chain, then pin `block.number` to a parent-chain-like height that never moves.
+        vm.etch(ARB_SYS, hex"fe");
         _setBlock(currentBlock);
+        vm.roll(PARENT_CHAIN_BLOCK);
 
         genesis = new KAY9Genesis(
             owner,
@@ -174,6 +184,7 @@ contract RobinhoodForkTest is Test {
         (bool migrated,) = book.lbpStrategy.call(abi.encodeWithSignature("migrate(address)", address(auction)));
         assertTrue(migrated, "migration call succeeded");
         assertEq(genesis.launchState(), 3, "migrated");
+        assertEq(block.number, PARENT_CHAIN_BLOCK, "block.number never moved, and nothing needed it to");
 
         PoolKey memory key = genesis.poolKey();
         (uint160 sqrtPriceX96,,,) = IPoolManager(book.poolManager).getSlot0(key.toId());
@@ -245,7 +256,7 @@ contract RobinhoodForkTest is Test {
         pricing.configurePool(key);
         for (uint256 i = 0; i < 40; ++i) {
             vm.warp(vm.getBlockTimestamp() + 120);
-            _setBlock(uint64(vm.getBlockNumber() + 1200));
+            _setBlock(currentBlock + 1200);
             pricing.poke();
         }
         assertGt(pricing.pricingStatus().twapKay9PerEthE18, 0, "the oracle produced a price");
@@ -411,12 +422,19 @@ contract RobinhoodForkTest is Test {
         auction.submitBid{value: amount}(priceQ96, amount, bidder, "");
     }
 
-    /// @notice Moves both the EVM block height and the ArbSys clock the launcher stack reads.
+    /// @notice Moves the ArbSys clock the launcher stack and the vault read. `block.number` stays
+    ///         pinned at the parent-chain height, exactly as on the real chain.
     /// @param blockNumber The new height.
     function _setBlock(uint64 blockNumber) internal {
         currentBlock = blockNumber;
-        vm.roll(blockNumber);
         vm.mockCall(ARB_SYS, abi.encodeWithSelector(ARB_BLOCK_NUMBER), abi.encode(uint256(blockNumber)));
+        assertEq(uint256(genesisClock()), uint256(blockNumber), "the vault reads the auction clock");
+    }
+
+    /// @notice The clock the vault reads, or the mocked clock before the vault exists.
+    function genesisClock() internal view returns (uint256) {
+        if (address(genesis) == address(0)) return _arbBlockNumber();
+        return genesis.chainBlockNumber();
     }
 
     /// @notice Reads the ArbSys height from the fork.

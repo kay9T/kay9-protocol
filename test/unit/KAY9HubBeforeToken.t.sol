@@ -64,6 +64,7 @@ contract KAY9HubBeforeTokenTest is Kay9TestBase {
         AuditResult memory result = sampleResult();
         bytes[] memory signatures = signResult(earlyHub, 0, result);
 
+        vm.prank(auditorAddresses[0]);
         uint256 reportId = earlyHub.publishWatchdogReport(result, signatures);
 
         assertEq(earlyRegistry.reportCount(), 1, "the report is in the permanent record");

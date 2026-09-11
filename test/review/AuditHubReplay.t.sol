@@ -16,12 +16,14 @@ contract AuditHubReplayTest is Kay9TestBase {
         AuditResult memory result = _result();
         bytes[] memory signatures = _sign(0, result, 2);
 
+        vm.prank(auditorAddresses[0]);
         hub.publishWatchdogReport(result, signatures);
         assertEq(reportRegistry.reportCount(), 1);
 
         bytes32 digest = hub.hashResult(0, result);
         assertTrue(hub.watchdogReportCommitted(digest), "digest recorded");
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.DuplicateWatchdogReport.selector, digest));
         hub.publishWatchdogReport(result, signatures);
 
@@ -31,6 +33,7 @@ contract AuditHubReplayTest is Kay9TestBase {
         for (uint256 i = 0; i < 3; ++i) {
             otherSignatures[i] = _signDigest(_keyOf(sorted[i]), digest);
         }
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.DuplicateWatchdogReport.selector, digest));
         hub.publishWatchdogReport(result, otherSignatures);
 
@@ -38,7 +41,9 @@ contract AuditHubReplayTest is Kay9TestBase {
 
         // A genuinely new report still goes through.
         result.analyzedAt += 1;
-        hub.publishWatchdogReport(result, _sign(0, result, 2));
+        bytes[] memory hoistedSignatures1 = _sign(0, result, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.publishWatchdogReport(result, hoistedSignatures1);
         assertEq(reportRegistry.reportCount(), 2);
     }
 

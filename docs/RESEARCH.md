@@ -5,30 +5,49 @@ Everything below was checked against live RPC calls or the upstream source at th
 ## Robinhood Chain
 
 - Chain ID 4663 (`cast chain-id -r https://rpc.mainnet.chain.robinhood.com` → 4663); testnet 46630.
-- **Two different block numbers, and the difference decides every auction window.** Measured on
-  testnet 2026-09-08:
+- **Two different block numbers, and the auction reads the chain's own.** Measured on testnet and
+  mainnet on 2026-09-11 (and, for the earlier row, on testnet on 2026-09-08):
 
-  | Quantity | How to read it | Value | Cadence |
-  |---|---|---|---|
-  | The chain's own height | `eth_blockNumber`, `ArbSys.arbBlockNumber()`, any explorer | 114,881,355 | 0.124 s |
-  | What a contract sees as `block.number` | `Multicall3.getBlockNumber()` at `0xcA11bde05977b3631167028862bE2a173976CA11` | 11,654,426 | 13.3 s |
+  | Quantity | How to read it | Testnet 2026-09-11 | Mainnet 2026-09-11 | Cadence |
+  |---|---|---|---|---|
+  | The chain's own height | `eth_blockNumber`, `ArbSys.arbBlockNumber()` at `0x…64`, any explorer | 117,236,896 | 59,983,529 | ≈ 0.1012 s |
+  | What a contract sees as `block.number` | `Multicall3.getBlockNumber()` at `0xcA11bde05977b3631167028862bE2a173976CA11` | 11,679,667 | 25,951,849 | ≈ 12–13 s |
 
-  Robinhood Chain is an Arbitrum Orbit chain, so the EVM's `block.number` is the **Ethereum**
-  block number. Every block figure in a launch is compared against that, so a window must be
-  derived from ~12 s per block, not 0.1 s: **4 h ≈ 1,200 blocks.**
+  Robinhood Chain is an Arbitrum Orbit chain, so `block.number` inside a contract is the **parent
+  chain's** height, while `ArbSys.arbBlockNumber()` is the chain's own. Uniswap's Continuous
+  Clearing Auction v2.1.0 and the LBP strategy read the clock through `BlockNumberish`, which
+  uses ArbSys wherever the precompile answers — so **every block figure in a launch (start, end,
+  claim, migration) is on the chain's own clock: 4 h ≈ 144,000 blocks, and `KAY9Genesis` bounds a
+  window at 36,000–864,000 blocks (one hour to one day).** Since 2026-09-11 `KAY9Genesis` reads
+  that same clock through the same helper (`chainBlockNumber()`), as do the block fields recorded
+  by `KAY9AuditHub`, `KAY9Registry`, `KAY9ScanRegistry` and `KAY9Pricing`.
 
-  This corrects an earlier note here which claimed `block.number` equals `ArbSys.arbBlockNumber()`
-  and concluded that auction windows use the chain's own clock. That note compared two numbers
-  which were **both** the chain's own height and never read `block.number` from inside a contract.
-  Everything derived from it was wrong by a factor of about 130: the launch script turned a
-  four-hour request into three weeks, and `KAY9Genesis`'s own duration bounds, then 36,000 to
-  864,000 blocks, meant a minimum auction of five days and made the documented four-hour launch
-  impossible to submit. Both are fixed. Nothing but a real deployment on the real chain could have
-  shown it, because a unit test and a mainnet fork both run on an EVM where `block.number` advances
-  however the test says.
+  **How this was established, and how it was got wrong twice.** A note dated 2026-09-07 said the
+  auction used the chain's own clock; a note dated 2026-09-08 "corrected" it after measuring
+  `Multicall3.getBlockNumber()`, concluded that every window must be derived at 12 s per block, and
+  rewrote `KAY9Genesis`'s bounds to 300–7,200 blocks. That measurement was real and irrelevant:
+  `block.number` is not the number the auction compares against. The 2026-09-11 testnet
+  rehearsal proved it: a launch derived at 12 s per block
+  (`KAY9Genesis` `0x28d6BfaACa136dBAC8db37ac424e700bdA19015c`, auction
+  `0x1C3023A5D5C6aA45CFBdCb34bd9B10C81c6A7D96`, window 11,679,656–11,679,956) was over before its
+  first bid — `submitBid` reverted `AuctionIsOver()` at chain height 117,236,896 — while
+  `launchState()` answered `1` (AuctionLive), and would have gone on answering it until the parent
+  chain reached block 11,679,956, decades away, which also made `markFailed()` and any relaunch
+  unreachable. Neither a unit test nor a mainnet fork could see this: both run on an EVM where the
+  two clocks are whatever the test makes them. The fork suite now pins `block.number` to a
+  parent-chain-like height and moves only the ArbSys mock, so a vault that read `block.number`
+  anywhere would fail it.
 
-  12 s rather than the measured 13.3 s is deliberate: 12 s is Ethereum's slot time and therefore
-  the floor, so a derived window is never *shorter* in wall-clock terms than requested.
+  The verification that settles it, runnable by anyone:
+
+  ```bash
+  cast call 0x0000000000000000000000000000000000000064 "arbBlockNumber()(uint256)" -r https://rpc.mainnet.chain.robinhood.com
+  cast call 0xcA11bde05977b3631167028862bE2a173976CA11 "getBlockNumber()(uint256)" -r https://rpc.mainnet.chain.robinhood.com
+  # the first is what the auction reads; KAY9Genesis.chainBlockNumber() must equal it.
+  ```
+
+  100 ms rather than the measured 101.2 ms in `Launch.s.sol` is deliberate: the floor makes a
+  derived window slightly *longer* in wall-clock terms than requested, never shorter.
 - Explorer: Blockscout at `robinhoodchain.blockscout.com` (mainnet) and `explorer.testnet.chain.robinhood.com` (testnet). Foundry verification per `docs.robinhood.com/chain/deploy-smart-contracts`: `--verifier blockscout --verifier-url https://robinhoodchain.blockscout.com/api/`.
 - Public RPC is rate limited; production should use QuickNode/Dwellir/ArrowRPC endpoints. It throttles datacentre egress harder than residential, so a fold that fails from a container can complete from a laptop.
 - **The public mainnet RPC is pruned.** A historical `eth_getCode` answers `metadata is not found` rather than returning code or an empty result: `cast code <token> --block <old block> -r https://rpc.mainnet.chain.robinhood.com`. Binary-searching for a deployment block therefore fails there, and the analysis engine falls back to the token's first `Transfer` log and reports the deployer as unmeasured. Auditors need an archive endpoint; this is an infrastructure choice, not a third-party dependency.

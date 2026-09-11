@@ -22,6 +22,7 @@ import {ActionConstants} from "@uniswap/v4-periphery/src/libraries/ActionConstan
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
+import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
 import {KAY9Token} from "./KAY9Token.sol";
 import {KAY9TeamVesting} from "./KAY9TeamVesting.sol";
 import {KAY9LiquidityLock} from "./KAY9LiquidityLock.sol";
@@ -76,7 +77,7 @@ struct LaunchParams {
 ///      strategy's migration ran, which is what makes the pool key resolve unambiguously
 ///      afterwards. It is the same class of pool as the strategy's own hooked fallback.
 /// @custom:security-contact security@kay9.io
-contract KAY9Genesis is Ownable2Step, ReentrancyGuard {
+contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     using SafeERC20 for IERC20;
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
@@ -247,27 +248,32 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard {
     /**
      * @notice The shortest auction window, in blocks. About one hour.
      *
-     * @dev Counted in the block number a contract actually sees, which on this chain is **not**
-     *      the chain's own height.
+     * @dev Counted on the clock the auction itself reads, which on this chain is **not**
+     *      `block.number`.
      *
-     *      Robinhood Chain is an Arbitrum Orbit chain. Its own blocks arrive about every 0.1 s and
-     *      that is what an explorer and `eth_blockNumber` show, but the EVM's `block.number` is the
-     *      Ethereum block number, which advances about every 12 s. Measured on testnet on
-     *      2026-09-07 by calling `Multicall3.getBlockNumber()`, which returns `block.number` from
-     *      inside a contract: it answered 11,654,426 while `eth_blockNumber` answered 114,881,355.
+     *      Robinhood Chain is an Arbitrum Orbit chain. Two block numbers exist inside a contract
+     *      here: `block.number` is the parent chain's height (about one every 12 s; 11,679,667 on
+     *      testnet and 25,951,849 on mainnet on 2026-09-11), and `ArbSys.arbBlockNumber()` is the
+     *      chain's own height (about one every 0.1 s; 117,236,896 and 59,983,529 the same day, the
+     *      number every explorer and `eth_blockNumber` show). The Continuous Clearing Auction and
+     *      the LBP strategy read the second one through Uniswap's `BlockNumberish`, so every block
+     *      figure in a launch, start, end, claim and migration, is a height on that clock.
      *
-     *      These bounds were originally 36,000 and 864,000, derived from the 0.1 s figure. Against
-     *      the clock the contract truly reads, that made the shortest permitted auction five days
-     *      and the longest a hundred and twenty, and it made the four hour launch this project
-     *      documents everywhere impossible: `launch` would have reverted `InvalidDuration`.
+     *      This contract therefore reads the same clock through the same helper, for its own
+     *      validation and for `launchState`. An earlier revision compared the window against
+     *      `block.number` and bounded it at 300–7,200 blocks: on the auction's clock that is 30 s
+     *      to 12 min, and a launch made that way on testnet on 2026-09-11 was over before its
+     *      first bid (`AuctionIsOver`) while `launchState` reported it live, and would have gone
+     *      on reporting it live until Ethereum reached block 11,679,956, decades later.
      *
-     *      3,600 s / 12 s = 300 blocks.
+     *      3,600 s / 0.1 s = 36,000 blocks. The measured cadence is 0.1012 s, so a window derived
+     *      at 0.1 s runs slightly longer in wall-clock terms than requested, never shorter.
      */
-    uint64 public constant MIN_DURATION_BLOCKS = 300;
+    uint64 public constant MIN_DURATION_BLOCKS = 36_000;
 
-    /// @notice The longest auction window, in blocks. About twenty-four hours, 86,400 s / 12 s.
-    /// @dev See MIN_DURATION_BLOCKS for why this counts Ethereum blocks rather than this chain's.
-    uint64 public constant MAX_DURATION_BLOCKS = 7_200;
+    /// @notice The longest auction window, in blocks. About twenty-four hours, 86,400 s / 0.1 s.
+    /// @dev See MIN_DURATION_BLOCKS for which clock this counts.
+    uint64 public constant MAX_DURATION_BLOCKS = 864_000;
 
     /// @notice Leftover KAY9 below this amount is burned instead of being placed as liquidity.
     uint256 public constant DUST_THRESHOLD = 1_000e18;
@@ -467,6 +473,16 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard {
         impliedGraduationRaiseWei = uint256(p.requiredCurrencyRaised);
     }
 
+    /// @notice The block number the launch is measured against: the chain's own height on an
+    ///         Arbitrum chain, `block.number` elsewhere. Exactly what the auction reads.
+    /// @dev Exposed so a launch script and a website derive `startBlock` and friends from the
+    ///      clock this contract will validate them on, rather than guessing which of the two
+    ///      heights that is.
+    /// @return The current block number on the auction's clock.
+    function chainBlockNumber() external view returns (uint256) {
+        return _getBlockNumberish();
+    }
+
     /// @notice The parameters of the current launch.
     /// @return The stored launch parameters.
     function launchParams() external view returns (LaunchParams memory) {
@@ -489,14 +505,14 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice The state of the current launch.
-    /// @dev Robinhood Chain is an Arbitrum Orbit chain on which `block.number` already equals the
-    ///      L2 height the auction clock uses, so block comparisons here match the auction's own.
+    /// @dev Compared on the auction's own clock (`chainBlockNumber`), never on `block.number`,
+    ///      which on this Orbit chain is the parent chain's height. See MIN_DURATION_BLOCKS.
     /// @return 0 not launched, 1 auction live, 2 auction ended, 3 migrated, 4 failed.
     function launchState() public view returns (uint8) {
         address currentAuction = auction;
         if (currentAuction == address(0)) return uint8(LaunchState.NotLaunched);
 
-        if (block.number < _params.endBlock) return uint8(LaunchState.AuctionLive);
+        if (_getBlockNumberish() < _params.endBlock) return uint8(LaunchState.AuctionLive);
 
         (bool attempted, bool succeeded,) = _migrationOutcome();
         if (!attempted) {
@@ -608,7 +624,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard {
     /// @notice Validates the owner-supplied parameters.
     /// @param p The parameters to validate.
     function _validate(LaunchParams calldata p) private view {
-        if (p.startBlock <= block.number) revert StartBlockInPast();
+        if (p.startBlock <= _getBlockNumberish()) revert StartBlockInPast();
         if (p.endBlock <= p.startBlock) revert InvalidDuration(0);
 
         uint64 duration = p.endBlock - p.startBlock;

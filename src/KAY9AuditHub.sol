@@ -7,6 +7,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
 import {KAY9Registry, AuditResult, ReportMeta} from "./KAY9Registry.sol";
 import {KAY9AuditorRegistry} from "./KAY9AuditorRegistry.sol";
 import {KAY9AccessVault} from "./KAY9AccessVault.sol";
@@ -37,10 +38,10 @@ struct Job {
     /// timestamp, never `requestedBlock` below: it means the same thing on every chain, which
     /// `requestedBlock` does not (see its own comment).
     uint64 requestedAt;
-    /// This contract's own `block.number` at request time, kept for the on-chain audit trail only.
-    /// On this Arbitrum Orbit chain `block.number` is the Ethereum block height, not the chain's
-    /// own height that RPC calls (eth_call, eth_getLogs, ...) accept as a block number — a worker
-    /// or a website must never treat this field as a block those calls can be pinned to.
+    /// The chain's own height at request time, read through `BlockNumberish` (ArbSys on this
+    /// Arbitrum Orbit chain), which is the number `eth_getLogs`, `eth_call` and the explorer use.
+    /// Kept for the on-chain audit trail; the auditors still pin their analysis to `requestedAt`,
+    /// because a timestamp means the same thing on every chain an audited asset can live on.
     uint64 requestedBlock;
     uint64 accessPeriodStartedAt;
     /// The service level in force when this job was requested, frozen for its whole life. A later
@@ -65,7 +66,7 @@ struct Job {
 ///      threshold the job finalises; when agreement becomes arithmetically impossible the job is
 ///      disputed and says so on-chain. Contradictory results are never averaged.
 /// @custom:security-contact security@kay9.io
-contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
+contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @notice Emitted when a request is accepted and its quota unit debited.
     /// @param jobId The new job id.
     /// @param requester The caller.
@@ -173,6 +174,17 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     /// @notice Thrown when a recovered signer is not an active auditor.
     /// @param signer The rejected signer.
     error NotAnAuditor(address signer);
+
+    /// @notice Thrown when the account submitting signatures is not itself an active auditor.
+    /// @dev `reportURI` is the one field of a result the signatures do not cover, so whoever lands
+    ///      the finalising transaction chooses the pointer the registry records forever. Auditor
+    ///      signatures travel through a relay anybody can read, so an open submit path would let a
+    ///      stranger race the auditors and write a hostile or dead pointer into the permanent log.
+    ///      The body is still bound by `reportHash`, so a score can never be changed that way, but
+    ///      the record would point nowhere. Requiring the submitter to be an auditor bounds the
+    ///      worst case to one of the keyed operators, attributable by `msg.sender`.
+    /// @param caller The rejected submitter.
+    error SubmitterNotAnAuditor(address caller);
 
     /// @notice Thrown when an auditor takes a second position on the same job.
     /// @param jobId The job.
@@ -364,7 +376,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
             tier: tier,
             declaredRequesterKind: declaredRequesterKind,
             requestedAt: uint64(block.timestamp),
-            requestedBlock: uint64(block.number),
+            requestedBlock: uint64(_getBlockNumberish()),
             accessPeriodStartedAt: periodStartedAt,
             slaSeconds: slaAtRequest,
             attestations: 0,
@@ -420,9 +432,11 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     }
 
     /// @notice Records one or more auditor positions on a job, finalising it if quorum is reached.
-    /// @dev The ordinary path is a relay sending the two agreeing signatures in one transaction.
-    ///      An auditor that disagrees sends its own signature in its own transaction; that position
-    ///      is recorded rather than discarded, which is what makes disagreement visible.
+    /// @dev The ordinary path is an auditor sending its own signature together with a peer's
+    ///      agreeing one in a single transaction. An auditor that disagrees sends its own signature
+    ///      in its own transaction; that position is recorded rather than discarded, which is what
+    ///      makes disagreement visible. The submitter must be an active auditor: see
+    ///      `SubmitterNotAnAuditor` for why the unsigned `reportURI` makes that necessary.
     /// @param jobId The job being attested.
     /// @param result The result these signatures cover. Its chainKey and assetId must match the job.
     /// @param signatures The 65-byte ECDSA signatures over the job's digest of this result.
@@ -432,6 +446,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
         nonReentrant
         returns (uint256 reportId)
     {
+        _requireAuditorSubmitter();
         Job storage job = _jobs[jobId];
         if (job.status == JobStatus.None) revert UnknownJob(jobId);
         if (job.status != JobStatus.Requested) revert WrongJobStatus(jobId, job.status);
@@ -488,6 +503,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
         nonReentrant
         returns (uint256 reportId)
     {
+        _requireAuditorSubmitter();
         bytes32 digest = hashResult(0, result);
         if (watchdogReportCommitted[digest]) revert DuplicateWatchdogReport(digest);
         watchdogReportCommitted[digest] = true;
@@ -555,6 +571,13 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------------------------
+
+    /// @notice Refuses a submitter that is not an active auditor.
+    /// @dev Applied to every path that can append to the registry. `markExpired` does not need it,
+    ///      because nothing reaches the log through it.
+    function _requireAuditorSubmitter() private view {
+        if (!auditors.isAuditor(msg.sender)) revert SubmitterNotAnAuditor(msg.sender);
+    }
 
     /// @notice The EIP-712 struct hash of a result.
     /// @dev The payload is assembled in four chunks because encoding all fifteen members in one

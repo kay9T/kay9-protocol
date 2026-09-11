@@ -22,7 +22,7 @@ Deployment parameters are supplied by the owner at launch time, echoed on-chain 
 | Auction supply | 455,000,000 KAY9 | constant, enforced |
 | Liquidity reserve | 455,000,000 KAY9 | constant, enforced |
 | Raise currency | native ETH | enforced |
-| Duration | 4 hours ≈ 1,200 blocks | `block.number` advances ≈ every 12 s, not every 0.10 s; Genesis enforces 300–7,200 blocks, one hour to one day |
+| Duration | 4 hours ≈ 144,000 blocks | Counted on the chain's own clock (`ArbSys.arbBlockNumber()`, ≈ 0.10 s), which is what the auction reads; Genesis enforces 36,000–864,000 blocks, one hour to one day, on the same clock |
 | Floor / reference FDV | about USD 1,000 | owner parameter; implied floor price = FDV ÷ 1,000,000,000 |
 | Graduation / target FDV | about USD 10,000 | owner parameter; expressed on-chain as `requiredCurrencyRaised` in ETH |
 | CCA price tick | 1 % of the floor price | Uniswap SDK default |

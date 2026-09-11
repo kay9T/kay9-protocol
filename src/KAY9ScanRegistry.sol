@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
+import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
 import {KAY9AuditorRegistry} from "./KAY9AuditorRegistry.sol";
 
 /// @notice One committed batch of basic scans.
@@ -49,7 +50,7 @@ struct ScanBatch {
 ///      scale with time instead. A batch of one is a legal batch, so a single urgent scan is not
 ///      a special case in the code.
 /// @custom:security-contact security@kay9.io
-contract KAY9ScanRegistry is Ownable2Step {
+contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @notice Emitted for every committed batch. The website's whole scan stream is these events.
     /// @param batchId The index of the new batch.
     /// @param root The Merkle root over the batch's scan leaves.
@@ -273,7 +274,7 @@ contract KAY9ScanRegistry is Ownable2Step {
                 count: count,
                 engineVersion: engineVersion,
                 committedAt: uint64(block.timestamp),
-                committedBlock: uint64(block.number),
+                committedBlock: uint64(_getBlockNumberish()),
                 scanner: msg.sender,
                 uri: uri
             })

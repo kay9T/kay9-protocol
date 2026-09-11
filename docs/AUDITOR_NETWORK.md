@@ -45,13 +45,16 @@ what makes the rest possible. It takes two forms, because one rule does not cove
   adapter resolves it to that chain's own block with a deterministic binary search
   (`blockAtTimestamp`), landing on the same height without talking to each other.
 
-  This is **not** `job.requestedBlock`. On Robinhood Chain (an Arbitrum Orbit chain) the contract's
-  own `block.number` — what `requestedBlock` is stamped from — is the *Ethereum* block height, while
-  every RPC call that accepts a block number means the chain's own height, which moves about 120
-  times faster (`docs/RESEARCH.md`). `requestedBlock` is recorded on the job for the on-chain audit
-  trail, but it is not a value any RPC call here accepts, so it was never a usable pin — R01 in
-  KAY9-REVIEW.md. `job.requestedAt` had no such problem: a timestamp means the same thing on every
-  chain, which is why the cross-chain case below already resolved it this way.
+  This is deliberately the timestamp and not `job.requestedBlock`, even though since 2026-09-11 the
+  hub stamps that field from the chain's own height (`ArbSys.arbBlockNumber()`) rather than from
+  `block.number`, which on this Orbit chain is the parent chain's and was never a height any RPC
+  call here accepts (R01 in KAY9-REVIEW.md). A block number is only meaningful on the chain that
+  produced it; a timestamp means the same thing on every chain an audited asset can live on, so one
+  rule covers every case. The pin is final only once the target chain has moved past
+  `requestedAt`: the adapter refuses to analyse — and the worker retries on its next wake — while
+  the chain head is still inside that second, because this chain stamps about ten blocks with the
+  same one-second timestamp and two auditors running inside it would otherwise resolve to two
+  different heights and never agree.
 - **An unsolicited monitoring report** has no job and therefore no request timestamp at all, so the
   auditors need a rule they can each apply without talking. The rule is: take the chain head, step
   back `MONITOR_BLOCK_LAG` blocks so reorganisations have settled, then round down to a multiple of
@@ -110,11 +113,21 @@ auditors hold each distinct result.
 - A disputed job restores the requester's quota unit, and the conflicting positions stay readable
   per auditor through `attestationOf`. Anybody can see which auditor said what.
 
-The ordinary case costs one transaction: a relay holding two agreeing signatures submits both
-together. An auditor that disagrees pays for its own transaction to say so. That asymmetry is
-intentional; dissent should be cheap enough to be free of friction but it is not the common path.
+The ordinary case costs one transaction: whichever auditor goes second submits the first one's
+agreeing signature together with its own. An auditor that disagrees pays for its own transaction to
+say so. That asymmetry is intentional; dissent should be cheap enough to be free of friction but it
+is not the common path.
 
-A relay batching signatures has to check first. `attest` reverts the **whole** call with
+**Only an auditor may submit.** `attest` and `publishWatchdogReport` refuse a caller that is not in
+the active auditor set. The signatures do not cover `reportURI` — three auditors pinning identical
+bytes to three backends must still agree — so whoever lands the finalising transaction chooses the
+pointer the registry records forever. The signature relay (§4.1) is readable by anyone, so an open
+submit path would have let a stranger race the auditors with a pointer of their choosing. The hash
+still binds the body, so a score can never be changed this way; what the gate removes is a permanent
+dead link written by somebody with no key. The worst case left is one of the three operators, and
+`msg.sender` names them.
+
+An auditor batching signatures has to check first. `attest` reverts the **whole** call with
 `AlreadyAttested` if any signer in the batch already holds a position, so a relay that blindly
 includes a peer's signature takes its own attestation down with it. The worker reads
 `attestationOf` for each peer before batching and falls back to a single-signature call. That is a

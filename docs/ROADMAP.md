@@ -4,8 +4,10 @@ Everything below is either built and waiting, or a named piece of work with a st
 precondition. Nothing here is a promise of a price, a return, or a reward.
 
 Dates are expressed relative to **TGE**, the moment `KAY9Genesis.launch()` is signed, because
-that is the one date the owner controls and every other date hangs off it. When the owner picks
-the absolute date, it goes in the table in §8 and the relative weeks become calendar dates.
+that is the one date the owner controls and every other date hangs off it. The owner has set a
+**target TGE of Tuesday 10 November 2026** (§8), so the relative weeks below also read as the
+calendar in §8.1. It is a target, not a promise: `docs/LAUNCH_READINESS.md` is explicit that a
+marketing date never overrides an open gate, and if a gate is open on the date, the date moves.
 
 ---
 
@@ -263,16 +265,45 @@ Fill these in and the relative weeks above become a calendar.
 
 | Item | Value |
 |---|---|
-| Target TGE, date and time UTC | to be set |
-| Auction duration | 4 hours, about 1,200 blocks |
+| Target TGE, date and time UTC | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; time of day UTC to be confirmed by the owner. A target that moves if a readiness gate is open (§8.1) |
+| Auction duration | 4 hours, about 144,000 blocks on the chain's own clock |
 | Floor FDV, USD | to be set, reference 1,000 |
 | Graduation FDV, USD | to be set, reference 10,000 |
-| Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment |
-| Team unlock, tranche 3 | TGE + 12 calendar months, computed at deployment |
+| Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment: 10 May 2027 at the TGE time of day if TGE is 10 November 2026 |
+| Team unlock, tranche 3 | TGE + 12 calendar months, computed at deployment: 10 November 2027 at the TGE time of day if TGE is 10 November 2026 |
 | Deep access lock USD target | 100, changeable only through the 48 hour timelock |
 | Forensic access lock USD target | 500, changeable only through the 48 hour timelock |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
 | Jurisdiction confirmed, with professional review | to be confirmed by the owner before launch |
+
+### 8.1 The calendar, working back from 10 November 2026
+
+Set on 2026-09-11. Every line is a precondition from `docs/LAUNCH_READINESS.md` with the latest
+date it can close and still leave the gate after it enough room. Nothing here is a launch-day
+promise: a slipped line moves the launch, not the gate.
+
+| By | What must be true | Gate |
+|---|---|---|
+| Fri 18 Sep 2026 | Testnet rehearsal complete end to end, including the renew and unlock steps that need a period to expire (the 7-day minimum period locked on 11 Sep expires 18 Sep) | 8 |
+| Fri 18 Sep 2026 | External review of the launch path commissioned (`KAY9Genesis`, `KAY9Token`, `KAY9TeamVesting`, `KAY9LiquidityLock`), with the 11 Sep clock fix named in the scope | 6 |
+| Fri 25 Sep 2026 | Owner Safe, team beneficiary, creator-fee recipient and three auditor addresses exist and are held by the owner; auditor keys prove control | 10, 11 |
+| Fri 9 Oct 2026 | Watchdog live on mainnet: `DeployWatchdog.s.sol` broadcast, scanner authorised, `services/discovery-worker` committing batches unattended. This is the latest start that gives 30 days before launch | 1, 2 |
+| Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
+| Fri 16 Oct 2026 | External review report received | 6 |
+| Fri 23 Oct 2026 | Every review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree | 6, 7 |
+| Fri 23 Oct 2026 | Jurisdiction confirmed and professional legal and tax review obtained | `DEPLOYMENT.md` §2 |
+| Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
+| Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
+| Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |
+| Thu 5 Nov 2026 | Timelock operations executed; `owner()` checks pass everywhere | 12 |
+| Fri 6 Nov 2026 | Launch parameters derived, printed and confirmed by the owner in writing; auction window announced | 9 |
+| Sun 8 Nov 2026 | Gate 1's 30 unattended days complete (from a 9 Oct start) | 1 |
+| Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
+| **Tue 10 Nov 2026** | `KAY9Genesis.launch()` signed; auction runs 4 h; migrate, lock and settle are permissionless afterwards | — |
+| Tue 10 Nov 2026 + 48 h | `configurePool` executes through the timelock; keeper starts; first access locks possible once the TWAP has 30 minutes of observations | — |
+
+What is *not* on this calendar is anything that depends on money the project does not have: the
+independent-operator move in §6 has a precondition, not a date, and stays that way.
 
 ## 9. How this document stays honest
 

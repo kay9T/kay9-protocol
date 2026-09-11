@@ -118,6 +118,10 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @param auditHub The hub allowed to move quota.
     event AuditHubUpdated(address auditHub);
 
+    /// @notice Emitted when a hub is replaced and keeps only the right to give quota back.
+    /// @param auditHub The retired hub.
+    event AuditHubRetired(address auditHub);
+
     /// @notice Thrown when a constructor or setter argument is the zero address.
     error ZeroAddress();
 
@@ -171,6 +175,13 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @notice Thrown when a quota outside the allowed range is configured.
     error InvalidQuota();
 
+    /// @notice Thrown when the oracle quotes zero KAY9 for a tier.
+    /// @dev A record with `lockedKay9 == 0` is how the vault spells "no record", so a period opened
+    ///      on a zero requirement would be invisible to `consume` and `unlock` alike. It can only
+    ///      happen if the USD target is set so low, or KAY9 priced so high, that the requirement
+    ///      truncates to nothing; refusing is the only answer that leaves the accounting coherent.
+    error ZeroRequirement();
+
     /// @notice The deep access tier.
     uint8 public constant TIER_DEEP = 1;
 
@@ -192,8 +203,15 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @notice The oracle that converts the USD target into a KAY9 requirement.
     KAY9Pricing public immutable pricing;
 
-    /// @notice The only address allowed to move quota.
+    /// @notice The only address allowed to debit quota.
     address public auditHub;
+
+    /// @notice Hubs that `setAuditHub` has replaced. They may still credit quota back, never debit.
+    /// @dev A job pending on the old hub when governance moves to a new one still has to expire or
+    ///      dispute, and both of those hand the unit back through `restore`. Without this, the old
+    ///      hub's terminal transitions would revert `NotTheAuditHub` forever and the jobs would stay
+    ///      open with their units stranded. Nothing here can take a unit or touch a balance.
+    mapping(address hub => bool) public isRetiredHub;
 
     /// @notice How long a period lasts, in seconds.
     uint64 public lockDuration;
@@ -263,6 +281,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         }
 
         (uint256 required, uint256 usdTargetE8) = quoteLock(tier);
+        if (required == 0) revert ZeroRequirement();
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint64 startedAt = uint64(block.timestamp);
@@ -315,6 +334,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         if (block.timestamp < a.expiresAt) revert NotExpired(a.expiresAt);
 
         (uint256 required, uint256 usdTargetE8) = quoteLock(tier);
+        if (required == 0) revert ZeroRequirement();
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint256 held = a.lockedKay9;
@@ -353,6 +373,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         if (a.tier != TIER_DEEP) revert NotAnUpgrade(a.tier);
 
         (uint256 required, uint256 usdTargetE8) = quoteLock(TIER_FORENSIC);
+        if (required == 0) revert ZeroRequirement();
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint256 held = a.lockedKay9;
@@ -425,12 +446,14 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
 
     /// @notice Credits one quota unit back after a job produced no result.
     /// @dev Silently does nothing when the period has since been replaced, so a credit can never
-    ///      leak into a period that did not pay for it.
+    ///      leak into a period that did not pay for it. Accepted from the current hub and from any
+    ///      hub it has replaced, so a job that was pending across a hub migration can still hand
+    ///      its unit back; a retired hub cannot debit anything.
     /// @param account The requester.
     /// @param tier The tier to credit.
     /// @param periodStartedAt The period the unit was taken from.
     function restore(address account, uint8 tier, uint64 periodStartedAt) external {
-        if (msg.sender != auditHub) revert NotTheAuditHub(msg.sender);
+        if (msg.sender != auditHub && !isRetiredHub[msg.sender]) revert NotTheAuditHub(msg.sender);
 
         Access storage a = _access[account];
         if (a.startedAt != periodStartedAt || a.lockedKay9 == 0) return;
@@ -507,10 +530,18 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     // Governance. None of these can move a depositor's principal.
     // -------------------------------------------------------------------------------------------
 
-    /// @notice Points the vault at the audit hub allowed to move quota.
+    /// @notice Points the vault at the audit hub allowed to debit quota.
+    /// @dev The hub being replaced keeps the right to `restore`, and nothing else, so its pending
+    ///      jobs can still expire or dispute cleanly. Re-pointing at a retired hub reinstates it.
     /// @param auditHub_ The hub.
     function setAuditHub(address auditHub_) external onlyOwner {
         if (auditHub_ == address(0)) revert ZeroAddress();
+        address previous = auditHub;
+        if (previous != address(0) && previous != auditHub_) {
+            isRetiredHub[previous] = true;
+            emit AuditHubRetired(previous);
+        }
+        if (isRetiredHub[auditHub_]) delete isRetiredHub[auditHub_];
         auditHub = auditHub_;
         emit AuditHubUpdated(auditHub_);
     }

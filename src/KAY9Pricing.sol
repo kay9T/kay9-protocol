@@ -11,6 +11,7 @@ import {FixedPoint96} from "@uniswap/v4-core/src/libraries/FixedPoint96.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
 import {AggregatorV3Interface} from "./interfaces/external/AggregatorV3Interface.sol";
 
 /// @notice Everything the website needs to explain why a price is or is not available.
@@ -44,12 +45,13 @@ struct PricingStatus {
 ///      opposite direction a dump would make audits more expensive, so the spot reading is capped
 ///      at `maxDeviationBps` above the TWAP before it is used.
 /// @custom:security-contact security@kay9.io
-contract KAY9Pricing is Ownable2Step {
+contract KAY9Pricing is Ownable2Step, BlockNumberish {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
     /// @notice One recorded tick sample.
-    /// @dev The three fields pack into a single storage slot.
+    /// @dev The three fields pack into a single storage slot. `blockNumber` is the chain's own
+    ///      height (ArbSys on this Orbit chain), the number an explorer shows.
     struct Observation {
         uint64 blockNumber;
         uint64 timestamp;
@@ -125,6 +127,15 @@ contract KAY9Pricing is Ownable2Step {
 
     /// @notice The number of observation slots in the ring buffer.
     uint256 public constant CARDINALITY = 2048;
+
+    /// @notice The official pool fee, in hundredths of a basis point. 10000 is 1 %.
+    /// @dev Mirrors `KAY9Genesis.POOL_FEE`. The oracle only ever prices the official pool, and a
+    ///      pool at another fee is a different market that governance must not be able to bind by
+    ///      mistake; the hook is left free because `recover` legitimately builds a hookless pool.
+    uint24 public constant POOL_FEE = 10_000;
+
+    /// @notice The official pool tick spacing. Mirrors `KAY9Genesis.POOL_TICK_SPACING`.
+    int24 public constant POOL_TICK_SPACING = 200;
 
     /// @notice The shortest interval between two recorded samples, in seconds.
     /// @dev Robinhood Chain produces a block roughly every 0.1 s, so a one-sample-per-block rule on
@@ -232,13 +243,17 @@ contract KAY9Pricing is Ownable2Step {
     // -------------------------------------------------------------------------------------------
 
     /// @notice Binds the official KAY9/ETH pool. Callable once.
-    /// @dev The pool must already be initialized and must pair native ETH as currency0 with KAY9 as
-    ///      currency1, which is the only ordering possible because the zero address sorts first.
+    /// @dev The pool must already be initialized, must pair native ETH as currency0 with KAY9 as
+    ///      currency1 (the only ordering possible because the zero address sorts first), and must
+    ///      carry the official fee and tick spacing. Either the hooked pool the launch migrates
+    ///      into or the hookless pool `recover` builds satisfies that; a pool at another fee does
+    ///      not, whoever proposes it.
     /// @param key The pool key of the official pool.
     function configurePool(PoolKey calldata key) external onlyOwner {
         if (poolConfigured) revert PoolAlreadyConfigured();
         if (Currency.unwrap(key.currency0) != address(0)) revert NotTheKay9Pool();
         if (Currency.unwrap(key.currency1) != kay9) revert NotTheKay9Pool();
+        if (key.fee != POOL_FEE || key.tickSpacing != POOL_TICK_SPACING) revert NotTheKay9Pool();
 
         PoolId id = key.toId();
         (uint160 sqrtPriceX96, int24 tick,,) = poolManager.getSlot0(id);
@@ -318,7 +333,7 @@ contract KAY9Pricing is Ownable2Step {
         if (sqrtPriceX96 == 0) revert PricingUnavailable(1);
         if (_count != 0) {
             Observation memory latest = _observations[_index];
-            if (latest.blockNumber == uint64(block.number)) return;
+            if (latest.blockNumber == uint64(_getBlockNumberish())) return;
             if (uint64(block.timestamp) - latest.timestamp < MIN_OBSERVATION_INTERVAL) return;
         }
         _record(tick);
@@ -550,12 +565,13 @@ contract KAY9Pricing is Ownable2Step {
         int24 recorded = tick;
         uint32 count = _count;
         uint16 next = count == 0 ? 0 : uint16((_index + 1) % CARDINALITY);
+        uint64 blockNumber = uint64(_getBlockNumberish());
         _observations[next] =
-            Observation({blockNumber: uint64(block.number), timestamp: uint64(block.timestamp), tick: recorded});
+            Observation({blockNumber: blockNumber, timestamp: uint64(block.timestamp), tick: recorded});
         _index = next;
         if (count < CARDINALITY) _count = count + 1;
 
-        emit Observed(uint64(block.number), uint64(block.timestamp), recorded);
+        emit Observed(blockNumber, uint64(block.timestamp), recorded);
     }
 
     /// @notice Maps an age in samples to a ring-buffer index.

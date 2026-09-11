@@ -25,8 +25,8 @@ contract LaunchScriptTest is Kay9TestBase {
     function test_derivedParamsAreAccepted() public {
         LaunchParams memory p = script.derive(genesis, 1_000, 10_000, 4, 30, bytes32(uint256(1)), 2500e8);
 
-        assertEq(p.endBlock - p.startBlock, 1_200, "four hours at 12 s per block.number");
-        assertEq(p.startBlock, uint64(block.number + 150), "thirty minutes of lead time, 1,800 s / 12 s");
+        assertEq(p.endBlock - p.startBlock, 144_000, "four hours at 0.1 s per block on the auction's clock");
+        assertEq(p.startBlock, uint64(block.number + 18_000), "thirty minutes of lead time, 1,800 s / 0.1 s");
         assertEq(p.claimBlock, p.endBlock);
         assertEq(p.migrationBlock, p.endBlock + 1);
         assertEq(p.floorPriceQ96 % p.auctionTickSpacingQ96, 0, "the floor sits on a tick boundary");
