@@ -123,10 +123,15 @@ a call from the position's current PositionManager owner, and the lock registers
 transaction in which it hands the position on, so the window is closed by construction.
 
 **Anyone at all.** `settle`, `recover`, `markFailed`, `lock` and `lockAll` on the liquidity lock,
-`track`, `poke`, `release`, `attest`, `markExpired` and `publishWatchdogReport` are permissionless by
-design. None of them can direct value anywhere the contract did not already fix. `attest` is
-permissionless in *who submits* but not in *whose signatures count*: the caller pays the gas and the
-recovered signers decide the outcome.
+`track`, `poke`, `release` and `markExpired` are permissionless by design. None of them can direct
+value anywhere the contract did not already fix, and none of them can put anything into the report
+log. `attest` and `publishWatchdogReport` are **not** open to anyone: the submitter must itself be an
+active auditor, because `reportURI` is the one field the signatures do not cover and whoever lands
+the finalising transaction chooses it, permanently. Signatures pass through a relay anybody can read,
+so an open submit path would have let a stranger race the auditors and record a dead or hostile
+pointer against an honest score. The body stays bound by `reportHash`, so no score can be changed
+that way; the worst case is now one of three keyed operators, attributable by `msg.sender`, which is
+inside the threat model the quorum already accepts. `test_onlyAnActiveAuditorMaySubmitSignatures`.
 
 ### 2.3 Trust assumptions we do accept
 
@@ -160,6 +165,8 @@ Each row is a property the contract must have, the reason it must have it, and t
 | Quota is farmed by renewing early | Four deep audits, a renewal the next day for no extra KAY9, four more — the allowance would be unbounded for the price of one transaction | `renew` reverts before `expiresAt`. `test_renewRevertsBeforeExpiry` |
 | Quota is reset by upgrading | Upgrading deep to forensic would otherwise hand back a spent deep allowance for the price of the difference | `upgrade` carries `deepUsed` across and leaves the expiry alone. `test_upgradePreservesDeepUsedAndKeepsTheExpiry` |
 | A restore credits a later period | A unit spent in one period could reappear in the next one, which did not pay for it | `restore` takes the period explicitly and is a silent no-op unless `startedAt` still matches. The hub records `accessPeriodStartedAt` on the job for exactly this |
+| A hub migration strands pending jobs | If governance ever points the vault at a new hub, a job still open on the old one has to expire or dispute, and both hand the unit back through `restore`; a vault that only knew one hub made those transitions revert forever | `setAuditHub` retires the hub it replaces rather than forgetting it. A retired hub may `restore` and nothing else; `consume` stays with the current hub. `test_aRetiredHubMayRestoreButNeverConsume`, `test_aJobPendingAcrossAHubMigrationStillExpiresAndRefunds` |
+| A period opens on a zero requirement | `lockedKay9 == 0` is how the vault spells "no record", so a quote that truncated to zero would open a period `consume` and `unlock` could not see, or let `renew`/`upgrade` wipe a live principal to nothing | `lock`, `renew` and `upgrade` revert `ZeroRequirement`. `test/review/VaultZeroRequirement.t.sol` |
 | Something other than the hub moves quota | Any address that could call `consume`/`restore` would control who gets audits | Both revert `NotTheAuditHub` for every caller but the configured hub, the owner included. `test_onlyTheHubCanMoveQuota` |
 | The vault owes more than it holds | Somebody's unlock would fail at the worst possible moment | `totalLocked` is maintained on every path and the balance is asserted against it: `test_vaultBalanceAlwaysEqualsTotalLockedAndNobodyGainsTokens`, `invariant_vaultIsAlwaysSolvent` |
 | A governance change reaches a live period | An owner could shorten a period or cut an allowance somebody is already inside | Allowances and expiry are copied into the record at lock time. `test_changingTheDurationDoesNotMoveALivePeriod` |
@@ -178,6 +185,8 @@ Each row is a property the contract must have, the reason it must have it, and t
 | Disagreement is hidden or averaged | A number nobody signed would be presented as a quorum verdict | Contradictory results are never combined; three mutually different results produce an on-chain `Disputed` state and restore the quota. `test_threeDifferentResultsDisputeTheJob` |
 | Who requested an audit changes its score | The whole point of removing payment would be lost | Nothing derived from the requester reaches the scoring path, and the hub records the declaration verbatim. `test_creatorAndIndependentRequestsAreIdenticalExceptForMetadata`, `test_declaredRequesterKindIsRecordedVerbatim` |
 | Governance strands a job mid-flight | A pause could leave a spent quota unit with no way to a result | Pausing blocks new requests only; attestations, disputes and expiries are never pausable. `test_pauseOnlyBlocksNewRequests` |
+| A stranger chooses the recorded `reportURI` | The URI is outside the signed struct, so whoever submits two honest signatures picks the pointer the permanent record carries | Only an active auditor may call `attest` or `publishWatchdogReport`; `markExpired` stays open because nothing reaches the log through it. `test_onlyAnActiveAuditorMaySubmitSignatures`, `test_aRemovedAuditorCannotSubmitEither`, `test_anyoneMayStillExpireAJob` |
+| The oracle is bound to the wrong market | A pool at another fee or spacing is a different, thinner market that a governance mistake could bind the lock requirement to | `configurePool` requires native ETH / KAY9 at fee 10000 and tick spacing 200; the hook is free because `recover` builds a hookless pool. `test_configurePoolRejectsAnotherFeeOrSpacing` |
 
 ### 2.6 The limitation we will not bury
 
@@ -228,14 +237,10 @@ Enforced by construction and checked by the stateful invariant suite in `test/in
 
 This table is the requirement side of the suite: what has to be true, and the test that pins it.
 
-The suite is **being rewritten** for the access model and is **not currently green**. The whole tree
-compiles and every suite named below is written against the new contracts, but at the last offline
-run 215 of 220 tests passed and five failed — two of them in the vault's own suite, including the one
-that pins the no-owner-path-to-principal property, and one that pins a replay boundary.
-`docs/STATUS.md` carries the current numbers and the failing names.
-
-Until that is green, treat every row below as a **stated requirement** rather than as a passing
-check, and treat nothing here as a launch sign-off.
+As of 2026-09-11 the offline suite is green — 290 tests across 24 suites, default and `ci` fuzz
+profiles — and the three fork tests pass against live Robinhood mainnet state (block 59,996,178).
+`docs/STATUS.md` §3 carries the run. A green suite is evidence for the rows below, not a launch
+sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (external review of the launch path) is still open.
 
 | Requirement | Test |
 |---|---|
@@ -365,23 +370,28 @@ slither src/KAY9AuditHub.sol --compile-force-framework solc --solc <path to solc
 
 Those two entry points reach every source file in `src/`.
 
-**Result: 52 findings across the two runs, none of them a real defect, and no high-severity finding
-at all.** The full list with a disposition for each is in
+**Result (2026-09-11, all ten contracts as their own entry points): 68 distinct findings in 11
+detector classes, none of them a defect.** One is reported High by slither 0.11.6 (`weak-prng`) and
+is a false positive on a rounding modulo. The full list with a disposition for each is in
 [`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
 
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|
-| Medium | `reentrancy-no-eth` | 2 | Not exploitable: both call sites are `nonReentrant`, one is also `onlyOwner`, and both callees are immutable protocol-owned addresses |
-| Medium | `incorrect-equality` | 6 | False positives: every comparison is against zero or against the current block, not against a token balance |
-| Medium | `divide-before-multiply` | 5 | Intentional: snap-to-tick-spacing arithmetic, and the exact integer remainder in the payment split |
-| Medium | `weak-prng` | 1 | False positive: a modulo used to round the mean tick toward negative infinity |
-| Medium | `uninitialized-local` | 4 | False positives: accumulators that deliberately start at the zero default |
-| Medium | `unused-return` | 10 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` and `latestRoundData` |
-| Low | `reentrancy-benign` | 3 | Bookkeeping flags written after guarded external calls |
+| High | `weak-prng` | 1 | False positive: a modulo used to round the mean tick toward negative infinity |
+| Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status set before the call, immutable callees |
+| Medium | `incorrect-equality` | 8 | False positives: comparisons against zero, the current block, or a Merkle root |
+| Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
+| Medium | `uninitialized-local` | 4 | False positives: accumulators that start at the zero default |
+| Medium | `unused-return` | 9 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` and `latestRoundData` |
+| Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
-| Low | `calls-loop` | 7 | Loops bounded by protocol-controlled lists, with per-item fallbacks |
-| Low | `timestamp` | 10 | Intentional: vesting, cooldown, service level and oracle window |
-| Informational | `unindexed-event-address` | 2 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
+| Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
+| Low | `timestamp` | 21 | Intentional: vesting, cooldowns, periods, service levels, oracle windows |
+| Informational | `unindexed-event-address` | 3 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
+
+What static analysis cannot see, and a rehearsal did: `block.number` on this Orbit chain is the
+parent chain's height while the auction reads `ArbSys.arbBlockNumber()`. `docs/RESEARCH.md` has
+the measurement and the testnet launch that exposed it.
 
 Nothing was reported by the detectors that would actually matter here: `arbitrary-send-eth`,
 `arbitrary-send-erc20`, `controlled-delegatecall`, `suicidal`, `unprotected-upgrade`,

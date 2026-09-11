@@ -455,10 +455,10 @@ The height is chosen in this order:
 
 1. `options.atBlock`, passed by the caller. Used only when the caller already has a value in the
    target chain's own RPC height domain — the audit worker's monitoring sweep does this with an
-   epoch-grid block it converged on independently (§9.1 of `docs/AUDITOR_NETWORK.md`). Never the
-   job's on-chain `requestedBlock`: on Robinhood Chain (an Arbitrum Orbit chain) that field is the
-   contract's `block.number`, the Ethereum height, not a height this option accepts — R01 in
-   KAY9-REVIEW.md.
+   epoch-grid block it converged on independently (§9.1 of `docs/AUDITOR_NETWORK.md`), and only
+   for an asset on the hub's own chain. Never the job's on-chain `requestedBlock`: it is a height on
+   the hub chain (the chain's own, via ArbSys, since 2026-09-11; the parent chain's `block.number`
+   before that, R01 in KAY9-REVIEW.md) and the asset may live elsewhere.
 2. `options.atTimestamp`, resolved to the highest block at or before that time. The worker passes
    the job's `requestedAt` for every requested audit, on the hub's own chain or any other, since a
    timestamp is the only value `KAY9AuditHub` records that means the same thing on every chain; every

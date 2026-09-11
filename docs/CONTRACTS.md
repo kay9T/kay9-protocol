@@ -475,17 +475,20 @@ whole authorisation. It reverts unless the caller holds a live period of at leas
 with allowance left. The website is never consulted and cannot grant access; a wallet, a script, a
 bot or another contract calling the hub directly gets exactly the same answer as a visitor clicking
 a button on kay9.io, because the website was never in the path. The job records `requestedBlock`
-(the contract's own `block.number`, kept for the on-chain audit trail — never the analysis pin,
-since on this Orbit chain it is the Ethereum height, not a height any RPC call accepts), the
+(the chain's own height at request time, read through `BlockNumberish` — kept for the on-chain
+audit trail, never the analysis pin, because an audited asset may live on another chain), the
 `requestedAt` timestamp every auditor actually pins its analysis to, and `accessPeriodStartedAt`,
 which is the period the quota unit came from.
 
 **Attestation and quorum.** Each auditor takes at most one position per job. `attest(jobId, result,
 signatures[])` accepts one or more 65-byte ECDSA signatures over the EIP-712 digest of `(jobId,
 result)`; every recovered signer must be an active auditor and must not have attested this job
-already. The ordinary path is one transaction: a relay holding two agreeing signatures submits both
-together. An auditor that disagrees pays for its own transaction to say so. That asymmetry is
-intentional — dissent should be frictionless but it is not the common case.
+already, and the submitter must itself be an active auditor (`SubmitterNotAnAuditor`): `reportURI`
+is outside the signed struct, so whoever lands the finalising transaction chooses the pointer the
+registry keeps, and the signature relay is readable by anyone. The ordinary path is one transaction:
+the second auditor to finish submits the first one's agreeing signature with its own. An auditor
+that disagrees pays for its own transaction to say so. That asymmetry is intentional — dissent
+should be frictionless but it is not the common case.
 
 - The moment one digest reaches `auditors.threshold()` votes, the job becomes `Fulfilled` against
   that result and the record is appended to the registry.

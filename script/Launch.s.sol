@@ -19,35 +19,32 @@ import {ChainAddresses, RobinhoodAddresses} from "./config/RobinhoodAddresses.so
 ///      be executed by the owner Safe from the JSON this script produces, not by a script key.
 contract Launch is Script {
     /**
-     * @notice The cadence, in milliseconds, of the block number a contract actually sees.
+     * @notice The cadence, in milliseconds, of the clock the auction reads.
      *
-     * @dev This is 12 seconds, not Robinhood Chain's 0.1 seconds, and the difference is the whole
+     * @dev 100 ms, the chain's own block cadence, and not 12 s, and the difference is the whole
      *      point of this comment.
      *
-     *      Robinhood Chain is an Arbitrum Orbit chain, and on an Orbit chain the EVM's
-     *      `block.number` is the **Ethereum** block number, not the chain's own. Its own height is
-     *      what `eth_blockNumber` returns and what a block explorer shows. Measured on testnet on
-     *      2026-09-07: the chain's own height advanced every 0.124 s while `block.number` advanced
-     *      every 13.3 s, and `eth_getBlockByNumber` reports both, as `number` and `l1BlockNumber`.
+     *      Robinhood Chain is an Arbitrum Orbit chain, so a contract sees two block numbers:
+     *      `block.number`, the parent chain's height (about every 12 s), and
+     *      `ArbSys.arbBlockNumber()`, the chain's own (about every 0.1 s, measured 0.1012 s; what
+     *      `eth_blockNumber` and the explorer show). The Continuous Clearing Auction and the LBP
+     *      strategy read the second through Uniswap's `BlockNumberish`, and since 2026-09-11 so
+     *      does `KAY9Genesis`, for its own validation and for `launchState`.
      *
-     *      Every block figure in a launch — the start, the end, the claim and the migration — is
-     *      compared by the auction and by KAY9Genesis against `block.number`. Deriving them from
-     *      the 0.1 s cadence made every window about 130 times too long: a one hour auction
-     *      requested on testnet came out as 36,000 blocks, which is five and a half days, and the
-     *      four hour mainnet auction this project has documented throughout would have run for
-     *      about three weeks. The owner would have signed a launch believing it lasted an
-     *      afternoon.
+     *      An earlier revision of this script derived windows at 12 s per block after measuring
+     *      `Multicall3.getBlockNumber()`, which returns `block.number`. That measurement was real
+     *      and irrelevant: the auction never reads that number. A launch derived that way was
+     *      broadcast on testnet on 2026-09-11 and was over before its first bid, because its
+     *      1,200-block window ended 105 million blocks in the auction's past. Only the rehearsal
+     *      caught it; unit tests and a mainnet fork both run on an EVM where the two clocks are
+     *      whatever the test makes them.
      *
-     *      12 seconds rather than the measured 13.3 because 12 is Ethereum's slot time and
-     *      therefore the floor: the real cadence is 12 seconds plus whatever slots are missed. A
-     *      floor makes the derived window slightly **longer** in wall-clock terms than requested,
-     *      never shorter, and for a fair launch an auction that closes early is the worse failure.
-     *
-     *      Nothing in a unit test or a mainnet fork can catch this, because both run on a local
-     *      EVM where `block.number` advances however the test asks it to. It took a real
-     *      deployment on the real chain.
+     *      100 rather than the measured 101.2 because the floor is the safe side: a window derived
+     *      from a slightly-too-fast cadence runs slightly **longer** in wall-clock terms than
+     *      requested, never shorter, and for a fair launch an auction that closes early is the
+     *      worse failure.
      */
-    uint256 internal constant BLOCK_TIME_MS = 12_000;
+    uint256 internal constant BLOCK_TIME_MS = 100;
 
     /// @notice The divisor that turns a floor price into the auction's price-tick granularity.
     uint256 internal constant AUCTION_TICK_DIVISOR = 100;
@@ -78,7 +75,7 @@ contract Launch is Script {
 
         (address predicted, uint256 impliedFloorFdvWei, uint256 impliedRaiseWei) = genesis.previewLaunch(p);
 
-        _print(p, predicted, impliedFloorFdvWei, impliedRaiseWei, ethUsdE8, durationHours);
+        _print(genesis, p, predicted, impliedFloorFdvWei, impliedRaiseWei, ethUsdE8, durationHours);
         console2.log("pool fee                 ", uint256(genesis.POOL_FEE()));
         console2.log("pool tickSpacing         ", uint256(uint24(genesis.POOL_TICK_SPACING())));
         console2.log("pool initializer hook    ", genesis.poolHook());
@@ -106,7 +103,8 @@ contract Launch is Script {
         if (graduationFdvUsd < floorFdvUsd) revert BadParameters("graduation below floor");
 
         uint64 blocksPerHour = uint64((3600 * 1000) / BLOCK_TIME_MS);
-        uint64 startBlock = uint64(block.number + (startDelayMinutes * 60 * 1000) / BLOCK_TIME_MS);
+        // The vault validates `startBlock` on the auction's clock, so it is derived from the same.
+        uint64 startBlock = uint64(genesis.chainBlockNumber() + (startDelayMinutes * 60 * 1000) / BLOCK_TIME_MS);
         uint64 endBlock = startBlock + uint64(durationHours) * blocksPerHour;
 
         // FDV in wei = fdvUsd x 1e18 x 1e8 / ethUsdE8.
@@ -160,6 +158,7 @@ contract Launch is Script {
     /// @param ethUsdE8 The ETH price used, scaled by 1e8.
     /// @param durationHours The auction duration in hours.
     function _print(
+        KAY9Genesis genesis,
         LaunchParams memory p,
         address predicted,
         uint256 impliedFloorFdvWei,
@@ -170,7 +169,8 @@ contract Launch is Script {
         console2.log("=== KAY9 launch configuration ===");
         console2.log("chainId                  ", block.chainid);
         console2.log("ETH/USD (1e8)            ", ethUsdE8);
-        console2.log("current block            ", block.number);
+        console2.log("current block (auction)  ", genesis.chainBlockNumber());
+        console2.log("current block.number     ", block.number);
         console2.log("current unix time        ", block.timestamp);
         console2.log("startBlock               ", p.startBlock);
         console2.log("endBlock                 ", p.endBlock);
@@ -178,12 +178,9 @@ contract Launch is Script {
         console2.log("migrationBlock           ", p.migrationBlock);
         console2.log("duration hours           ", durationHours);
         console2.log("duration blocks          ", p.endBlock - p.startBlock);
-        console2.log(
-            "approx start unix        ", block.timestamp + ((p.startBlock - block.number) * BLOCK_TIME_MS) / 1000
-        );
-        console2.log(
-            "approx end unix          ", block.timestamp + ((p.endBlock - block.number) * BLOCK_TIME_MS) / 1000
-        );
+        uint256 nowBlock = genesis.chainBlockNumber();
+        console2.log("approx start unix        ", block.timestamp + ((p.startBlock - nowBlock) * BLOCK_TIME_MS) / 1000);
+        console2.log("approx end unix          ", block.timestamp + ((p.endBlock - nowBlock) * BLOCK_TIME_MS) / 1000);
         console2.log("floorPriceQ96            ", p.floorPriceQ96);
         console2.log("auctionTickSpacingQ96    ", p.auctionTickSpacingQ96);
         console2.log("requiredCurrencyRaised   ", p.requiredCurrencyRaised);

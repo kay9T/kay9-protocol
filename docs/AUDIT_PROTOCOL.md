@@ -80,9 +80,10 @@ bot or another contract calling the hub directly gets the identical answer.
 
 The job then records, among other things:
 
-- `requestedBlock` — the contract's own `block.number` at request time, recorded for the on-chain
-  audit trail. On this Orbit chain that is the Ethereum block height, not a height any RPC call
-  accepts, so it is never the analysis pin (R01 in KAY9-REVIEW.md) — see `requestedAt` below.
+- `requestedBlock` — the chain's own height at request time (read through `ArbSys` on this Orbit
+  chain since 2026-09-11; before that it was the parent chain's `block.number`, R01 in
+  KAY9-REVIEW.md), recorded for the on-chain audit trail. It is never the analysis pin, because an
+  audited asset may live on a different chain — see `requestedAt` below.
 - `requestedAt` — the timestamp every auditor pins its analysis to. The chain chooses it, not the
   auditors, and each auditor resolves it to the target chain's own RPC height with a deterministic
   binary search, so there is nothing to negotiate and no clock skew.
@@ -157,9 +158,12 @@ carries. The hub:
 6. finalises against the result the moment one digest reaches `auditors.threshold()` votes, writing
    it to `KAY9Registry` via `recordReport` and emitting `AuditFulfilled`.
 
-The ordinary case costs one transaction: a relay holding two agreeing signatures submits both
-together. An auditor that disagrees pays for its own transaction to say so. That asymmetry is
-intentional — dissent should be cheap enough to be free of friction, but it is not the common path.
+The ordinary case costs one transaction: the second auditor to finish submits the first one's
+agreeing signature together with its own. An auditor that disagrees pays for its own transaction to
+say so. That asymmetry is intentional — dissent should be cheap enough to be free of friction, but it
+is not the common path. Only an active auditor may submit, for `attest` and `publishWatchdogReport`
+alike: `reportURI` is not in the signed struct, so the submitter chooses the pointer the registry
+records, and the relay the signatures travel through is public.
 
 ### 3.1 Disagreement is a state, not an average
 

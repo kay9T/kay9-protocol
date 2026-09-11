@@ -213,6 +213,10 @@ a deployed, trading token. Specifically, as of this writing:
   code, and have **not yet been rehearsed on testnet**.
 - $KAY9 itself is **not deployed on any network.** The website renders "not deployed yet" wherever
   it would otherwise show a live figure, because that is the true statement.
+- The owner has set a **target launch date of Tuesday 10 November 2026**. It is a target and not a
+  promise: the launch is gated on fourteen checkable conditions (`docs/LAUNCH_READINESS.md` in the
+  main project), four of which need the watchdog to have run unattended on mainnet for thirty days,
+  and if any of them is open on the date, the date moves. The working calendar is in the roadmap.
 
 KAY9's own launch sequencing deliberately puts the watchdog live *before* the token: discovery,
 free automatic scanning, and the permanent scan registry are all designed to work with zero KAY9
@@ -222,14 +226,16 @@ all. A product asking to be trusted should be checkable first.
 
 ## 9. Roadmap, in outline
 
-1. **Before launch:** finish the rewrite, re-run static analysis and an adversarial security
-   review against the current contracts, complete a full testnet rehearsal of both the launch cycle
-   and the access-lock cycle, and confirm the operating jurisdiction with professional legal and
-   tax review. The watchdog goes live and stays live on mainnet during this phase, with no deadline
-   pressure, since no token exists yet.
-2. **Launch week:** contracts deploy and are verified publicly; the auction opens for a fixed
-   window; migration, liquidity lock, and unsold-supply settlement are all permissionless once the
-   owner signs the single launch transaction.
+1. **Before launch (September–October 2026):** static analysis and the fork suite re-run against
+   the current contracts (done 2026-09-11), the testnet rehearsal of both the launch cycle and the
+   access-lock cycle (in progress 2026-09-11), an external review of the launch path, the watchdog
+   live on mainnet by 9 October so it has thirty unattended days before the target, calibration
+   against fifty-plus tokens, and the operating jurisdiction confirmed with professional legal and
+   tax review.
+2. **Launch week (target Tuesday 10 November 2026):** contracts deploy and are verified publicly
+   the week before; the auction opens for a fixed four-hour window on the owner's single
+   signature; migration, liquidity lock, and unsold-supply settlement are all permissionless
+   afterwards. If a readiness gate is open on the date, the date moves.
 3. **Weeks 1–4:** the pricing oracle binds to the live pool, the access lock and its quorum of
    auditors go live, and the free browser-based basic scan opens to the public.
 4. **Months 2–6:** registry integration for external wallets/DEXs/launchpads, continuous monitoring

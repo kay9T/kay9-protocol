@@ -784,6 +784,42 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(accessVault.deepRemaining(alice), 4, "no outsider changed the allowance");
     }
 
+    /// @notice A hub that governance replaces may still give quota back, and nothing else.
+    function test_aRetiredHubMayRestoreButNeverConsume() public {
+        _grantAccess(alice, TIER_DEEP);
+        vm.prank(address(hub));
+        uint64 period = accessVault.consume(alice, TIER_DEEP);
+        assertEq(accessVault.deepRemaining(alice), 3, "one unit spent through the live hub");
+
+        address hubV2 = makeAddr("hubV2");
+        vm.prank(address(timelock));
+        vm.expectEmit(true, true, true, true, address(accessVault));
+        emit KAY9AccessVault.AuditHubRetired(address(hub));
+        accessVault.setAuditHub(hubV2);
+        assertEq(accessVault.auditHub(), hubV2, "the new hub is current");
+        assertTrue(accessVault.isRetiredHub(address(hub)), "the old one is retired");
+
+        vm.prank(address(hub));
+        vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.NotTheAuditHub.selector, address(hub)));
+        accessVault.consume(alice, TIER_DEEP);
+
+        vm.prank(address(hub));
+        accessVault.restore(alice, TIER_DEEP, period);
+        assertEq(accessVault.deepRemaining(alice), 4, "the retired hub returned the unit it took");
+
+        // A stranger is still nobody.
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.NotTheAuditHub.selector, alice));
+        accessVault.restore(alice, TIER_DEEP, period);
+
+        // Pointing back at a retired hub reinstates it and retires the one it replaces.
+        vm.prank(address(timelock));
+        accessVault.setAuditHub(address(hub));
+        assertFalse(accessVault.isRetiredHub(address(hub)), "reinstated");
+        assertTrue(accessVault.isRetiredHub(hubV2), "and the interim hub is retired");
+        assertEq(token.balanceOf(address(accessVault)), accessVault.totalLocked(), "no balance moved");
+    }
+
     // -------------------------------------------------------------------------------------------
     // Governance
     // -------------------------------------------------------------------------------------------

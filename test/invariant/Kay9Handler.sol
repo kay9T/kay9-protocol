@@ -285,6 +285,7 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
         bytes[] memory signatures = new bytes[](2);
         signatures[0] = _sign(auditorKeys[0], digest);
         signatures[1] = _sign(auditorKeys[1], digest);
+        vm.prank(vm.addr(auditorKeys[0]));
         try hub.publishWatchdogReport(result, signatures) {} catch {}
     }
 
@@ -379,6 +380,7 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
     /// @param result The result being attested.
     /// @param signatures The signatures over it.
     function _attest(uint256 jobId, AuditResult memory result, bytes[] memory signatures) private {
+        vm.prank(vm.addr(auditorKeys[0]));
         try hub.attest(jobId, result, signatures) {
             JobStatus status = hub.getJob(jobId).status;
             if (status == JobStatus.Fulfilled) ++fulfilled;

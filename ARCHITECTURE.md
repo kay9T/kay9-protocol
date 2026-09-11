@@ -59,7 +59,7 @@ in the visitor's browser against a public RPC, so it has no operator to fail.
 | Testnet faucet | `https://faucet.testnet.chain.robinhood.com` |
 | Gas token | ETH |
 | Stack | Arbitrum Orbit (Nitro). The EVM's `block.number` follows Ethereum; `ArbSys.arbBlockNumber()` and RPC `eth_blockNumber` expose the chain's own height. Uniswap's `BlockNumberish` uses ArbSys. |
-| Block time | The chain's own blocks: ≈ 0.10 s. **The EVM's `block.number`: ≈ 12 s**, because this is an Arbitrum Orbit chain and `block.number` is the Ethereum block number. **4 hours ≈ 1,200 blocks.** See below. |
+| Block time | The chain's own blocks: ≈ 0.10 s, read by contracts through `ArbSys.arbBlockNumber()`. The EVM's `block.number` is the **parent chain's** height (≈ 12 s) and nothing in KAY9 compares against it. The auction, the strategy and `KAY9Genesis` all read the chain's own clock through Uniswap's `BlockNumberish`. **4 hours ≈ 144,000 blocks.** `docs/RESEARCH.md`. |
 | Cancun (EIP-1153) | Supported (Uniswap v4 and launcher run on it) |
 
 Canonical addresses on mainnet 4663 (all confirmed to have code on-chain):
@@ -135,7 +135,7 @@ Because every trust-relevant field is asserted by the contract, the owner's rema
 
 ### 4.2 Lifecycle
 
-1. **Auction** (CCA v2.1.0, native ETH, 455 M KAY9, 4 h ≈ 1,200 blocks, emission schedule from the Uniswap SDK's convex default). Anyone bids with `submitBid`; the Uniswap web app auctions tab also lists it.
+1. **Auction** (CCA v2.1.0, native ETH, 455 M KAY9, 4 h ≈ 144,000 blocks on the chain's own clock, emission schedule from the Uniswap SDK's convex default). Anyone bids with `submitBid`; the Uniswap web app auctions tab also lists it.
 2. **Graduation** requires `currencyRaised ≥ requiredCurrencyRaised` (deployment parameter, default = clearing the full auction supply at the floor price).
 3. **Migration**: anyone calls `LBPStrategy.migrate(auction)` after `migrationBlock`. The strategy sweeps the ETH, initializes the v4 pool `(ETH, KAY9, fee 10000, tickSpacing 200, InitializerHook)` at the clearing price, mints one full-range position with 100 % of the ETH and up to 455 M KAY9, and transfers the LP NFT to `KAY9LiquidityLock`. Leftover ETH dust and unused reserve KAY9 go to Genesis.
 4. **Lock**: anyone calls `KAY9LiquidityLock.lock(tokenId)`. The lock registers the owner's creator-fee address as beneficiary in `UERC20BeneficiaryVault` (possible only while the lock owns the NFT) and then transfers the NFT to FeeSplitter `0xeFF1…`, where it is irrecoverable. Fees: 40 % of native-side fees to the beneficiary NFT holder (owner Safe), 60 % native and 100 % KAY9-side fees compound back into the position via the CompoundingClaimRecipient.
@@ -209,7 +209,11 @@ afterwards.
   oracle outage can never trap a depositor's tokens.
 - `consume(account, tier)` and `restore(account, tier, periodStartedAt)` are callable only by the
   configured hub, move a counter and never a balance. `consume` returns the period it debited so a
-  later `restore` cannot credit a period that did not pay for it.
+  later `restore` cannot credit a period that did not pay for it. A hub that `setAuditHub` has
+  replaced keeps the right to `restore` and loses everything else, so a job left pending across a
+  hub migration can still expire or dispute and hand its unit back.
+- `lock`, `renew` and `upgrade` refuse a requirement that quotes to zero KAY9 (`ZeroRequirement`),
+  because a record with no principal is the vault's spelling of "no record".
 
 | Tier | USD target | Period | Deep allowance | Forensic allowance |
 |---|---|---|---|---|
@@ -223,11 +227,11 @@ when the caller has no live period, when the period is of a lower tier than the 
 tier's allowance is spent. The job records `requestedBlock` and the vault period the unit came from,
 and emits `AuditRequested`. `attest(jobId, result, signatures[])` accepts one or more 65-byte ECDSA
 signatures over the EIP-712 digest of `(jobId, result)`; every recovered signer must be an active
-auditor that has not already attested this job. A digest reaching `auditors.threshold()` votes
-finalises the job and appends the record to `KAY9Registry`. `markExpired(jobId)` is permissionless
-once the SLA (6 hours by default) has elapsed. `publishWatchdogReport(result, signatures[])` commits
-a quorum-signed report with no job and no requester. No KAY9 changes hands anywhere in this
-contract.
+auditor that has not already attested this job, and the submitter must be an active auditor too. A
+digest reaching `auditors.threshold()` votes finalises the job and appends the record to
+`KAY9Registry`. `markExpired(jobId)` is permissionless once the SLA (6 hours by default) has elapsed.
+`publishWatchdogReport(result, signatures[])` commits a quorum-signed report with no job and no
+requester, again from an auditor. No KAY9 changes hands anywhere in this contract.
 
 **KAY9Registry** — `recordReport` (hub only) appends to `reports[]` and to `history[assetKey]`;
 nothing is ever overwritten. Alongside the result it stores `jobId`, `requester`,
@@ -264,12 +268,15 @@ string reportURI;        // ipfs://… or ar://…; integrity verified by report
    renders it as declared.
 4. **Analysis.** All three auditors independently analyse the asset as of `job.requestedAt` — a
    moment the chain chose, not the auditors, resolved to that asset's own chain height with a
-   deterministic binary search every auditor runs identically. Never `job.requestedBlock`: on this
-   Orbit chain that field is the contract's `block.number`, the Ethereum height, not a height any RPC
-   call here accepts (R01 in KAY9-REVIEW.md). Each auditor then signs an EIP-712 `AuditResult`.
-5. **Quorum.** A relay holding two agreeing signatures submits them in one `attest` transaction; a
-   disagreeing auditor pays for its own. The first digest to reach the threshold finalises the job
-   and `KAY9Registry.recordReport` appends the record.
+   deterministic binary search every auditor runs identically. `job.requestedBlock` is the chain's
+   own height at request time (read through ArbSys since 2026-09-11) and is kept for the audit
+   trail; the auditors still pin by the timestamp because it means the same thing on every chain an
+   asset can live on. Each auditor then signs an EIP-712 `AuditResult`.
+5. **Quorum.** The second auditor to finish submits both agreeing signatures in one `attest`
+   transaction; a disagreeing auditor pays for its own. Only an active auditor may submit either
+   call, because `reportURI` is not in the signed struct and the submitter chooses it. The first
+   digest to reach the threshold finalises the job and `KAY9Registry.recordReport` appends the
+   record.
 6. **Dispute or expiry.** The job becomes `Disputed` the moment agreement is arithmetically out of
    reach, and `Expired` when anyone calls `markExpired` after the SLA. Both restore the quota unit
    to the period it came from, so a request that produced no result costs nothing. Contradictory
@@ -312,7 +319,9 @@ requiredKay9 = tierUsd / kay9UsdPrice
 ```
 
 - **KAY9/ETH**: Uniswap v4 pools have no built-in oracle, so `KAY9Pricing` maintains its own
-  observation ring buffer of the official pool's tick, read from `PoolManager` slot0. `poke()` is
+  observation ring buffer of the official pool's tick, read from `PoolManager` slot0. `configurePool`
+  binds once and only to a native-ETH / KAY9 pool at fee 10000 and tick spacing 200 — the hooked
+  pool the launch migrates into, or the hookless one `recover` builds. `poke()` is
   permissionless, records at most one observation per block and never more than one every
   `MIN_OBSERVATION_INTERVAL` (4 s), and is called by a keeper every minute. The sampling floor is
   what stops anyone churning the 2,048-slot ring buffer faster than the averaging window at a 0.1 s

@@ -324,6 +324,7 @@ contract KAY9QuotaTest is Kay9TestBase {
             bytes[] memory signature = new bytes[](1);
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(_keyOf(sorted[i]), this.callHashResult(jobId, result));
             signature[0] = abi.encodePacked(r, s, v);
+            vm.prank(auditorAddresses[0]);
             hub.attest(jobId, result, signature);
         }
 

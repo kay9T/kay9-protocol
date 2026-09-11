@@ -40,13 +40,11 @@ contract KAY9LaunchTest is Kay9TestBase {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
-    /// @notice A four-hour auction at Robinhood Chain's 0.1 s cadence.
-    /// @notice Four hours, in the block number a contract sees: 14,400 s / 12 s.
-    /// @dev Not 144,000. That figure came from this chain's own 0.1 s cadence, but the EVM's
-    ///      `block.number` here is the Ethereum block number and advances every 12 s, so 144,000
-    ///      is about three weeks and is now rejected by KAY9Genesis.MAX_DURATION_BLOCKS. See the
-    ///      note on MIN_DURATION_BLOCKS for the measurement that established this.
-    uint64 internal constant FOUR_HOURS_BLOCKS = 1_200;
+    /// @notice A four-hour auction on the auction's own clock: 14,400 s at the chain's 0.1 s cadence.
+    /// @dev The auction reads `ArbSys.arbBlockNumber()` through Uniswap's `BlockNumberish`, and so
+    ///      does `KAY9Genesis`; neither reads `block.number`, which on this Orbit chain is the
+    ///      parent chain's height. See the note on `KAY9Genesis.MIN_DURATION_BLOCKS`.
+    uint64 internal constant FOUR_HOURS_BLOCKS = 144_000;
 
     /// @notice A one-thousand-dollar floor valuation at 2500 dollars per ETH, expressed in wei.
     uint256 internal constant FLOOR_FDV_WEI = 0.4e18;

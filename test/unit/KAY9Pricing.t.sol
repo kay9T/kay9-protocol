@@ -70,6 +70,34 @@ contract KAY9PricingTest is Kay9TestBase {
         pricing.configurePool(key);
     }
 
+    /// @notice A pool at another fee or spacing is a different market and is refused, whoever
+    ///         proposes it; the hookless recovery pool at the official fee and spacing is accepted.
+    function test_configurePoolRejectsAnotherFeeOrSpacing() public {
+        _seedPool(2_500_000e18);
+
+        PoolKey memory wrongFee = key;
+        wrongFee.fee = 3000;
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9Pricing.NotTheKay9Pool.selector);
+        pricing.configurePool(wrongFee);
+
+        PoolKey memory wrongSpacing = key;
+        wrongSpacing.tickSpacing = 60;
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9Pricing.NotTheKay9Pool.selector);
+        pricing.configurePool(wrongSpacing);
+
+        assertEq(pricing.POOL_FEE(), 10_000, "the official fee");
+        assertEq(pricing.POOL_TICK_SPACING(), int24(200), "the official spacing");
+
+        // The pool `recover` builds differs only in its hook, and that is allowed.
+        PoolKey memory hookless = _hooklessKey();
+        uni.poolManager.initialize(hookless, TickMath.getSqrtPriceAtTick(0));
+        vm.prank(address(timelock));
+        pricing.configurePool(hookless);
+        assertTrue(pricing.poolConfigured(), "the recovery pool binds");
+    }
+
     /// @notice Parameter bounds are enforced.
     function test_setParamsBounds() public {
         vm.startPrank(address(timelock));

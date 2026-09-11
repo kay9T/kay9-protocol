@@ -128,7 +128,7 @@ depositor has renewed in the meantime, the restore is a silent no-op.
 | USD target per tier | owner via timelock | 48 h | no |
 | Audits allowed per period | owner via timelock | 48 h | no |
 | Period length | owner via timelock | 48 h | no |
-| Which hub may move quota | owner via timelock | 48 h | quota only, never principal |
+| Which hub may move quota | owner via timelock | 48 h | quota only, never principal; the replaced hub keeps `restore` so its pending jobs still refund |
 | A depositor's principal | **nobody** | — | — |
 
 The last row is the one that matters. There is no function, timelocked or otherwise, that sends a

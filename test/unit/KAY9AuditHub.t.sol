@@ -185,7 +185,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
             AuditResult memory result = _result();
             result.assetId = bytes32(i + 1);
-            uint256 reportId = hub.attest(jobId, result, _sign(jobId, result, 2));
+            bytes[] memory hoistedSignatures1 = _sign(jobId, result, 2);
+            vm.prank(auditorAddresses[0]);
+            uint256 reportId = hub.attest(jobId, result, hoistedSignatures1);
             assertEq(
                 reportRegistry.getReport(reportId).declaredRequesterKind,
                 kinds[i],
@@ -209,7 +211,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         // The already-open job still settles while paused.
         AuditResult memory result = _result();
-        hub.attest(jobId, result, _sign(jobId, result, 2));
+        bytes[] memory hoistedSignatures2 = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.attest(jobId, result, hoistedSignatures2);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "results are never pausable");
     }
 
@@ -229,8 +233,12 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         // The very same finding, signed by the very same quorum, for both jobs.
         AuditResult memory result = _result();
-        uint256 independentReport = hub.attest(independentJob, result, _sign(independentJob, result, 2));
-        uint256 creatorReport = hub.attest(creatorJob, result, _sign(creatorJob, result, 2));
+        bytes[] memory hoistedSignatures3 = _sign(independentJob, result, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 independentReport = hub.attest(independentJob, result, hoistedSignatures3);
+        bytes[] memory hoistedSignatures4 = _sign(creatorJob, result, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 creatorReport = hub.attest(creatorJob, result, hoistedSignatures4);
 
         ReportRecord memory a = reportRegistry.getReport(independentReport);
         ReportRecord memory b = reportRegistry.getReport(creatorReport);
@@ -266,7 +274,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
         bytes32 digest = _hash(jobId, result);
         address[] memory signers = _signerSet(2);
 
-        uint256 reportId = hub.attest(jobId, result, _sign(jobId, result, 1));
+        bytes[] memory hoistedSignatures5 = _sign(jobId, result, 1);
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.attest(jobId, result, hoistedSignatures5);
 
         assertEq(reportId, 0, "nothing was recorded");
         assertEq(reportRegistry.reportCount(), 0, "the log did not grow");
@@ -283,7 +293,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
         AuditResult memory result = _result();
         address[] memory signers = _signerSet(2);
 
-        uint256 reportId = hub.attest(jobId, result, _sign(jobId, result, 2));
+        bytes[] memory hoistedSignatures6 = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.attest(jobId, result, hoistedSignatures6);
 
         Job memory job = hub.getJob(jobId);
         assertEq(uint8(job.status), uint8(JobStatus.Fulfilled), "the job settled");
@@ -322,8 +334,10 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         // Both signatures verify against whichever struct is actually submitted, because the
         // reportURI each signer happened to have pinned to never entered the digest either signed.
+        vm.prank(auditorAddresses[0]);
         uint256 reportId = hub.attest(jobId, pinnedToIpfs, fromFirst);
         assertEq(reportId, 0, "one position does not settle anything yet");
+        vm.prank(auditorAddresses[0]);
         reportId = hub.attest(jobId, pinnedToIpfs, fromSecond);
 
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the job settled");
@@ -341,11 +355,13 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory first = new bytes[](1);
         first[0] = _signDigest(_keyOf(signers[0]), digest);
+        vm.prank(auditorAddresses[0]);
         assertEq(hub.attest(jobId, result, first), 0, "the first position does not settle anything");
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "the job is still open");
 
         bytes[] memory second = new bytes[](1);
         second[0] = _signDigest(_keyOf(signers[1]), digest);
+        vm.prank(auditorAddresses[0]);
         uint256 reportId = hub.attest(jobId, result, second);
 
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the second position settles it");
@@ -362,8 +378,10 @@ contract KAY9AuditHubTest is Kay9TestBase {
         address[] memory signers = _signerSet(1);
 
         bytes[] memory signatures = _sign(jobId, result, 1);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, signatures);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.AlreadyAttested.selector, jobId, signers[0]));
         hub.attest(jobId, result, signatures);
 
@@ -372,6 +390,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         other.overallTrust = 99;
         bytes[] memory changedMind = new bytes[](1);
         changedMind[0] = _signDigest(_keyOf(signers[0]), _hash(jobId, other));
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.AlreadyAttested.selector, jobId, signers[0]));
         hub.attest(jobId, other, changedMind);
 
@@ -389,6 +408,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         duplicated[0] = _signDigest(_keyOf(signers[0]), digest);
         duplicated[1] = duplicated[0];
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.AlreadyAttested.selector, jobId, signers[0]));
         hub.attest(jobId, result, duplicated);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "nothing settled");
@@ -404,6 +424,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         signatures[0] = _signDigest(_keyOf(_signerSet(1)[0]), digest);
         signatures[1] = _signDigest(0xBADA55, digest);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.NotAnAuditor.selector, vm.addr(0xBADA55)));
         hub.attest(jobId, result, signatures);
     }
@@ -418,6 +439,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = _signDigest(_keyOf(signers[0]), _hash(jobId, result));
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.NotAnAuditor.selector, signers[0]));
         hub.attest(jobId, result, signatures);
     }
@@ -426,6 +448,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function test_attestWithNoSignaturesIsRefused() public {
         uint256 jobId = _openJob();
         AuditResult memory result = _result();
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(KAY9AuditHub.NoSignatures.selector);
         hub.attest(jobId, result, new bytes[](0));
     }
@@ -436,6 +459,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         bytes[] memory signatures = _sign(99, result, 2);
         assertEq(hub.jobExpiresAt(99), 0, "an unknown job has no expiry");
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.UnknownJob.selector, uint256(99)));
         hub.attest(99, result, signatures);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.UnknownJob.selector, uint256(99)));
@@ -455,6 +479,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         bytes[] memory signatures = _sign(first, result, 2);
 
         // The digest of the second job is different, so the recovered address is not an auditor.
+        vm.prank(auditorAddresses[0]);
         vm.expectPartialRevert(KAY9AuditHub.NotAnAuditor.selector);
         hub.attest(second, result, signatures);
         assertEq(uint8(hub.getJob(second).status), uint8(JobStatus.Requested), "the second job is untouched");
@@ -479,6 +504,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory foreign = new bytes[](1);
         foreign[0] = _signDigest(_keyOf(_signerSet(1)[0]), digestElsewhere);
+        vm.prank(auditorAddresses[0]);
         vm.expectPartialRevert(KAY9AuditHub.NotAnAuditor.selector);
         hub.attest(jobId, result, foreign);
     }
@@ -494,6 +520,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory foreign = new bytes[](1);
         foreign[0] = _signDigest(_keyOf(_signerSet(1)[0]), digestThere);
+        vm.prank(auditorAddresses[0]);
         vm.expectPartialRevert(KAY9AuditHub.NotAnAuditor.selector);
         hub.attest(jobId, result, foreign);
     }
@@ -510,9 +537,11 @@ contract KAY9AuditHubTest is Kay9TestBase {
         otherChain.chainKey = reportRegistry.CHAIN_BNB();
         bytes[] memory otherChainSignatures = _sign(jobId, otherChain, 2);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(KAY9AuditHub.ResultAssetMismatch.selector);
         hub.attest(jobId, otherAsset, otherAssetSignatures);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(KAY9AuditHub.ResultAssetMismatch.selector);
         hub.attest(jobId, otherChain, otherChainSignatures);
 
@@ -540,6 +569,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
             bytes[] memory signature = new bytes[](1);
             signature[0] = _signDigest(_keyOf(signers[i]), digests[i]);
+            vm.prank(auditorAddresses[0]);
             hub.attest(jobId, result, signature);
 
             if (i < 2) {
@@ -574,6 +604,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         AuditResult memory result = _result();
         bytes[] memory signatures = _sign(jobId, result, 2);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.WrongJobStatus.selector, jobId, JobStatus.Disputed));
         hub.attest(jobId, result, signatures);
 
@@ -588,7 +619,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function test_aFulfilledJobCannotBeDisputedOrExpired() public {
         uint256 jobId = _openJob();
         AuditResult memory result = _result();
-        hub.attest(jobId, result, _sign(jobId, result, 2));
+        bytes[] memory hoistedSignatures7 = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.attest(jobId, result, hoistedSignatures7);
 
         address[] memory signers = _signerSet(3);
         AuditResult memory dissent = _result();
@@ -596,6 +629,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         bytes[] memory late = new bytes[](1);
         late[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, dissent));
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.WrongJobStatus.selector, jobId, JobStatus.Fulfilled));
         hub.attest(jobId, dissent, late);
 
@@ -616,11 +650,14 @@ contract KAY9AuditHubTest is Kay9TestBase {
         dissent.overallTrust = 3;
         bytes[] memory dissenting = new bytes[](1);
         dissenting[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, dissent));
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, dissent, dissenting);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "one dissent does not close the job");
 
         AuditResult memory agreed = _result();
-        uint256 reportId = hub.attest(jobId, agreed, _sign(jobId, agreed, 2));
+        bytes[] memory hoistedSignatures8 = _sign(jobId, agreed, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.attest(jobId, agreed, hoistedSignatures8);
 
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the majority position wins");
         ReportRecord memory record = reportRegistry.getReport(reportId);
@@ -643,12 +680,14 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory fromFirst = new bytes[](1);
         fromFirst[0] = _signDigest(_keyOf(signers[0]), digest);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, fromFirst);
 
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
 
         bytes[] memory fromSecond = new bytes[](1);
         fromSecond[0] = _signDigest(_keyOf(signers[1]), digest);
+        vm.prank(auditorAddresses[0]);
         assertEq(hub.attest(jobId, result, fromSecond), 0, "the stale vote did not finalise the job");
 
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "the job is still open");
@@ -668,16 +707,19 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory fromFirst = new bytes[](1);
         fromFirst[0] = _signDigest(_keyOf(signers[0]), digest);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, fromFirst);
 
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
 
         bytes[] memory fromSecond = new bytes[](1);
         fromSecond[0] = _signDigest(_keyOf(signers[1]), digest);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, fromSecond);
 
         bytes[] memory fromThird = new bytes[](1);
         fromThird[0] = _signDigest(_keyOf(signers[2]), digest);
+        vm.prank(auditorAddresses[0]);
         uint256 reportId = hub.attest(jobId, result, fromThird);
 
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "two active auditors settled it");
@@ -694,7 +736,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function test_removingAnAuditorAfterFinalisationChangesNothing() public {
         uint256 jobId = _openJob();
         AuditResult memory result = _result();
-        uint256 reportId = hub.attest(jobId, result, _sign(jobId, result, 2));
+        bytes[] memory hoistedSignatures9 = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.attest(jobId, result, hoistedSignatures9);
 
         address[] memory signers = _signerSet(2);
         ReportRecord memory before = reportRegistry.getReport(reportId);
@@ -762,6 +806,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         // Proof it really was reachable: the surviving auditor matches the second original vote.
         bytes[] memory fromSurvivor = new bytes[](1);
         fromSurvivor[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, resultY));
+        vm.prank(auditorAddresses[0]);
         uint256 reportId = hub.attest(jobId, resultY, fromSurvivor);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the job settles");
         ReportRecord memory record = reportRegistry.getReport(reportId);
@@ -864,6 +909,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory tooLate = new bytes[](1);
         tooLate[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, first));
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.NotAnAuditor.selector, signers[2]));
         hub.attest(jobId, first, tooLate);
 
@@ -927,6 +973,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         // One signature under a threshold of two: the only membership check is the one that
         // authenticates the signer itself.
         vm.expectCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.isAuditor, (signers[0])), 1);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, signatures);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "and the job did not finalise");
     }
@@ -1030,6 +1077,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         AuditResult memory result = _result();
         bytes[] memory signatures = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.WrongJobStatus.selector, jobId, JobStatus.Expired));
         hub.attest(jobId, result, signatures);
     }
@@ -1041,7 +1089,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
     /// @notice An unsolicited report needs no job, no requester and no access period.
     function test_watchdogReportAppendsWithoutAJob() public {
         AuditResult memory result = _result();
-        uint256 reportId = hub.publishWatchdogReport(result, _sign(0, result, 2));
+        bytes[] memory hoistedSignatures10 = _sign(0, result, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.publishWatchdogReport(result, hoistedSignatures10);
 
         ReportRecord memory record = reportRegistry.getReport(reportId);
         assertEq(record.jobId, 0, "no job settled it");
@@ -1060,18 +1110,21 @@ contract KAY9AuditHubTest is Kay9TestBase {
         address[] memory signers = _signerSet(2);
         bytes[] memory tooFew = _sign(0, result, 1);
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.QuorumNotMet.selector, uint256(1), uint256(2)));
         hub.publishWatchdogReport(result, tooFew);
 
         bytes[] memory reversed = new bytes[](2);
         reversed[0] = _signDigest(_keyOf(signers[1]), digest);
         reversed[1] = _signDigest(_keyOf(signers[0]), digest);
+        vm.prank(auditorAddresses[0]);
         vm.expectPartialRevert(KAY9AuditHub.SignersNotSorted.selector);
         hub.publishWatchdogReport(result, reversed);
 
         bytes[] memory duplicated = new bytes[](2);
         duplicated[0] = _signDigest(_keyOf(signers[0]), digest);
         duplicated[1] = duplicated[0];
+        vm.prank(auditorAddresses[0]);
         vm.expectPartialRevert(KAY9AuditHub.SignersNotSorted.selector);
         hub.publishWatchdogReport(result, duplicated);
 
@@ -1082,11 +1135,13 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function test_watchdogReportCannotBeCommittedTwice() public {
         AuditResult memory result = _result();
         bytes[] memory signatures = _sign(0, result, 2);
+        vm.prank(auditorAddresses[0]);
         hub.publishWatchdogReport(result, signatures);
 
         bytes32 digest = hub.hashResult(0, result);
         assertTrue(hub.watchdogReportCommitted(digest), "the digest is remembered");
 
+        vm.prank(auditorAddresses[0]);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.DuplicateWatchdogReport.selector, digest));
         hub.publishWatchdogReport(result, signatures);
         assertEq(reportRegistry.reportCount(), 1, "the log did not grow");
@@ -1107,7 +1162,9 @@ contract KAY9AuditHubTest is Kay9TestBase {
             result.overallTrust = scores[i];
             result.analyzedAt = uint64(vm.getBlockTimestamp());
             result.reportHash = keccak256(abi.encode("re-audit", i));
-            reportIds[i] = hub.publishWatchdogReport(result, _sign(0, result, 2));
+            bytes[] memory hoistedSignatures11 = _sign(0, result, 2);
+            vm.prank(auditorAddresses[0]);
+            reportIds[i] = hub.publishWatchdogReport(result, hoistedSignatures11);
         }
 
         assertEq(reportRegistry.reportCount(), 3, "three records, not one rewritten three times");
@@ -1224,6 +1281,124 @@ contract KAY9AuditHubTest is Kay9TestBase {
     }
 
     // -------------------------------------------------------------------------------------------
+    // Who may submit
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice Only an active auditor may land signatures, because the one unsigned field of a
+    ///         result — `reportURI` — is chosen by whoever lands the finalising transaction.
+    /// @dev The signatures are valid for the poisoned result too, since the URI is not in the
+    ///      digest. That is precisely the threat: a stranger holding two honest signatures from the
+    ///      relay could otherwise write a pointer of their choosing into the permanent record.
+    function test_onlyAnActiveAuditorMaySubmitSignatures() public {
+        uint256 jobId = _openJob();
+        AuditResult memory result = _result();
+        bytes[] memory signatures = _sign(jobId, result, 2);
+
+        AuditResult memory poisoned = result;
+        poisoned.reportURI = "https://not-the-report.example";
+
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, outsider));
+        hub.attest(jobId, poisoned, signatures);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "nothing landed");
+
+        // The timelock is governance, not an auditor, and gets the same answer.
+        vm.prank(address(timelock));
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, address(timelock)));
+        hub.attest(jobId, poisoned, signatures);
+
+        // An auditor carrying a peer's agreeing signature is the ordinary path, and the record
+        // carries the URI that auditor submitted.
+        address[] memory signers = _signerSet(2);
+        vm.prank(signers[1]);
+        uint256 reportId = hub.attest(jobId, result, signatures);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the auditor finalised it");
+        assertEq(reportRegistry.getReport(reportId).result.reportURI, result.reportURI, "the honest URI");
+
+        // The same rule covers the unsolicited path.
+        AuditResult memory watchdog = _result();
+        watchdog.analyzedAt += 1;
+        bytes[] memory watchdogSignatures = _sign(0, watchdog, 2);
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, outsider));
+        hub.publishWatchdogReport(watchdog, watchdogSignatures);
+
+        vm.prank(signers[0]);
+        hub.publishWatchdogReport(watchdog, watchdogSignatures);
+        assertEq(reportRegistry.reportCount(), 2, "the auditor's submission landed");
+    }
+
+    /// @notice An auditor removed through the timelock loses the right to submit along with the
+    ///         right to sign, so a compromised key cannot even relay honest signatures.
+    function test_aRemovedAuditorCannotSubmitEither() public {
+        uint256 jobId = _openJob();
+        AuditResult memory result = _result();
+        address[] memory sorted = _sortedAuditors();
+        bytes[] memory signatures = _sign(jobId, result, 2);
+
+        address removed = sorted[2];
+        vm.prank(address(timelock));
+        auditorRegistry.removeAuditor(removed);
+
+        vm.prank(removed);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, removed));
+        hub.attest(jobId, result, signatures);
+
+        vm.prank(sorted[0]);
+        uint256 reportId = hub.attest(jobId, result, signatures);
+        assertGt(reportId + 1, 0, "the remaining auditors still finalise");
+    }
+
+    /// @notice `markExpired` needs no auditor: nothing reaches the log through it.
+    function test_anyoneMayStillExpireAJob() public {
+        uint256 jobId = _openJob();
+        vm.warp(hub.jobExpiresAt(jobId));
+        vm.prank(outsider);
+        hub.markExpired(jobId);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Expired), "expired by a stranger");
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Hub migration
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice A job that is pending when governance points the vault at a new hub still expires
+    ///         and disputes on the old one, and its unit still comes back.
+    /// @dev Before the vault learned to remember a retired hub, `restore` reverted `NotTheAuditHub`
+    ///      for the old hub, which made `markExpired` and the disputing `attest` revert forever and
+    ///      left the job open with its unit stranded.
+    function test_aJobPendingAcrossAHubMigrationStillExpiresAndRefunds() public {
+        uint256 expiring = _openJob();
+        uint256 disputing = _openJob();
+        assertEq(accessVault.deepRemaining(requester), 2, "two units spent");
+
+        address hubV2 = makeAddr("hubV2");
+        vm.prank(address(timelock));
+        accessVault.setAuditHub(hubV2);
+        assertTrue(accessVault.isRetiredHub(address(hub)), "the old hub is retired, not forgotten");
+
+        // The old hub cannot spend anything any more.
+        vm.prank(requester);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.NotTheAuditHub.selector, address(hub)));
+        hub.requestAudit(chainKey, assetId, TIER_DEEP, KIND_INDEPENDENT);
+
+        // But its pending jobs still reach their terminal states and hand their units back.
+        vm.warp(hub.jobExpiresAt(expiring));
+        hub.markExpired(expiring);
+        assertEq(uint8(hub.getJob(expiring).status), uint8(JobStatus.Expired));
+        assertEq(accessVault.deepRemaining(requester), 3, "the expired unit came back");
+
+        address[] memory signers = _signerSet(3);
+        for (uint256 i = 0; i < 3; ++i) {
+            AuditResult memory result = _result();
+            result.reportHash = keccak256(abi.encode("migration dissent", i));
+            _attestAlone(disputing, result, _keyOf(signers[i]), _hash(disputing, result));
+        }
+        assertEq(uint8(hub.getJob(disputing).status), uint8(JobStatus.Disputed));
+        assertEq(accessVault.deepRemaining(requester), 4, "the disputed unit came back too");
+    }
+
+    // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------
 
@@ -1245,6 +1420,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
             result.reportHash = keccak256(abi.encode("disagreement", i));
             bytes[] memory signature = new bytes[](1);
             signature[0] = _signDigest(_keyOf(signers[i]), _hash(jobId, result));
+            vm.prank(auditorAddresses[0]);
             hub.attest(jobId, result, signature);
         }
     }
@@ -1257,6 +1433,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function _attestAlone(uint256 jobId, AuditResult memory result, uint256 key, bytes32 digest) internal {
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = _signDigest(key, digest);
+        vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, signatures);
     }
 
