@@ -287,7 +287,10 @@ contract Rehearse is Script {
         timelock.schedule(target, 0, payload, bytes32(0), _requirementSalt(), delay);
         vm.stopBroadcast();
         console2.log("scheduled, executable after", block.timestamp + delay);
-        console2.log("operation id             ", vm.toString(timelock.hashOperation(target, 0, payload, bytes32(0), _requirementSalt())));
+        console2.log(
+            "operation id             ",
+            vm.toString(timelock.hashOperation(target, 0, payload, bytes32(0), _requirementSalt()))
+        );
     }
 
     /// @notice Executes the scheduled `setRequirement` once the delay has elapsed.
