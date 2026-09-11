@@ -12,11 +12,8 @@ import {KAY9TeamVesting} from "../src/KAY9TeamVesting.sol";
 import {KAY9LiquidityLock} from "../src/KAY9LiquidityLock.sol";
 import {KAY9AuditorRegistry} from "../src/KAY9AuditorRegistry.sol";
 import {KAY9Registry} from "../src/KAY9Registry.sol";
-import {KAY9Pricing} from "../src/KAY9Pricing.sol";
 import {KAY9AccessVault} from "../src/KAY9AccessVault.sol";
 import {KAY9AuditHub} from "../src/KAY9AuditHub.sol";
-import {AggregatorV3Interface} from "../src/interfaces/external/AggregatorV3Interface.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {ChainAddresses, RobinhoodAddresses} from "./config/RobinhoodAddresses.sol";
 
 /// @notice The project-specific addresses and settings the deployment was given.
@@ -24,7 +21,6 @@ struct DeployConfig {
     address ownerSafe;
     address teamBeneficiary;
     address creatorFeeRecipient;
-    address ethUsdFeed;
     address initializerHook;
     /// @dev The timelock the live watchdog already answers to, or zero to deploy a new one.
     address existingTimelock;
@@ -49,7 +45,6 @@ struct Deployment {
     address teamVesting;
     address liquidityLock;
     address auditorRegistry;
-    address pricing;
     address accessVault;
     address reportRegistry;
     address auditHub;
@@ -69,11 +64,6 @@ contract Deploy is Script {
     uint256 internal constant TIMELOCK_DELAY = 48 hours;
 
     /// @notice The deep audit target, ten US dollars scaled by 1e8.
-    /// @notice The USD value of KAY9 a deep access lock must hold, scaled by 1e8.
-    uint256 internal constant DEEP_ACCESS_USD_E8 = 100e8;
-
-    /// @notice The USD value of KAY9 a forensic access lock must hold, scaled by 1e8.
-    uint256 internal constant FORENSIC_ACCESS_USD_E8 = 500e8;
 
     /// @notice Thrown when the mainnet confirmation is missing.
     error MainnetNotConfirmed();
@@ -149,18 +139,9 @@ contract Deploy is Script {
         KAY9AuditorRegistry auditorRegistry = cfg.existingAuditorRegistry != address(0)
             ? KAY9AuditorRegistry(cfg.existingAuditorRegistry)
             : new KAY9AuditorRegistry(address(timelock), auditors, cfg.auditorThreshold);
-        KAY9Pricing pricing = new KAY9Pricing(
-            address(timelock),
-            IPoolManager(book.poolManager),
-            address(genesis.token()),
-            AggregatorV3Interface(cfg.ethUsdFeed),
-            DEEP_ACCESS_USD_E8,
-            FORENSIC_ACCESS_USD_E8
-        );
-
         // The vault is deployed before the hub because the hub takes its address at construction.
         // It is owned by the deployer only long enough to point it at the hub, then handed over.
-        KAY9AccessVault accessVault = new KAY9AccessVault(deployer, IERC20(address(genesis.token())), pricing);
+        KAY9AccessVault accessVault = new KAY9AccessVault(deployer, IERC20(address(genesis.token())));
 
         // The audit protocol is normally already live: the watchdog deploys the registry and the
         // hub before the token exists, and `KAY9Registry` binds to its hub immutably, so there is
@@ -194,7 +175,6 @@ contract Deploy is Script {
             teamVesting: address(genesis.teamVesting()),
             liquidityLock: address(genesis.liquidityLock()),
             auditorRegistry: address(auditorRegistry),
-            pricing: address(pricing),
             accessVault: address(accessVault),
             reportRegistry: address(reportRegistry),
             auditHub: address(auditHub)
@@ -236,9 +216,6 @@ contract Deploy is Script {
         cfg.existingAuditHub = vm.envOr("EXISTING_AUDIT_HUB", address(0));
         _validateExistingWatchdog(cfg.existingTimelock, cfg.existingAuditorRegistry, cfg.auditorThreshold, auditors);
         _validateExistingAuditProtocol(cfg.existingReportRegistry, cfg.existingAuditHub);
-
-        cfg.ethUsdFeed = vm.envOr("ETH_USD_FEED", book.ethUsdFeed);
-        if (cfg.ethUsdFeed == address(0)) revert MissingAddress("ETH_USD_FEED");
 
         // The official pool is keyed on Uniswap's canonical InitializerHook, whose authorized
         // initializer is the LBP strategy. KAY9Genesis re-validates it in its constructor.
@@ -336,7 +313,6 @@ contract Deploy is Script {
         console2.log("KAY9TeamVesting        ", d.teamVesting);
         console2.log("KAY9LiquidityLock      ", d.liquidityLock);
         console2.log("KAY9AuditorRegistry    ", d.auditorRegistry);
-        console2.log("KAY9Pricing            ", d.pricing);
         console2.log("KAY9AccessVault        ", d.accessVault);
         console2.log("KAY9Registry           ", d.reportRegistry);
         console2.log("KAY9AuditHub           ", d.auditHub);
@@ -375,7 +351,6 @@ contract Deploy is Script {
         console2.log("FeeSplitter            ", book.feeSplitter);
         console2.log("BeneficiaryVault       ", book.beneficiaryVault);
         console2.log("InitializerHook        ", cfg.initializerHook);
-        console2.log("ETH/USD feed           ", cfg.ethUsdFeed);
 
         console2.log("=== bytecode hashes ===");
         console2.log("KAY9Token              ", vm.toString(d.token.codehash));
@@ -383,7 +358,6 @@ contract Deploy is Script {
         console2.log("KAY9Genesis            ", vm.toString(d.genesis.codehash));
         console2.log("KAY9LiquidityLock      ", vm.toString(d.liquidityLock.codehash));
         console2.log("KAY9AuditorRegistry    ", vm.toString(d.auditorRegistry.codehash));
-        console2.log("KAY9Pricing            ", vm.toString(d.pricing.codehash));
         console2.log("KAY9Registry           ", vm.toString(d.reportRegistry.codehash));
         console2.log("KAY9AuditHub           ", vm.toString(d.auditHub.codehash));
         console2.log("TimelockController     ", vm.toString(d.timelock.codehash));

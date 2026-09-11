@@ -35,14 +35,14 @@ src/
   KAY9Genesis.sol            launch vault: deploys the token, runs the fair launch, settles
   KAY9LiquidityLock.sol      one-way lock of the LP positions into the Uniswap FeeSplitter
   KAY9AuditorRegistry.sol    operator set and quorum, owned by the timelock
-  KAY9Pricing.sol            KAY9/ETH TWAP x Chainlink ETH/USD, owned by the timelock
   KAY9Registry.sol           append-only report log
   KAY9AuditHub.sol           quota-backed requests, attestation, quorum settlement
   KAY9AccessVault.sol        refundable access locks, tier allowances, quota restoration
   KAY9ScanRegistry.sol       append-only commitments to batches of watchdog scans
   libraries/                 tick, price, emission-schedule and calendar helpers
   interfaces/uniswap/        vendored Uniswap structs and the calls KAY9 makes
-  interfaces/external/       Chainlink AggregatorV3Interface
+  interfaces/external/       Chainlink AggregatorV3Interface, used only by the launch script to print
+                             implied FDV in USD; nothing in the access path reads a price feed
 script/
   Deploy.s.sol               mainnet and generic deployment
   DeployWatchdog.s.sol        watchdog registry and governance before the token exists

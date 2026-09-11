@@ -25,12 +25,10 @@ import {KAY9Genesis, LaunchParams} from "../../src/KAY9Genesis.sol";
 import {KAY9LiquidityLock} from "../../src/KAY9LiquidityLock.sol";
 import {KAY9AuditorRegistry} from "../../src/KAY9AuditorRegistry.sol";
 import {KAY9Registry} from "../../src/KAY9Registry.sol";
-import {KAY9Pricing} from "../../src/KAY9Pricing.sol";
 import {KAY9AccessVault} from "../../src/KAY9AccessVault.sol";
 import {KAY9AuditHub} from "../../src/KAY9AuditHub.sol";
 import {AuctionSteps} from "../../src/libraries/AuctionSteps.sol";
 import {AuctionPriceLib} from "../../src/libraries/AuctionPriceLib.sol";
-import {MockV3Aggregator} from "./MockV3Aggregator.sol";
 import {UniswapDeployment, UniswapStack} from "./UniswapStack.sol";
 
 /// @title Kay9TestBase
@@ -77,17 +75,11 @@ abstract contract Kay9TestBase is Test {
     /// @notice The report log.
     KAY9Registry internal reportRegistry;
 
-    /// @notice The price oracle.
-    KAY9Pricing internal pricing;
-
     /// @notice The access lock that holds deposits and quota.
     KAY9AccessVault internal accessVault;
 
     /// @notice The audit hub.
     KAY9AuditHub internal hub;
-
-    /// @notice The mock ETH/USD feed.
-    MockV3Aggregator internal ethUsdFeed;
 
     /// @notice A router used to move the pool price in tests.
     PoolSwapTest internal swapRouter;
@@ -104,11 +96,11 @@ abstract contract Kay9TestBase is Test {
     /// @notice The twelve-month unlock timestamp used by the fixture.
     uint64 internal unlock12m;
 
-    /// @notice The deep access USD target, one hundred dollars scaled by 1e8.
-    uint256 internal constant DEEP_ACCESS_USD_E8 = 100e8;
+    /// @notice The KAY9 a deep period locks, as the vault's constructor sets it.
+    uint256 internal constant DEEP_REQUIREMENT = 5_000e18;
 
-    /// @notice The forensic access USD target, five hundred dollars scaled by 1e8.
-    uint256 internal constant FORENSIC_ACCESS_USD_E8 = 500e8;
+    /// @notice The KAY9 a forensic period locks, as the vault's constructor sets it.
+    uint256 internal constant FORENSIC_REQUIREMENT = 10_000e18;
 
     /// @notice The deep access tier.
     /// @dev Mirrored as a constant rather than read from the contract so that a tier argument never
@@ -130,9 +122,6 @@ abstract contract Kay9TestBase is Test {
 
     /// @notice The requester declared itself an integration acting for someone else.
     uint8 internal constant KIND_INTEGRATION = 3;
-
-    /// @notice The ETH/USD answer the fixture starts with, 2500 dollars scaled by 1e8.
-    int256 internal constant INITIAL_ETH_USD = 2500e8;
 
     /// @notice The auditor private keys, deterministic so tests can sign.
     uint256[3] internal auditorKeys = [uint256(0xA11CE), uint256(0xB0B), uint256(0xC0FFEE)];
@@ -192,15 +181,10 @@ abstract contract Kay9TestBase is Test {
         address[] memory sorted = _sortedAuditors();
         auditorRegistry = new KAY9AuditorRegistry(address(timelock), sorted, 2);
 
-        ethUsdFeed = new MockV3Aggregator(8, INITIAL_ETH_USD);
-        pricing = new KAY9Pricing(
-            address(timelock), uni.poolManager, address(token), ethUsdFeed, DEEP_ACCESS_USD_E8, FORENSIC_ACCESS_USD_E8
-        );
-
         // The vault is deployed before the hub because the hub takes its address at construction,
         // so it is owned by the test long enough to point it at the hub, exactly as the deployment
         // script does, and then handed to the timelock.
-        accessVault = new KAY9AccessVault(address(this), IERC20(address(token)), pricing);
+        accessVault = new KAY9AccessVault(address(this), IERC20(address(token)));
 
         uint256 nonce = vm.getNonce(address(this));
         address predictedHub = vm.computeCreateAddress(address(this), nonce + 1);
@@ -313,12 +297,11 @@ abstract contract Kay9TestBase is Test {
 
     /// @notice Gives an account a live access period at a tier, funding it with exactly the
     ///         requirement so that a later balance assertion has nothing else in it.
-    /// @dev Requires the oracle to be warm, so callers run `_seedAndWarm` first.
     /// @param account The account to give access to.
     /// @param tier The tier to open: 1 deep, 2 forensic.
-    /// @return locked The KAY9 the vault took, which is the quote at the moment of the lock.
+    /// @return locked The KAY9 the vault took, which is the tier's requirement at that moment.
     function _grantAccess(address account, uint8 tier) internal returns (uint256 locked) {
-        (locked,) = accessVault.quoteLock(tier);
+        locked = accessVault.requirementOf(tier);
         _fundKay9(account, locked);
         vm.startPrank(account);
         token.approve(address(accessVault), type(uint256).max);
@@ -327,7 +310,7 @@ abstract contract Kay9TestBase is Test {
     }
 
     // -------------------------------------------------------------------------------------------
-    // Pool and oracle helpers
+    // Pool helpers
     // -------------------------------------------------------------------------------------------
 
     /// @notice Initializes the official pool at a KAY9-per-ETH price and seeds deep liquidity.
@@ -348,25 +331,6 @@ abstract contract Kay9TestBase is Test {
             ModifyLiquidityParams({tickLower: -600_000, tickUpper: 600_000, liquidityDelta: 1e21, salt: bytes32(0)}),
             ""
         );
-    }
-
-    /// @notice Seeds the pool, binds it to the oracle and fills the observation buffer.
-    /// @param kay9PerEth The desired KAY9-per-ETH price, scaled by 1e18.
-    function _seedAndWarm(uint256 kay9PerEth) internal {
-        _seedPool(kay9PerEth);
-        PoolKey memory key = _officialKey();
-        vm.prank(address(timelock));
-        pricing.configurePool(key);
-        _warmBuffer();
-    }
-
-    /// @notice Records enough evenly spaced samples to satisfy every window check.
-    function _warmBuffer() internal {
-        for (uint256 i = 0; i < 60; ++i) {
-            _advance(120);
-            pricing.poke();
-        }
-        ethUsdFeed.updateAnswer(ethUsdFeed.answer());
     }
 
     /// @notice Advances the clock and the block height together.

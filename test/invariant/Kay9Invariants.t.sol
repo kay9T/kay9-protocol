@@ -23,13 +23,11 @@ contract Kay9Invariants is Kay9TestBase {
     /// @inheritdoc Kay9TestBase
     function setUp() public override {
         super.setUp();
-        _seedAndWarm(2_500_000e18);
 
         // A one-hour service level keeps the expiry path reachable inside an invariant run, and the
         // shortest legal access period keeps renewal and unlocking reachable too.
         _governanceCall(address(hub), abi.encodeCall(KAY9AuditHub.setSla, (1 hours)));
         _governanceCall(address(accessVault), abi.encodeCall(KAY9AccessVault.setLockDuration, (7 days)));
-        _warmBuffer();
 
         initialSupply = token.totalSupply();
 
@@ -48,7 +46,7 @@ contract Kay9Invariants is Kay9TestBase {
         }
 
         handler =
-            new Kay9Handler(token, vesting, accessVault, hub, reportRegistry, pricing, ethUsdFeed, sortedKeys, actors);
+            new Kay9Handler(token, vesting, accessVault, hub, reportRegistry, sortedKeys, actors);
         targetContract(address(handler));
     }
 

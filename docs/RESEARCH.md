@@ -20,7 +20,7 @@ Everything below was checked against live RPC calls or the upstream source at th
   claim, migration) is on the chain's own clock: 4 h ≈ 144,000 blocks, and `KAY9Genesis` bounds a
   window at 36,000–864,000 blocks (one hour to one day).** Since 2026-09-11 `KAY9Genesis` reads
   that same clock through the same helper (`chainBlockNumber()`), as do the block fields recorded
-  by `KAY9AuditHub`, `KAY9Registry`, `KAY9ScanRegistry` and `KAY9Pricing`.
+  by `KAY9AuditHub`, `KAY9Registry` and `KAY9ScanRegistry`.
 
   **How this was established, and how it was got wrong twice.** A note dated 2026-09-07 said the
   auction used the chain's own clock; a note dated 2026-09-08 "corrected" it after measuring
@@ -120,6 +120,10 @@ product problem is ranking and filtering, not data availability, and a feed in a
 spend its entire scan budget on tokens nobody ever bought. See `docs/TOKEN_DISCOVERY.md`.
 
 ## Chainlink
+
+*Retired 2026-09-11: the lock is denominated in KAY9; no oracle in the access path. Kept as
+research. The launch script may still read this feed to print implied FDV in USD, which is
+display-only.*
 
 - `docs.chain.link` feed directory for Robinhood: ETH/USD proxy `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` (aggregator `0x6091E64eb7138EEF066a80FD3A0d7427B91f2721`), 8 decimals, heartbeat 86,400 s, deviation 0.5 %, feed category "low", SVR-shared path. Live call returned `description() = "ETH / USD"`, answer 2479.20 USD, `updatedAt` 17 minutes old.
 - No feed on testnet 46630 (no code at the proxy address) → testnet uses `MockV3Aggregator`.

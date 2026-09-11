@@ -8,8 +8,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {KAY9Pricing} from "./KAY9Pricing.sol";
-
 /// @notice One account's access period. The whole struct is rewritten by `lock` and `renew` and is
 ///         otherwise only touched by quota accounting.
 /// @dev `startedAt` identifies the period. The audit hub records it on a job so that restoring a
@@ -23,8 +21,6 @@ struct Access {
     uint32 deepUsed;
     uint32 forensicUsed;
     uint256 lockedKay9;
-    uint256 usdTargetE8;
-    uint256 quotedKay9;
 }
 
 /// @title KAY9AccessVault
@@ -32,10 +28,10 @@ struct Access {
 ///         depositor is entitled to. The deposit is a lock, not a payment: the vault never pays a
 ///         yield, never burns, never slashes, and has no path that sends a depositor's KAY9 to
 ///         anyone except the depositor.
-/// @dev The amount required is denominated in USD and converted to KAY9 once, when the period
-///      opens, then frozen. A later price move never asks for a top-up and never voids a live
-///      period. Conversely a period can only open while the oracle is trustworthy, so an outage
-///      cannot be used to buy access cheaply.
+/// @dev The amount required is a fixed number of KAY9 per tier, set by the owner through the
+///      timelock and bounded here. It is copied into the record when a period opens and never read
+///      again for that period: a later change asks nobody for a top-up, voids nothing, and
+///      `unlock` returns exactly what was locked. There is no oracle anywhere in this contract.
 /// @custom:security-contact security@kay9.io
 contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -44,7 +40,6 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @param account The depositor.
     /// @param tier The access tier.
     /// @param lockedKay9 The principal now held for the account.
-    /// @param usdTargetE8 The USD target the requirement came from, scaled by 1e8.
     /// @param startedAt The period start, which identifies the period.
     /// @param expiresAt The moment the principal becomes withdrawable.
     /// @param deepQuota Deep audits allowed in this period.
@@ -53,7 +48,6 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         address indexed account,
         uint8 tier,
         uint256 lockedKay9,
-        uint256 usdTargetE8,
         uint64 startedAt,
         uint64 expiresAt,
         uint32 deepQuota,
@@ -109,6 +103,11 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @param deepQuota The new deep allowance.
     /// @param forensicQuota The new forensic allowance.
     event QuotaConfigured(uint8 indexed tier, uint32 deepQuota, uint32 forensicQuota);
+
+    /// @notice Emitted when governance sets the KAY9 a tier requires. Live periods are unaffected.
+    /// @param tier The tier configured.
+    /// @param kay9 The requirement, in KAY9 wei.
+    event RequirementConfigured(uint8 indexed tier, uint256 kay9);
 
     /// @notice Emitted when governance changes the period length.
     /// @param newDuration The new period length, in seconds.
@@ -175,12 +174,12 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @notice Thrown when a quota outside the allowed range is configured.
     error InvalidQuota();
 
-    /// @notice Thrown when the oracle quotes zero KAY9 for a tier.
-    /// @dev A record with `lockedKay9 == 0` is how the vault spells "no record", so a period opened
-    ///      on a zero requirement would be invisible to `consume` and `unlock` alike. It can only
-    ///      happen if the USD target is set so low, or KAY9 priced so high, that the requirement
-    ///      truncates to nothing; refusing is the only answer that leaves the accounting coherent.
-    error ZeroRequirement();
+    /// @notice Thrown when governance proposes a requirement outside the bounds, or a forensic
+    ///         requirement below the deep one.
+    /// @dev A record with `lockedKay9 == 0` is how the vault spells "no record", so the floor is
+    ///      what keeps a period from ever opening on nothing; the ceiling keeps a typo from asking
+    ///      for a meaningful share of the supply.
+    error InvalidRequirement();
 
     /// @notice The deep access tier.
     uint8 public constant TIER_DEEP = 1;
@@ -197,11 +196,17 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @notice The largest per-period allowance governance may configure for either tier.
     uint32 public constant MAX_QUOTA = 1000;
 
+    /// @notice The smallest requirement governance may configure: one KAY9.
+    uint256 public constant MIN_REQUIREMENT = 1e18;
+
+    /// @notice The largest requirement governance may configure: one percent of the supply.
+    uint256 public constant MAX_REQUIREMENT = 10_000_000e18;
+
     /// @notice The token that is locked.
     IERC20 public immutable kay9;
 
-    /// @notice The oracle that converts the USD target into a KAY9 requirement.
-    KAY9Pricing public immutable pricing;
+    /// @notice The KAY9 a tier requires, in wei. Copied into a record when its period opens.
+    mapping(uint8 tier => uint256) public requirementOf;
 
     /// @notice The only address allowed to debit quota.
     address public auditHub;
@@ -233,12 +238,13 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     ///      own constructor and the two cannot both be immutable.
     /// @param owner_ The owner, which in production is the TimelockController.
     /// @param kay9_ The KAY9 token.
-    /// @param pricing_ The price oracle.
-    constructor(address owner_, IERC20 kay9_, KAY9Pricing pricing_) Ownable(owner_) {
-        if (address(kay9_) == address(0) || address(pricing_) == address(0)) revert ZeroAddress();
+    constructor(address owner_, IERC20 kay9_) Ownable(owner_) {
+        if (address(kay9_) == address(0)) revert ZeroAddress();
         kay9 = kay9_;
-        pricing = pricing_;
         lockDuration = 30 days;
+
+        requirementOf[TIER_DEEP] = 5_000e18;
+        requirementOf[TIER_FORENSIC] = 10_000e18;
 
         deepQuotaOf[TIER_DEEP] = 4;
         forensicQuotaOf[TIER_DEEP] = 0;
@@ -248,22 +254,8 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         emit LockDurationUpdated(30 days);
         emit QuotaConfigured(TIER_DEEP, 4, 0);
         emit QuotaConfigured(TIER_FORENSIC, 4, 1);
-    }
-
-    // -------------------------------------------------------------------------------------------
-    // Quoting
-    // -------------------------------------------------------------------------------------------
-
-    /// @notice The KAY9 a tier currently requires, and the USD target it came from.
-    /// @dev Bubbles the oracle's PricingUnavailable error when the price cannot be trusted, which
-    ///      is what stops a period opening cheaply during an outage.
-    /// @param tier The tier to quote.
-    /// @return kay9Amount The KAY9 that must be locked.
-    /// @return usdTargetE8 The USD target, scaled by 1e8.
-    function quoteLock(uint8 tier) public view returns (uint256 kay9Amount, uint256 usdTargetE8) {
-        _requireValidTier(tier);
-        kay9Amount = pricing.getPriceInKay9(tier);
-        usdTargetE8 = pricing.usdTarget(tier);
+        emit RequirementConfigured(TIER_DEEP, 5_000e18);
+        emit RequirementConfigured(TIER_FORENSIC, 10_000e18);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -280,8 +272,8 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
             revert AccessRecordExists(a.expiresAt);
         }
 
-        (uint256 required, uint256 usdTargetE8) = quoteLock(tier);
-        if (required == 0) revert ZeroRequirement();
+        _requireValidTier(tier);
+        uint256 required = requirementOf[tier];
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint64 startedAt = uint64(block.timestamp);
@@ -297,13 +289,11 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
             forensicQuota: forensicQuota,
             deepUsed: 0,
             forensicUsed: 0,
-            lockedKay9: required,
-            usdTargetE8: usdTargetE8,
-            quotedKay9: required
+            lockedKay9: required
         });
         totalLocked += required;
 
-        emit AccessLocked(msg.sender, tier, required, usdTargetE8, startedAt, expiresAt, deepQuota, forensicQuota);
+        emit AccessLocked(msg.sender, tier, required, startedAt, expiresAt, deepQuota, forensicQuota);
 
         kay9.safeTransferFrom(msg.sender, address(this), required);
     }
@@ -333,8 +323,8 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         if (a.lockedKay9 == 0) revert NoAccess();
         if (block.timestamp < a.expiresAt) revert NotExpired(a.expiresAt);
 
-        (uint256 required, uint256 usdTargetE8) = quoteLock(tier);
-        if (required == 0) revert ZeroRequirement();
+        _requireValidTier(tier);
+        uint256 required = requirementOf[tier];
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint256 held = a.lockedKay9;
@@ -352,8 +342,6 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         a.deepUsed = 0;
         a.forensicUsed = 0;
         a.lockedKay9 = required;
-        a.usdTargetE8 = usdTargetE8;
-        a.quotedKay9 = required;
         totalLocked = totalLocked - held + required;
 
         emit AccessRenewed(msg.sender, tier, required, toppedUp, returned, startedAt, expiresAt);
@@ -372,8 +360,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         if (block.timestamp >= a.expiresAt) revert NotExpired(a.expiresAt);
         if (a.tier != TIER_DEEP) revert NotAnUpgrade(a.tier);
 
-        (uint256 required, uint256 usdTargetE8) = quoteLock(TIER_FORENSIC);
-        if (required == 0) revert ZeroRequirement();
+        uint256 required = requirementOf[TIER_FORENSIC];
         if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
 
         uint256 held = a.lockedKay9;
@@ -386,8 +373,6 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         a.deepQuota = deepQuota > a.deepUsed ? deepQuota : a.deepUsed;
         a.forensicQuota = forensicQuota;
         a.lockedKay9 = required;
-        a.usdTargetE8 = usdTargetE8;
-        a.quotedKay9 = required;
         totalLocked = totalLocked - held + required;
 
         emit AccessUpgraded(msg.sender, required, toppedUp, forensicQuota);
@@ -397,7 +382,8 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice Returns the whole principal once the period has ended.
-    /// @dev Reads no oracle, so an outage can never trap a depositor's tokens.
+    /// @dev Reads nothing but the record, so no configuration change can ever trap a depositor's
+    ///      tokens.
     function unlock() external nonReentrant {
         Access storage a = _access[msg.sender];
         uint256 amount = a.lockedKay9;
@@ -558,6 +544,23 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         deepQuotaOf[tier] = deepQuota;
         forensicQuotaOf[tier] = forensicQuota;
         emit QuotaConfigured(tier, deepQuota, forensicQuota);
+    }
+
+    /// @notice Sets the KAY9 a tier requires for periods opened or renewed from now on. Live
+    ///         periods keep what they locked with, and `unlock` returns exactly that.
+    /// @dev Bounded so a typo can neither open periods on nothing nor ask for a meaningful share
+    ///      of the supply, and forensic can never require less than deep, which would make
+    ///      `upgrade` a way to get KAY9 back mid-period.
+    /// @param tier The tier to configure.
+    /// @param amount The requirement, in KAY9 wei, within [MIN_REQUIREMENT, MAX_REQUIREMENT].
+    function setRequirement(uint8 tier, uint256 amount) external onlyOwner {
+        _requireValidTier(tier);
+        if (amount < MIN_REQUIREMENT || amount > MAX_REQUIREMENT) revert InvalidRequirement();
+        uint256 deep = tier == TIER_DEEP ? amount : requirementOf[TIER_DEEP];
+        uint256 forensic = tier == TIER_FORENSIC ? amount : requirementOf[TIER_FORENSIC];
+        if (forensic < deep) revert InvalidRequirement();
+        requirementOf[tier] = amount;
+        emit RequirementConfigured(tier, amount);
     }
 
     /// @notice Sets the length of future periods. Live periods keep the expiry they opened with.

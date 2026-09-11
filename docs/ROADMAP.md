@@ -19,8 +19,8 @@ up behind it. That order is now inverted, and the inversion is not cosmetic.
 **What ships before there is a token at all:** token discovery, free automatic basic scans of
 whatever the chain launches, the permanent `KAY9ScanRegistry` record, the live feed, token pages,
 the badge, the integration standard and the documentation. None of it needs $KAY9 to exist, none
-of it asks anybody for money, and `DeployWatchdog.s.sol` deploys it with no token, no oracle and
-no access vault anywhere in it.
+of it asks anybody for money, and `DeployWatchdog.s.sol` deploys it with no token and no access
+vault anywhere in it.
 
 **What waits for TGE:** the access lock, and only the access lock. Deep and forensic audits are
 gated on locking KAY9, so they cannot go live in their final form until KAY9 exists. Everything
@@ -48,12 +48,12 @@ deliberately does not claim more than it says.
 | Item | State |
 |---|---|
 | Nine contracts, governance wiring | rewritten for the access model |
-| Contract tests | rewritten for `KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`, `KAY9Pricing`; invariant handler and reentrancy suite still being rewritten |
+| Contract tests | rewritten for `KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`; invariant handler and reentrancy suite still being rewritten |
 | Adversarial security review | done against the previous contracts; must be repeated against these |
 | Static analysis | done against the previous contracts; must be re-run, the vault has never been analysed |
 | Website | being rewritten for the access model |
 | Analysis engine, EVM and Solana adapters | written; tier boundaries being revised for a browser-side basic scan |
-| Auditor job, quorum signing, TWAP keeper | being rewritten for attestation and scale-to-zero |
+| Auditor job, quorum signing | being rewritten for attestation and scale-to-zero |
 | Continuous integration and deployment | GitHub Actions |
 | Token discovery | ten verified sources on Robinhood Chain; a live pass over 20,000 blocks found 1,459 tokens in nine requests |
 | `KAY9ScanRegistry` and Merkle batching | written and tested; deployed nowhere yet |
@@ -82,8 +82,8 @@ scan-pass logic, not yet deployed. Standing it up on a real schedule, against a 
 - **Re-run static analysis and the adversarial review.** Both were done against contracts that no
   longer exist. `KAY9AccessVault` holds other people's money and has never been through either.
 - **Testnet rehearsal.** Run the full cycle on Robinhood testnet 46630: deploy, launch, bid from
-  several accounts, end the auction, migrate, lock the position, settle the unsold supply, bind the
-  oracle — and then the access model: lock, request, attest with two auditors, dispute with three,
+  several accounts, end the auction, migrate, lock the position, settle the unsold supply — and
+  then the access model: lock, request, attest with two auditors, dispute with three,
   expire an unanswered job, renew, and unlock the whole principal. This is scripted in
   `docs/DEPLOYMENT.md` §3 and §3.1 and needs only a funded testnet key.
 - **Confirm the jurisdiction.** The owner confirms which jurisdiction they operate from and obtains
@@ -137,11 +137,12 @@ closes: on demonstrated readiness, not a calendar offset from a token event.
 
 The contracts ship at launch; this is turning the service on, in the order the dependencies force.
 
-- **Bind `KAY9Pricing` to the new pool** through the 48 hour timelock, then start the keeper. Until
-  the TWAP has 30 minutes of observations and passes every check, `quoteLock` reverts and no access
-  period can be opened. That refusal is deliberate: a manipulated or stale price would let somebody
-  open a period for a fraction of what it should require. The website must say the price is not
-  available yet rather than show a placeholder.
+- **Confirm the lock requirements.** The vault deploys with 5,000 KAY9 for deep and 10,000 KAY9
+  for forensic. There is no oracle to bind and no off-chain process to start: the requirement is a number
+  stored in the vault, and if the auction's clearing price makes the defaults unreasonable the
+  owner schedules `setRequirement` through the 48 hour timelock. The change is public for 48 hours
+  before it applies and never touches a period that is already open. The website reads
+  `requirementOf` from the vault and never hardcodes the amount.
 - **Complete the vault handover.** `accessVault.transferOwnership(timelock)` runs at deployment but
   is `Ownable2Step`, so the timelock's `acceptOwnership()` is a scheduled governance call that takes
   48 hours. Until it executes the deployer key still owns the vault. This is the first thing to
@@ -189,8 +190,8 @@ will be created to fake presence somewhere.
 
 ## 5. Months 3–6 — depth
 
-- **Forensic tier fully exercised.** The contracts ship with `TIER_FORENSIC` active at a $500 lock
-  target, one forensic and four deep audits per period, and `upgrade` from a live deep period. The
+- **Forensic tier fully exercised.** The contracts ship with `TIER_FORENSIC` active at a 10,000
+  KAY9 lock, one forensic and four deep audits per period, and `upgrade` from a live deep period. The
   work is the analysis depth behind it: deeper wallet clustering and funding-source tracing.
 - **Analysis coverage.** v3 and v4 position ownership so `UNLOCKED_LIQUIDITY` becomes measurable,
   creator-history liquidity checks, Solana AMM state decoding, and a read-only simulation path to
@@ -250,7 +251,7 @@ contracts cannot do is a liability.
   path. This cannot be added later.
 - **No pay-per-audit.** Not a fee, not a price per audit, not an escrow, not a treasury cut, not a
   burn of a requester's KAY9. Access is a lock and the principal comes back in full. This is not a
-  pricing decision waiting to be revisited: a per-audit fee puts the analyst on the payroll of the
+  decision waiting to be revisited: a per-audit fee puts the analyst on the payroll of the
   analysed, and every good score then looks bought whatever the code actually does. Reintroducing it
   would require a new `KAY9AuditHub`, and the reason not to would not have changed.
 - **No yield on locked KAY9.** No APY, no reward, no emission, no share of anything, and no
@@ -271,8 +272,8 @@ Fill these in and the relative weeks above become a calendar.
 | Graduation FDV, USD | to be set, reference 10,000 |
 | Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment: 10 May 2027 at the TGE time of day if TGE is 10 November 2026 |
 | Team unlock, tranche 3 | TGE + 12 calendar months, computed at deployment: 10 November 2027 at the TGE time of day if TGE is 10 November 2026 |
-| Deep access lock USD target | 100, changeable only through the 48 hour timelock |
-| Forensic access lock USD target | 500, changeable only through the 48 hour timelock |
+| Deep access lock | 5,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below 1 KAY9 |
+| Forensic access lock | 10,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below the deep lock, never above 10,000,000 KAY9 |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
 | Jurisdiction confirmed, with professional review | to be confirmed by the owner before launch |
 
@@ -300,7 +301,6 @@ promise: a slipped line moves the launch, not the gate.
 | Sun 8 Nov 2026 | Gate 1's 30 unattended days complete (from a 9 Oct start) | 1 |
 | Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
 | **Tue 10 Nov 2026** | `KAY9Genesis.launch()` signed; auction runs 4 h; migrate, lock and settle are permissionless afterwards | — |
-| Tue 10 Nov 2026 + 48 h | `configurePool` executes through the timelock; keeper starts; first access locks possible once the TWAP has 30 minutes of observations | — |
 
 What is *not* on this calendar is anything that depends on money the project does not have: the
 independent-operator move in §6 has a precondition, not a date, and stays that way.

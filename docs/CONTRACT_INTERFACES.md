@@ -144,55 +144,6 @@ contract KAY9AuditorRegistry is Ownable2Step {
 }
 ```
 
-## KAY9Pricing
-
-```solidity
-struct PricingStatus {
-    bool   available;          // all checks pass
-    uint256 twapKay9PerEthE18; // KAY9 per 1 ETH from TWAP (0 if unavailable)
-    uint256 spotKay9PerEthE18;
-    uint256 ethUsdE8;
-    uint64  feedUpdatedAt;
-    uint32  observationsInWindow;
-    uint64  oldestObservationAge;
-    uint64  largestGap;
-    uint128 poolLiquidity;
-    uint8   failureCode;       // 0 ok, 1 no pool, 2 too few observations, 3 gap too large, 4 low liquidity, 5 feed stale, 6 feed invalid, 7 window not covered
-}
-
-contract KAY9Pricing is Ownable2Step {
-    event Observed(uint64 indexed blockNumber, uint64 timestamp, int24 tick);
-    event PoolConfigured(bytes32 indexed poolId);
-    event TargetUpdated(uint8 indexed tier, uint256 usdE8);
-    event ParamsUpdated(uint32 twapWindow, uint32 minObservations, uint32 maxObservationGap, uint128 minPoolLiquidity, uint16 maxDeviationBps, uint32 maxFeedAge);
-
-    uint8 public constant TIER_BASIC = 0;   // free, never priced on-chain
-    uint8 public constant TIER_DEEP = 1;
-    uint8 public constant TIER_FORENSIC = 2;
-
-    uint24 public constant POOL_FEE = 10_000;                 // the official pool fee, 1 %
-    int24  public constant POOL_TICK_SPACING = 200;           // the official pool tick spacing
-    function configurePool(PoolKey calldata key) external;    // onlyOwner, once (pool must be initialized; must be native ETH / KAY9 at fee 10000, tick spacing 200; the hook is not constrained because `recover` builds a hookless pool)
-    function poke() external;                                 // permissionless observation; no-op inside the same block or inside MIN_OBSERVATION_INTERVAL
-    uint64 public constant MIN_OBSERVATION_INTERVAL = 4;      // seconds; CARDINALITY * this exceeds MAX_TWAP_WINDOW
-    function pricingStatus() external view returns (PricingStatus memory);
-    function getKay9UsdPriceE8() external view returns (uint256);   // reverts PricingUnavailable(code)
-    function getPriceInKay9(uint8 tier) external view returns (uint256);   // KAY9 that is currently worth usdTarget[tier]
-    function usdTarget(uint8 tier) external view returns (uint256);  // E8; 0 = tier inactive
-    function setUsdTarget(uint8 tier, uint256 usdE8) external;        // onlyOwner (Timelock)
-    function setParams(uint32 twapWindow, uint32 minObservations, uint32 maxObservationGap, uint128 minPoolLiquidity, uint16 maxDeviationBps, uint32 maxFeedAge) external; // onlyOwner
-    function observationCount() external view returns (uint256);
-    error PricingUnavailable(uint8 code);
-}
-```
-
-`usdTarget[tier]` is **the USD value of the KAY9 an access lock must hold**, not a fee. Nothing
-is ever charged; the oracle exists only to answer "how much KAY9 is worth $100 right now" at the
-moment a lock opens. Reference targets are `$100` for deep and `$500` for forensic
-(`100e8` and `500e8`). `getPriceInKay9` reverts `PricingUnavailable(code)` rather than returning
-a manipulable number, which is what stops a cheap lock during an oracle outage.
-
-
 ## KAY9AccessVault
 
 Access to the deep and forensic tiers is a **lock**, never a payment. The vault holds the
@@ -209,19 +160,18 @@ struct Access {
     uint32  forensicQuota;    // frozen at lock time
     uint32  deepUsed;
     uint32  forensicUsed;
-    uint256 lockedKay9;       // principal, the depositor's property
-    uint256 usdTargetE8;      // the USD target the requirement was derived from
-    uint256 quotedKay9;       // the requirement as quoted at lock time, frozen for the period
+    uint256 lockedKay9;       // principal, the depositor's property; the requirement the period opened with
 }
 
 contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
-    event AccessLocked(address indexed account, uint8 tier, uint256 lockedKay9, uint256 usdTargetE8, uint64 startedAt, uint64 expiresAt, uint32 deepQuota, uint32 forensicQuota);
+    event AccessLocked(address indexed account, uint8 tier, uint256 lockedKay9, uint64 startedAt, uint64 expiresAt, uint32 deepQuota, uint32 forensicQuota);
     event AccessRenewed(address indexed account, uint8 tier, uint256 lockedKay9, uint256 toppedUp, uint256 returned, uint64 startedAt, uint64 expiresAt);
     event AccessUpgraded(address indexed account, uint256 lockedKay9, uint256 toppedUp, uint32 forensicQuota);
     event AccessUnlocked(address indexed account, uint256 returnedKay9);
     event QuotaConsumed(address indexed account, uint8 tier, uint32 deepUsed, uint32 forensicUsed);
     event QuotaRestored(address indexed account, uint8 tier, uint32 deepUsed, uint32 forensicUsed);
     event QuotaConfigured(uint8 indexed tier, uint32 deepQuota, uint32 forensicQuota);
+    event RequirementConfigured(uint8 indexed tier, uint256 kay9);
     event LockDurationUpdated(uint64 seconds_);
     event AuditHubUpdated(address auditHub);
 
@@ -230,21 +180,24 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     uint64 public constant MIN_LOCK_DURATION = 7 days;
     uint64 public constant MAX_LOCK_DURATION = 365 days;
     uint32 public constant MAX_QUOTA = 1000;
+    uint256 public constant MIN_REQUIREMENT = 1e18;                // one KAY9
+    uint256 public constant MAX_REQUIREMENT = 10_000_000e18;       // 1 % of supply
 
-    IERC20      public immutable kay9;
-    KAY9Pricing public immutable pricing;
+    constructor(address owner_, IERC20 kay9_);                     // sets requirementOf[1] = 5_000e18, requirementOf[2] = 10_000e18
+
+    IERC20 public immutable kay9;
 
     address public auditHub;
     uint64  public lockDuration;                                   // default 30 days
+    mapping(uint8 tier => uint256) public requirementOf;           // KAY9 wei a tier locks; deep 5,000 KAY9, forensic 10,000 KAY9
     function deepQuotaOf(uint8 tier) external view returns (uint32);      // deep: 4, forensic: 4
     function forensicQuotaOf(uint8 tier) external view returns (uint32);  // deep: 0, forensic: 1
     uint256 public totalLocked;                                    // sum of every principal held
 
-    function quoteLock(uint8 tier) external view returns (uint256 kay9Amount, uint256 usdTargetE8);  // reverts PricingUnavailable
-    function lock(uint8 tier, uint256 maxKay9) external;           // requires no live period
+    function lock(uint8 tier, uint256 maxKay9) external;           // requires no live period; takes exactly requirementOf[tier]
     function lockWithPermit(uint8 tier, uint256 maxKay9, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
-    function renew(uint8 tier, uint256 maxKay9) external;          // only at or after expiresAt; requotes, tops up or returns the difference, resets quota
-    function upgrade(uint256 maxKay9) external;                    // deep to forensic inside a live period; deepUsed is preserved
+    function renew(uint8 tier, uint256 maxKay9) external;          // only at or after expiresAt; reads the current requirementOf[tier], tops up or returns the difference, resets quota
+    function upgrade(uint256 maxKay9) external;                    // deep to forensic inside a live period; tops up to the current requirementOf[2]; deepUsed is preserved
     function unlock() external;                                    // only at or after expiresAt; returns the whole principal
 
     function accessOf(address account) external view returns (Access memory);
@@ -260,6 +213,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     function setAuditHub(address auditHub_) external;              // onlyOwner (Timelock); the previous hub becomes a retired hub
     function setQuota(uint8 tier, uint32 deepQuota, uint32 forensicQuota) external;  // onlyOwner (Timelock)
     function setLockDuration(uint64 seconds_) external;            // onlyOwner (Timelock), within [MIN, MAX]
+    function setRequirement(uint8 tier, uint256 kay9) external;    // onlyOwner (Timelock); valid tier, within [MIN_REQUIREMENT, MAX_REQUIREMENT], and requirementOf[2] >= requirementOf[1] afterwards; never touches a live period
 
     error ZeroAddress();
     error InvalidTier(uint8 tier);
@@ -274,38 +228,41 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     error NotAnUpgrade(uint8 tier);
     error InvalidLockDuration();
     error InvalidQuota();
-    error ZeroRequirement();
+    error InvalidRequirement();
 }
 ```
 
 Rules that the tests pin and that the rest of the system may rely on:
 
-- **A period never opens on a zero requirement.** If the oracle's arithmetic ever quotes zero KAY9
-  for a tier — a USD target set so low, or a KAY9 price so high, that the requirement truncates —
-  `lock`, `renew` and `upgrade` revert `ZeroRequirement`. A record with `lockedKay9 == 0` is what
-  the vault uses to mean "no record", so writing one would open a period that `consume` could not
-  see; refusing is the only honest answer.
+- **A period never opens on a zero requirement.** `setRequirement` refuses anything below
+  `MIN_REQUIREMENT` (one KAY9) or above `MAX_REQUIREMENT` (10,000,000 KAY9), and refuses to leave
+  the forensic requirement below the deep one, with `InvalidRequirement`. A record with
+  `lockedKay9 == 0` is what the vault uses to mean "no record", so a zero requirement cannot be
+  configured at all.
+- **The requirement is a stored number, not a quote.** There is no price oracle in the vault: no
+  TWAP, no ETH/USD feed, nothing that has to be kept alive. `requirementOf(tier)` is what the site and every
+  integration reads; it is never hardcoded anywhere off chain.
 - **A retired hub can still give quota back.** `setAuditHub` marks the hub it replaces as retired.
   A retired hub may call `restore` and nothing else, so a job that was pending on the old hub when
   governance moved to a new one can still expire or dispute and return its unit to the period that
   paid for it. `consume` stays with the current hub alone.
 
-- **The requirement is frozen for the period.** `lock` reads the oracle once, stores `quotedKay9`
-  and never reads it again. A later KAY9 price move never asks the depositor for more, and never
-  shortens or voids a live period. `renew` requotes; that is the only place the number changes.
+- **The requirement is frozen for the period.** `lock` copies `requirementOf[tier]` into
+  `lockedKay9` and the record is never revisited. A later `setRequirement` never asks the depositor
+  for more, and never shortens or voids a live period. `renew` (after expiry) and `upgrade`
+  (mid-period, deep to forensic) are the only places the current requirement is read again.
 - **`lock` is only for an account with no record at all.** An account holding an ended period
   calls `renew` or `unlock`; `lock` reverts `AccessRecordExists` rather than misreporting the
   period as unexpired.
 - **`renew` is refused before `expiresAt`.** Otherwise a depositor could spend a quota, renew for
   nothing, and spend it again. Renewal at or after expiry needs no unlock-and-relock round trip:
-  the vault tops up or returns the difference against the fresh quote.
+  the vault tops up or returns the difference against the current requirement.
 - **`upgrade` preserves `deepUsed`.** Deep quota is identical in both tiers, so upgrading buys the
   forensic slot and nothing else.
 - **Every path out returns principal to the depositor.** `unlock` returns `lockedKay9` in full.
   There is no function, owner-only or otherwise, that sends a depositor's KAY9 anywhere else.
-- **`unlock` never touches the oracle.** An oracle outage cannot trap a depositor's tokens.
-- **A stale or untrusted oracle blocks new locks.** `lock`, `renew` and `upgrade` bubble
-  `PricingUnavailable`, so nobody gets a suspiciously cheap period during an outage.
+- **`unlock` reads nothing but the record.** It returns exactly `lockedKay9`; no configuration
+  change and no external contract can stand between a depositor and their principal.
 - **Quota is consumed on the chain, by the hub, not by any website.** `consume` is callable only by
   the configured audit hub and returns the period it debited, so a later `restore` cannot credit a
   different period. `restore` is accepted from the configured hub and from any hub it has replaced.
@@ -689,11 +646,6 @@ The Solidity implementation exposes these additional members. They are supersets
 // KAY9Genesis
 function markFailed() public;              // permissionless: records a failed launch (auction ended without graduation, or migration recovered) and starts the 48 h relaunch cooldown
 function previewLaunch(LaunchParams calldata p) external view returns (address predictedAuction, uint256 impliedFloorFdvWei, uint256 impliedGraduationRaiseWei);
-
-// KAY9Pricing
-event FeedUpdated(address feed);
-function setFeed(AggregatorV3Interface feed) external;   // onlyOwner (Timelock)
-function observationAt(uint256 age) external view returns (Observation memory);  // Observation {uint64 blockNumber; uint64 timestamp; int24 tick}
 
 // KAY9LiquidityLock
 function track(uint256 tokenId) external;  // permissionless: registers a position this contract already owns (PositionManager mints without a receiver callback)

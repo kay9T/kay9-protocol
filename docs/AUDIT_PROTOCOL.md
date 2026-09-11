@@ -34,7 +34,6 @@ so in its own disclaimer field.
 | `KAY9AuditHub` | Access check, signature verification, quorum, dispute, expiry | code, deployed and verified |
 | `KAY9Registry` | Append-only report history | code |
 | `KAY9AuditorRegistry` | Auditor set and threshold | Timelock (48 h) |
-| `KAY9Pricing` | KAY9 per USD, used only to size a lock | code plus Chainlink and the pool |
 
 Auditors hold no protocol state. Deleting every auditor's local storage changes nothing that is
 already on-chain; it only makes them re-scan. `docs/AUDITOR_NETWORK.md` describes where they run and
@@ -49,22 +48,24 @@ A request is authorised by a contract read, not by a website and not by a paymen
 ### 2.1 Opening a period
 
 ```
-quoteLock(uint8 tier) -> (uint256 kay9Amount, uint256 usdTargetE8)
+requirementOf(uint8 tier) -> uint256 kay9
 lock(uint8 tier, uint256 maxKay9)
 lockWithPermit(uint8 tier, uint256 maxKay9, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
 ```
 
-`quoteLock` reverts `PricingUnavailable(code)` when the oracle cannot be trusted, and `lock`
-bubbles that. The requirement is quoted once and then frozen for the period, so a later price move
-never asks the depositor for more and never voids a live period. `maxKay9` is slippage protection:
-the requirement is denominated in dollars but settled in a moving token, and the caller states the
-largest amount they will lock.
+`requirementOf(tier)` is a fixed amount of KAY9 stored in the vault, not a quote: there is no price
+oracle in the access path. `lock` copies it into the record as `lockedKay9` and the requirement is
+frozen for the period, so a later change never asks the depositor for more and never voids a live
+period. The owner can change the number only with `setRequirement` through the 48 hour timelock,
+within on-chain bounds (one KAY9 to 10,000,000 KAY9, forensic never below deep), and the change
+applies only to periods opened or renewed after it. `maxKay9` is the caller's bound against such a
+change executing between reading the requirement and sending the transaction.
 
 | Tier | Lock | Period | Allowance |
 |---|---|---|---|
 | Basic | none | — | unlimited, and it runs in the visitor's own browser (§2.6) |
-| Deep | KAY9 worth about $100 | 30 days | 4 deep audits |
-| Forensic | KAY9 worth about $500 | 30 days | 1 forensic **and** 4 deep audits |
+| Deep | lock 5,000 KAY9 | 30 days | 4 deep audits |
+| Forensic | lock 10,000 KAY9 | 30 days | 1 forensic **and** 4 deep audits |
 
 ### 2.2 Requesting
 
@@ -120,17 +121,17 @@ score, because it reaches nothing that computes one.
 
 ### 2.5 Ending or continuing a period
 
-`unlock()` returns the whole principal at or after expiry and reads no oracle at all, so an outage
-can never trap it. `renew(tier, maxKay9)` is refused before expiry — an early renewal would reset
-the allowance inside a period that was already opened once — and at or after expiry requotes and
-settles the difference without an unlock-and-relock round trip. `upgrade(maxKay9)` raises a live
-deep period to forensic, preserving `deepUsed`.
+`unlock()` returns exactly `lockedKay9` at or after expiry and reads nothing else, so nothing can
+trap it. `renew(tier, maxKay9)` is refused before expiry — an early renewal would reset the
+allowance inside a period that was already opened once — and at or after expiry reads the current
+requirement and settles the difference without an unlock-and-relock round trip. `upgrade(maxKay9)`
+raises a live deep period to forensic at the current forensic requirement, preserving `deepUsed`.
 
 ### 2.6 Free basic scans
 
 Basic scans never touch the chain and never touch this protocol. They run **in the visitor's own
 browser** against a public RPC: no wallet, no KAY9, no lock, no job, no on-chain record, and nobody
-to ask. That is a deliberate architectural choice rather than a pricing decision. The signals a
+to ask. That is a deliberate architectural choice rather than a commercial one. The signals a
 basic scan computes are the ones that can be honestly derived from a handful of direct contract
 reads (`docs/WATCHDOG.md` §2), and a person should not need anybody's permission to make reads that
 any node will serve them.
@@ -608,23 +609,22 @@ public `Disputed` state rather than into silence.
 ## 10. Using the protocol directly
 
 Everything below works against the deployed contracts with no website involved. Set `RPC`, `HUB`,
-`VAULT`, `REGISTRY`, `PRICING`, `KAY9` and `AUDITORS` to the deployed addresses.
+`VAULT`, `REGISTRY`, `KAY9` and `AUDITORS` to the deployed addresses.
 
 ### Open an access period
 
 ```bash
-# What does a deep access lock require right now, and is pricing available at all?
-cast call $VAULT   "quoteLock(uint8)(uint256,uint256)" 1 --rpc-url $RPC
-cast call $PRICING "pricingStatus()((bool,uint256,uint256,uint256,uint64,uint32,uint64,uint64,uint128,uint8))" --rpc-url $RPC
+# What does a deep access lock require right now? A stored number of KAY9, no oracle involved.
+cast call $VAULT "requirementOf(uint8)(uint256)" 1 --rpc-url $RPC
 
-# Lock, accepting at most 5% over the quote
-REQ=$(cast call $VAULT "quoteLock(uint8)(uint256,uint256)" 1 --rpc-url $RPC | head -1)
-MAX=$(python3 -c "print(int($REQ) * 105 // 100)")
-cast send $KAY9  "approve(address,uint256)" $VAULT $MAX --rpc-url $RPC --private-key $PK
-cast send $VAULT "lock(uint8,uint256)" 1 $MAX --rpc-url $RPC --private-key $PK
+# Lock exactly that amount. maxKay9 only guards against a timelocked setRequirement executing
+# between this read and the transaction; the vault takes requirementOf(tier), never more.
+REQ=$(cast call $VAULT "requirementOf(uint8)(uint256)" 1 --rpc-url $RPC)
+cast send $KAY9  "approve(address,uint256)" $VAULT $REQ --rpc-url $RPC --private-key $PK
+cast send $VAULT "lock(uint8,uint256)" 1 $REQ --rpc-url $RPC --private-key $PK
 
 # What do I hold, and what is left?
-cast call $VAULT "accessOf(address)((uint8,uint64,uint64,uint32,uint32,uint32,uint32,uint256,uint256,uint256))" $ME --rpc-url $RPC
+cast call $VAULT "accessOf(address)((uint8,uint64,uint64,uint32,uint32,uint32,uint32,uint256))" $ME --rpc-url $RPC
 cast call $VAULT "deepRemaining(address)(uint32)" $ME --rpc-url $RPC
 cast call $VAULT "canRequest(address,uint8)(bool)" $ME 1 --rpc-url $RPC
 ```

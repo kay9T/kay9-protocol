@@ -23,17 +23,14 @@ import {InitializerHook} from "../test/utils/InitializerHook.sol";
 import {KAY9Genesis} from "../src/KAY9Genesis.sol";
 import {KAY9AuditorRegistry} from "../src/KAY9AuditorRegistry.sol";
 import {KAY9Registry} from "../src/KAY9Registry.sol";
-import {KAY9Pricing} from "../src/KAY9Pricing.sol";
 import {KAY9AccessVault} from "../src/KAY9AccessVault.sol";
 import {KAY9AuditHub} from "../src/KAY9AuditHub.sol";
-import {AggregatorV3Interface} from "../src/interfaces/external/AggregatorV3Interface.sol";
-import {MockV3Aggregator} from "../test/utils/MockV3Aggregator.sol";
 import {ChainAddresses, RobinhoodAddresses} from "./config/RobinhoodAddresses.sol";
 
 /// @title Testnet
 /// @notice Rehearses the whole launch on Robinhood Chain testnet, where the Uniswap v4 core, the
 ///         position manager, Permit2 and the continuous clearing auction factory exist at the same
-///         addresses as mainnet but the liquidity launcher stack and the Chainlink feed do not.
+///         addresses as mainnet but the liquidity launcher stack does not.
 /// @dev The missing pieces are deployed from the same upstream sources the mainnet contracts were
 ///      built from, so the rehearsal covers every step of the real launch except that the launcher,
 ///      the strategy and the fee splitter live at different addresses. What testnet therefore does
@@ -53,20 +50,12 @@ contract Testnet is Script {
     uint128 internal constant MIN_LIQUIDITY_INCREASE = 1e20;
 
     /// @notice The deep audit target, ten US dollars scaled by 1e8.
-    /// @notice The USD value of KAY9 a deep access lock must hold, scaled by 1e8.
-    uint256 internal constant DEEP_ACCESS_USD_E8 = 100e8;
-
-    /// @notice The USD value of KAY9 a forensic access lock must hold, scaled by 1e8.
-    uint256 internal constant FORENSIC_ACCESS_USD_E8 = 500e8;
-
-    /// @notice The ETH price the mock feed starts at, in US dollars scaled by 1e8.
-    int256 internal constant MOCK_ETH_USD = 2500e8;
 
     /// @notice Thrown when the script is pointed at anything other than Robinhood Chain testnet.
     /// @param chainId The offending chain.
     error NotTestnet(uint256 chainId);
 
-    /// @notice Deploys the launcher stand-ins, the mock feed and the whole KAY9 protocol.
+    /// @notice Deploys the launcher stand-ins and the whole KAY9 protocol.
     function run() external {
         if (block.chainid != RobinhoodAddresses.TESTNET_CHAIN_ID) revert NotTestnet(block.chainid);
         ChainAddresses memory book = RobinhoodAddresses.testnet();
@@ -103,8 +92,6 @@ contract Testnet is Script {
             useCallback: true
         });
         FeeSplitter feeSplitter = new FeeSplitter(positionManager, splits);
-
-        MockV3Aggregator feed = new MockV3Aggregator(8, MOCK_ETH_USD);
 
         address[] memory single = new address[](1);
         single[0] = ownerSafe;
@@ -143,18 +130,9 @@ contract Testnet is Script {
         address[] memory auditors = vm.envOr("AUDITORS", ",", single);
         KAY9AuditorRegistry auditorRegistry =
             new KAY9AuditorRegistry(address(timelock), auditors, uint8(vm.envOr("AUDITOR_THRESHOLD", uint256(1))));
-        KAY9Pricing pricing = new KAY9Pricing(
-            address(timelock),
-            poolManager,
-            address(genesis.token()),
-            AggregatorV3Interface(address(feed)),
-            DEEP_ACCESS_USD_E8,
-            FORENSIC_ACCESS_USD_E8
-        );
-
         // The vault is deployed before the hub because the hub takes its address at construction.
         // It is owned by the deployer only long enough to point it at the hub, then handed over.
-        KAY9AccessVault accessVault = new KAY9AccessVault(deployer, IERC20(address(genesis.token())), pricing);
+        KAY9AccessVault accessVault = new KAY9AccessVault(deployer, IERC20(address(genesis.token())));
 
         // The registry and the hub reference each other, so the hub address is predicted from the
         // broadcasting key's nonce and verified immediately after both are on-chain.
@@ -176,14 +154,12 @@ contract Testnet is Script {
         console2.log("FeeSplitter       (rehearsal copy)", address(feeSplitter));
         console2.log("BeneficiaryVault  (rehearsal copy)", address(vault));
         console2.log("Compounding       (rehearsal copy)", address(compounding));
-        console2.log("MockV3Aggregator                  ", address(feed));
         console2.log("TimelockController                ", address(timelock));
         console2.log("KAY9Genesis                       ", address(genesis));
         console2.log("KAY9Token                         ", address(genesis.token()));
         console2.log("KAY9TeamVesting                   ", address(genesis.teamVesting()));
         console2.log("KAY9LiquidityLock                 ", address(genesis.liquidityLock()));
         console2.log("KAY9AuditorRegistry               ", address(auditorRegistry));
-        console2.log("KAY9Pricing                       ", address(pricing));
         console2.log("KAY9Registry                      ", address(reportRegistry));
         console2.log("KAY9AuditHub                      ", address(auditHub));
         console2.log("CCA factory (canonical)           ", book.auctionFactory);

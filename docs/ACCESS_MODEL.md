@@ -13,7 +13,7 @@ This document is the specification of that model. The contract is
 
 | | Basic scan | Deep audit | Forensic audit |
 |---|---|---|---|
-| Cost | free | lock KAY9 worth about $100 | lock KAY9 worth about $500 |
+| Lock | none | lock 5,000 KAY9 | lock 10,000 KAY9 |
 | Period | none | 30 days | 30 days |
 | Allowance | unlimited, runs in your browser | 4 deep audits | 1 forensic **and** 4 deep audits |
 | Runs where | the visitor's own browser against a public RPC | the auditor network | the auditor network |
@@ -35,8 +35,10 @@ requester, so there is nothing for a score to be a payment for.
 
 **It prices the product in the wrong unit.** A fee denominated in KAY9 becomes unusable if KAY9
 appreciates, and denominating it in dollars means charging a moving amount of KAY9 for the same
-thing. A lock has the same problem in principle and solves it in practice, because the amount is
-fixed only for the duration of one period and requoted at renewal.
+thing, which needs a price oracle that somebody has to keep alive. A lock sidesteps the question:
+nothing is charged, so the amount can be a plain number of KAY9 that the owner adjusts through the
+timelock when the token's price has moved enough to matter, and a change never reaches a live
+period.
 
 **It makes the treasury a beneficiary of volume.** Nothing in KAY9 should reward publishing more
 audits rather than better ones.
@@ -54,36 +56,34 @@ exhaust it. The allowance exists for that reason and no other.
   reduce the principal.
 - **Not burnable.** The vault never calls `burn`.
 - **Not custodial in spirit and not in code.** The contract has no owner function that can move a
-  depositor's principal. `setAuditHub`, `setQuota` and `setLockDuration` are the entire owner
-  surface, all behind the 48 hour timelock, and none of them touches a balance.
+  depositor's principal. `setAuditHub`, `setRequirement`, `setQuota` and `setLockDuration` are the
+  entire owner surface, all behind the 48 hour timelock, and none of them touches a balance.
 
 The website says exactly this, in these words: **no APY, no yield, your KAY9 remains yours.**
 
 ## 4. How the required amount is fixed
 
-The vault holds a USD target per tier, `$100` and `$500`, stored in `KAY9Pricing.usdTarget` scaled
-by 1e8 and changeable only through the timelock. When a period opens, the vault asks the oracle how
-much KAY9 that target is worth and takes exactly that amount.
+The vault holds a fixed KAY9 amount per tier in `requirementOf[tier]`: 5,000 KAY9 for deep and
+10,000 KAY9 for forensic at deployment. The owner can change either number with `setRequirement`,
+through the 48 hour timelock, and the contract bounds the change: never below one KAY9, never above
+10,000,000 KAY9 (1 % of supply), and the forensic requirement never below the deep one.
 
-Then it stops asking. The quoted amount is written into the access record as `quotedKay9` and the
-oracle is never consulted again for that period. Three consequences, all deliberate:
+When a period opens, `lock` copies the current `requirementOf[tier]` into the access record as
+`lockedKay9` and takes exactly that amount. From then on the record is the only thing that matters
+for that period. Three consequences, all deliberate:
 
-- If KAY9 doubles the next day, nobody is asked for more, and nobody's period is shortened or
-  voided.
-- If KAY9 halves the next day, nobody is refunded either. The period was opened at the price of the
-  day.
-- At renewal the question is asked again, so the amount tracks the token over time without ever
+- A requirement change never reaches a live period. Nobody is asked for more, nobody's period is
+  shortened or voided, and nobody is refunded early either.
+- At renewal the current requirement is read again and the difference settled in whichever
+  direction it went, so the amount can track the owner's adjustments over time without ever
   moving underneath a live period.
+- `unlock` returns exactly `lockedKay9` and reads nothing else.
 
-The oracle is `KAY9Pricing`, which is a 30 minute TWAP over the official Uniswap v4 pool combined
-with a Chainlink ETH/USD feed, with a spot deviation cap, a minimum liquidity floor, an observation
-gap check and a feed staleness check. It **fails closed**: when any check does not pass it reverts
-rather than returning a number.
-
-That failure mode is the point. A manipulated or stale price would let somebody open a period for
-far less KAY9 than it should cost, so `lock`, `renew` and `upgrade` all refuse while the oracle is
-untrusted. `unlock` does the opposite and never reads the oracle at all, because an outage must
-never be able to trap a depositor's tokens.
+There is no price oracle in the access path: no TWAP, no ETH/USD feed, no off-chain process that
+has to be funded to keep quoting. That is a trade-off made on purpose. An oracle would have tied every new
+lock to a price feed somebody has to keep alive forever; a stored number instead means the dollar
+value of a lock drifts with the token's price until the owner adjusts it, and because the
+adjustment goes through the timelock it is public for 48 hours before it applies.
 
 ## 5. The period
 
@@ -97,7 +97,7 @@ audits on day one, renew on day two for no extra KAY9, and spend four more. The 
 unbounded for anyone willing to send one extra transaction. Renewal at or after expiry has no such
 problem: the period genuinely ended.
 
-Renewal does not require unlocking first. `renew` requotes the requirement and settles the
+Renewal does not require unlocking first. `renew` reads the current requirement and settles the
 difference in whichever direction it went, so the depositor stays in the vault across the boundary.
 
 **Upgrading is allowed mid-period**, deep to forensic only. It tops the lock up to the forensic
@@ -125,7 +125,7 @@ depositor has renewed in the meantime, the restore is a silent no-op.
 
 | Parameter | Who | Delay | Affects live periods |
 |---|---|---|---|
-| USD target per tier | owner via timelock | 48 h | no |
+| KAY9 required per tier (`setRequirement`, bounded 1 KAY9 to 10,000,000 KAY9, forensic never below deep) | owner via timelock | 48 h | no |
 | Audits allowed per period | owner via timelock | 48 h | no |
 | Period length | owner via timelock | 48 h | no |
 | Which hub may move quota | owner via timelock | 48 h | quota only, never principal; the replaced hub keeps `restore` so its pending jobs still refund |
@@ -137,15 +137,14 @@ than by inspection.
 
 ## 8. Before the token exists
 
-Everything above needs a KAY9 price, and there is no price before the launch auction has produced
-one and the oracle has thirty minutes of observations. Until then `quoteLock` reverts, and the
-website must say so rather than invent a number.
+Everything above needs KAY9, and there is no KAY9 before the launch auction. The vault cannot be
+deployed before the token, and `requestAudit` refuses with `AccessVaultNotSet` until governance
+binds one.
 
-The prelaunch surface is therefore: basic scan works, the access tiers are described with their USD
-targets and their allowances, and where the required KAY9 amount would go the page says the price
-is not available yet and explains that a locked amount is quoted from a manipulation-resistant
-price that does not exist before trading does. No placeholder figures, no fake charts, no
-countdown-to-buy.
+The prelaunch surface is therefore: basic scan works, the access tiers are described with their
+allowances, and the required amount is shown only once it can be read from `requirementOf` on a
+deployed vault — never hardcoded, never with a dollar value attached. No placeholder figures, no
+fake charts, no countdown-to-buy.
 
 ### 8.1 Deep and forensic audits in beta, without a lock
 

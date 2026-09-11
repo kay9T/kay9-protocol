@@ -25,10 +25,10 @@ decision follows from that:
 - **Value has one exit.** Launch tokens leave the vault only into the auction and from there only
   into a permanently locked liquidity position. ETH the vault receives can only be spent into the
   pool. There is no withdraw function on any KAY9 contract.
-- **Prices fail closed, in one direction only.** Every oracle safety check makes the price
-  unavailable and reverts rather than returning a degraded number. Failing closed blocks a *new*
-  access lock; it never blocks the return of an existing one, because `KAY9AccessVault.unlock` reads
-  no oracle at all.
+- **There is no price oracle in the access path.** The lock requirement is a fixed number of KAY9
+  per tier stored in the vault, changed only through the timelock and bounded on chain. Nothing a
+  market does, and nothing an external feed does, can change what a period requires or what
+  `KAY9AccessVault.unlock` returns.
 - **A depositor's principal is not the protocol's.** No function on `KAY9AccessVault` — owner-only,
   timelocked or otherwise — sends a depositor's KAY9 to any address other than the depositor. There
   is no fee, no escrow, no treasury share, no burn, no reward and no slashing anywhere in the audit
@@ -88,8 +88,8 @@ the website displays before the fact from the `LaunchConfigured` event.
 **A compromised timelock proposer.** Can schedule any of the audit protocol's administrative calls,
 but the schedule is public for 48 hours before it can execute. It still cannot move a depositor's
 principal, redirect anything, or alter a recorded report, because no such function exists. Its whole
-reach over the vault is three setters: the hub address, the per-period allowances, and the length of
-*future* periods. `test_noPathSendsAPrincipalAnywhereButHome` exercises all three at once, from the
+reach over the vault is four setters: the hub address, the KAY9 amount *future* periods lock, the
+per-period allowances, and the length of *future* periods. `test_noPathSendsAPrincipalAnywhereButHome` exercises the setters at once, from the
 owner, while also holding the hub role, and asserts the principal never moved and is still returned
 in full.
 
@@ -98,10 +98,11 @@ result on its own. Governance removes it through the timelock, and a removed aud
 refused from that moment. `attestationOf[jobId][signer]` means a single key cannot be counted twice
 for one job, whether it tries within one transaction or across two.
 
-**A market manipulator.** Can move the pool price within a block. The lock requirement uses the
-conservative KAY9-per-ETH reading, so a pump cannot shrink a lock, and the spot reading is capped
-above the TWAP so a dump cannot inflate one without bound. Thin or stale markets make the price
-unavailable rather than wrong, which refuses a new lock and never touches an existing one.
+**A market manipulator.** Can move the pool price within a block, and it changes nothing in the
+access model: the lock requirement is a stored number of KAY9, not a quote, so no pump, dump, thin
+market or stale market can shrink or inflate a lock. The residual risk is a *stale number* — a
+requirement the owner has not adjusted after a large price move — and that number is public, as is
+every change to it, 48 hours before the change applies.
 
 **Two dishonest auditors.** Can commit a false result. The quorum does not protect against this and
 does not claim to; §2.6 states what that means for the launch configuration in particular.
@@ -123,7 +124,7 @@ a call from the position's current PositionManager owner, and the lock registers
 transaction in which it hands the position on, so the window is closed by construction.
 
 **Anyone at all.** `settle`, `recover`, `markFailed`, `lock` and `lockAll` on the liquidity lock,
-`track`, `poke`, `release` and `markExpired` are permissionless by design. None of them can direct
+`track`, `release` and `markExpired` are permissionless by design. None of them can direct
 value anywhere the contract did not already fix, and none of them can put anything into the report
 log. `attest` and `publishWatchdogReport` are **not** open to anyone: the submitter must itself be an
 active auditor, because `reportURI` is the one field the signatures do not cover and whoever lands
@@ -139,9 +140,6 @@ inside the threat model the quorum already accepts. `test_onlyAnActiveAuditorMay
   strategy, the continuous clearing auction factory, the FeeSplitter, the beneficiary vault and
   Uniswap v4 itself are audited third-party code that KAY9 integrates with rather than reimplements.
   Local tests run against those exact sources; fork tests run against the deployed bytecode.
-- **Chainlink's ETH/USD feed is honest within its published parameters.** The contract enforces a
-  positive answer, a complete round, and an age below `maxFeedAge`, which is set above the feed's
-  86,400 s heartbeat.
 - **Robinhood Chain's sequencer does not reorder the world arbitrarily.** The auction is
   block-based; a sequencer that censored bids could influence the clearing price. This is a property
   of the chain, not of KAY9.
@@ -159,14 +157,14 @@ Each row is a property the contract must have, the reason it must have it, and t
 
 | Threat | Why it would matter | What prevents it |
 |---|---|---|
-| An oracle outage traps principal | A depositor's tokens would be hostage to a Chainlink feed or a thin pool — a liveness failure turning into a loss | `unlock` reads no oracle at all. Only `lock`, `renew` and `upgrade` quote, and only those can fail. `test_anOracleOutageBlocksNewLocksButNeverTrapsPrincipal`, `test_aStaleFeedBlocksLockingAndStillReleasesPrincipal`, `test_aColdObservationBufferStillReleasesPrincipal` |
-| A stale or manipulated price allows a cheap lock | Somebody would buy a month of forensic access for a fraction of $500, and the allowance is the only thing bounding analysis cost | Every safety check makes the price *unavailable*, and the quoting paths bubble `PricingUnavailable` rather than returning a number. The conservative reading is the one that asks for more KAY9, never less |
-| A live period is repriced underneath its depositor | A price move could otherwise demand a top-up, or void access somebody already holds | The requirement is quoted once and stored as `quotedKay9`; the oracle is never consulted again for that period. `test_theRequirementIsFrozenForThePeriod`, `test_aFallingRequirementDoesNotRefundMidPeriod` |
+| An external dependency traps principal | A depositor's tokens would be hostage to a price feed, a thin pool or an off-chain process — a liveness failure turning into a loss | No oracle: the requirement is a stored number changed only through the timelock. `unlock` reads nothing but the record and returns exactly `lockedKay9`. `test_aRequirementChangeNeverTouchesALivePeriodAndUnlockReturnsExactly` |
+| A manipulated price allows a cheap lock | Somebody would buy a month of forensic access for a fraction of the requirement, and the allowance is the only thing bounding analysis cost | No oracle: the requirement is a stored number changed only through the timelock. The risk is a stale number, which is public 48 h before it applies; `setRequirement` is bounded to 1 KAY9 – 10,000,000 KAY9 with forensic never below deep. `test_setRequirementIsBoundedAndForensicNeverBelowDeep`, `test_setRequirementIsOwnerOnly` |
+| A live period is repriced underneath its depositor | A requirement change could otherwise demand a top-up, or void access somebody already holds | `lock` copies `requirementOf[tier]` into `lockedKay9` and the record is never revisited; only `renew` (after expiry) and `upgrade` read the current number. `test_theRequirementIsFrozenForThePeriod`, `test_aFallingRequirementDoesNotRefundMidPeriod`, `test_aRequirementChangeNeverTouchesALivePeriodAndUnlockReturnsExactly` |
 | Quota is farmed by renewing early | Four deep audits, a renewal the next day for no extra KAY9, four more — the allowance would be unbounded for the price of one transaction | `renew` reverts before `expiresAt`. `test_renewRevertsBeforeExpiry` |
 | Quota is reset by upgrading | Upgrading deep to forensic would otherwise hand back a spent deep allowance for the price of the difference | `upgrade` carries `deepUsed` across and leaves the expiry alone. `test_upgradePreservesDeepUsedAndKeepsTheExpiry` |
 | A restore credits a later period | A unit spent in one period could reappear in the next one, which did not pay for it | `restore` takes the period explicitly and is a silent no-op unless `startedAt` still matches. The hub records `accessPeriodStartedAt` on the job for exactly this |
 | A hub migration strands pending jobs | If governance ever points the vault at a new hub, a job still open on the old one has to expire or dispute, and both hand the unit back through `restore`; a vault that only knew one hub made those transitions revert forever | `setAuditHub` retires the hub it replaces rather than forgetting it. A retired hub may `restore` and nothing else; `consume` stays with the current hub. `test_aRetiredHubMayRestoreButNeverConsume`, `test_aJobPendingAcrossAHubMigrationStillExpiresAndRefunds` |
-| A period opens on a zero requirement | `lockedKay9 == 0` is how the vault spells "no record", so a quote that truncated to zero would open a period `consume` and `unlock` could not see, or let `renew`/`upgrade` wipe a live principal to nothing | `lock`, `renew` and `upgrade` revert `ZeroRequirement`. `test/review/VaultZeroRequirement.t.sol` |
+| A period opens on a zero requirement | `lockedKay9 == 0` is how the vault spells "no record", so a zero requirement would open a period `consume` and `unlock` could not see, or let `renew`/`upgrade` wipe a live principal to nothing | A zero requirement cannot be configured: `setRequirement` reverts `InvalidRequirement` below `MIN_REQUIREMENT` (one KAY9). `test_setRequirementIsBoundedAndForensicNeverBelowDeep` |
 | Something other than the hub moves quota | Any address that could call `consume`/`restore` would control who gets audits | Both revert `NotTheAuditHub` for every caller but the configured hub, the owner included. `test_onlyTheHubCanMoveQuota` |
 | The vault owes more than it holds | Somebody's unlock would fail at the worst possible moment | `totalLocked` is maintained on every path and the balance is asserted against it: `test_vaultBalanceAlwaysEqualsTotalLockedAndNobodyGainsTokens`, `invariant_vaultIsAlwaysSolvent` |
 | A governance change reaches a live period | An owner could shorten a period or cut an allowance somebody is already inside | Allowances and expiry are copied into the record at lock time. `test_changingTheDurationDoesNotMoveALivePeriod` |
@@ -186,7 +184,6 @@ Each row is a property the contract must have, the reason it must have it, and t
 | Who requested an audit changes its score | The whole point of removing payment would be lost | Nothing derived from the requester reaches the scoring path, and the hub records the declaration verbatim. `test_creatorAndIndependentRequestsAreIdenticalExceptForMetadata`, `test_declaredRequesterKindIsRecordedVerbatim` |
 | Governance strands a job mid-flight | A pause could leave a spent quota unit with no way to a result | Pausing blocks new requests only; attestations, disputes and expiries are never pausable. `test_pauseOnlyBlocksNewRequests` |
 | A stranger chooses the recorded `reportURI` | The URI is outside the signed struct, so whoever submits two honest signatures picks the pointer the permanent record carries | Only an active auditor may call `attest` or `publishWatchdogReport`; `markExpired` stays open because nothing reaches the log through it. `test_onlyAnActiveAuditorMaySubmitSignatures`, `test_aRemovedAuditorCannotSubmitEither`, `test_anyoneMayStillExpireAJob` |
-| The oracle is bound to the wrong market | A pool at another fee or spacing is a different, thinner market that a governance mistake could bind the lock requirement to | `configurePool` requires native ETH / KAY9 at fee 10000 and tick spacing 200; the hook is free because `recover` builds a hookless pool. `test_configurePoolRejectsAnotherFeeOrSpacing` |
 
 ### 2.6 The limitation we will not bury
 
@@ -272,18 +269,11 @@ sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (external review of the launch pa
 | The owner cannot touch recovered ETH | `test_ownerCannotTouchRecoveredEth` |
 | Reentrancy: a hostile token cannot double-release a tranche, open two periods, withdraw twice, or mint quota | `KAY9Reentrancy.t.sol::test_vestingResistsReentrantToken`, `test_lockCannotBeReenteredToOpenASecondPeriod`, `test_unlockCannotBeReenteredToWithdrawTwice`, `test_quotaCannotBeSpentWhileUnlocking`, `test_reenteringALockCannotCreateExtraQuota` |
 | Hostile ERC721 rejected by the lock | `test_lockRejectsHostileNft` |
-| Access lock worked examples, deep and forensic | `KAY9Pricing.t.sol::test_workedExampleDeepAccessLock`, `test_workedExampleForensicAccessLock`, `test_workedExampleDeepAccessLockAtOneCent` |
-| An inactive tier is a configuration answer, not an outage | `test_inactiveTierReverts` |
-| TWAP manipulation resistance | `test_singleBlockSpikeBarelyMovesTwap`, `test_pumpCannotCheapenAudits` |
-| Dump capped by the deviation bound | `test_dumpIsCappedByMaxDeviation` |
-| Oracle staleness and invalid answers | `test_failureStaleFeed`, `test_failureInvalidFeed`, `test_failureRevertingFeed` |
-| Low liquidity rejected | `test_failureLowLiquidity` |
-| Too few observations, gap too large, window not covered | `test_failureTooFewObservations`, `test_failureGapTooLarge`, `test_failureWindowNotCovered` |
-| One observation per block | `test_oneObservationPerBlock` |
-| Price math fuzz | `testFuzz_priceMathIsConsistent` |
-| The lock takes exactly the quoted requirement | `KAY9AccessVault.t.sol::test_lockTakesExactlyTheQuotedRequirement`, `test_forensicLockTakesTheForensicRequirement` |
+| The lock takes exactly the stored requirement | `KAY9AccessVault.t.sol::test_lockTakesExactlyTheQuotedRequirement`, `test_forensicLockTakesTheForensicRequirement`, `test_lockRefusesARequirementAboveTheMaximum` |
 | The requirement is frozen for the period | `test_theRequirementIsFrozenForThePeriod`, `test_aFallingRequirementDoesNotRefundMidPeriod` |
-| An oracle outage blocks new locks and never traps principal | `test_anOracleOutageBlocksNewLocksButNeverTrapsPrincipal`, `test_aStaleFeedBlocksLockingAndStillReleasesPrincipal`, `test_aColdObservationBufferStillReleasesPrincipal` |
+| `setRequirement` is bounded, owner-only, and forensic never drops below deep | `test_setRequirementIsBoundedAndForensicNeverBelowDeep`, `test_setRequirementIsOwnerOnly` |
+| A requirement change never touches a live period and `unlock` returns exactly what was locked | `test_aRequirementChangeNeverTouchesALivePeriodAndUnlockReturnsExactly` |
+| Renewal settles the difference against the current requirement in both directions | `test_renewTopsUpWhenTheRequirementRose`, `test_renewReturnsTheDifferenceWhenTheRequirementFell` |
 | No path sends a principal anywhere but home | `test_noPathSendsAPrincipalAnywhereButHome` |
 | Using the whole allowance still returns the whole principal | `test_usingEveryAuditStillReturnsTheWholePrincipal` |
 | A donation is never paid out as yield | `test_aDonationIsNeverPaidOutAsYield` |
@@ -328,7 +318,6 @@ sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (external review of the launch pa
 | Recovery refuses a squatted recovery pool priced by a stranger | `test_recoveryRefusesASquattedPoolPrice` |
 | Recovery accepts a squatted recovery pool already at the clearing price | `test_recoveryAcceptsASquattedPoolAtTheClearingPrice` |
 | The deployed InitializerHook gates the real pool on mainnet | `test/fork/RobinhoodFork.t.sol::test_fork_fullLaunchCycle` |
-| Flooding the observation buffer cannot starve the TWAP window | `test/review/PricingBufferGrief.t.sol::test_bufferFloodCannotStarveTheWindow` |
 | A watchdog report cannot be replayed into the log | `test/review/AuditHubReplay.t.sol::test_watchdogReportCannotBeReplayed` |
 | Full launch on real mainnet code | `test/fork/RobinhoodFork.t.sol::test_fork_fullLaunchCycle` |
 | Non-graduation on real mainnet code | `test_fork_nonGraduation` |
@@ -338,8 +327,8 @@ sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (external review of the launch pa
 
 The offline suite deploys the genuine Uniswap v4 core and periphery, the genuine liquidity launcher,
 LBP strategy and continuous clearing auction, the genuine FeeSplitter and beneficiary vault, and the
-genuine Permit2, rather than mocks. The only stand-in is `MockV3Aggregator` for the Chainlink feed,
-which has no on-chain counterpart to imitate beyond its interface.
+genuine Permit2, rather than mocks. Nothing in the access path needs a stand-in, because nothing in
+it reads a price feed.
 
 The static analysis results in §5 were produced against the previous contracts and must be re-run
 before launch: `KAY9AccessVault` did not exist when they were taken, and `KAY9AuditHub` no longer
@@ -386,7 +375,7 @@ is a false positive on a rounding modulo. The full list with a disposition for e
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
 | Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
-| Low | `timestamp` | 21 | Intentional: vesting, cooldowns, periods, service levels, oracle windows |
+| Low | `timestamp` | 21 | Intentional: vesting, cooldowns, periods, service levels |
 | Informational | `unindexed-event-address` | 3 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
 
 What static analysis cannot see, and a rehearsal did: `block.number` on this Orbit chain is the
@@ -454,22 +443,14 @@ already locked and there is nothing left to relaunch. Severity: informational.
 considers absurd. The contract cannot judge that; the website shows the implied numbers from
 `LaunchConfigured` before the auction starts, and bidders decide. Severity: accepted by design.
 
-**Oracle liveness depends on a keeper.** `poke()` is permissionless, but if nobody calls it for
-longer than `maxObservationGap` the price becomes unavailable and no new access period can be opened
-until the buffer refills. This is a liveness failure, not a safety failure, and it fails closed. It
-does not affect anybody who already holds a period: requests keep working, and `unlock` reads no
-oracle, so principal is never held hostage to the keeper. The keeper pokes every minute and running
-several is safe and encouraged. Severity: low.
-
-**A sustained pool manipulation can still bend the TWAP.** `poke()` samples `slot0` at the instant it
-is called, not at the start of the block, so an attacker who swaps, pokes and swaps back inside one
-transaction writes a manipulated sample. One sample out of a 30-minute window is noise; poisoning the
-average means repeating that for the whole window at a 1 % pool fee each way against the locked
-full-range position. The prize for succeeding is a discount on a **refundable** lock of about $100
-or $500 — not a payment, but a deposit that comes back — so the attacker spends real fees to
-temporarily under-collateralise access they get no yield on. The sampling floor bounds how many
-samples an attacker can plant, and the `max(twap, spot)` rule means the spot leg has to be
-manipulated in the same transaction as the lock as well. Severity: low, economically unattractive.
+**The lock requirement can go stale.** The requirement is a fixed number of KAY9, so a large move
+in the token's price changes the dollar value of a lock until the owner adjusts the number through
+the timelock. A requirement that has become very cheap weakens the allowance as a cost bound; one
+that has become very expensive shuts people out. Neither touches principal or a live period, and
+every adjustment is public for 48 hours before it applies. The contract bounds the number to
+1 KAY9 – 10,000,000 KAY9 with forensic never below deep, so a mistaken change cannot make a lock
+free or take more than 1 % of supply. Severity: low, accepted in exchange for having no oracle and
+no off-chain process to keep alive in the access path.
 
 **The launch auditor set is not three independent operators.** Two of the three auditor identities
 run inside accounts the project owner controls, so the two-of-three quorum protects against one
@@ -477,8 +458,8 @@ dishonest auditor and not against a compromise of the owner's own accounts. §2.
 full, including what it does and does not make possible. Severity: real, disclosed, and mitigated by
 migration rather than by a mechanism.
 
-**Governance can change what a period costs and allows, but only ahead of time.** The timelock can
-raise a USD target or cut an allowance. Every such change is public for 48 hours before it can
+**Governance can change what a period locks and allows, but only ahead of time.** The timelock can
+raise a lock requirement or cut an allowance. Every such change is public for 48 hours before it can
 execute, and none of it reaches a live period, because the requirement, the allowances and the
 expiry are all copied into the access record when the period opens. The residual power is over
 periods that have not started yet. Severity: accepted by design.

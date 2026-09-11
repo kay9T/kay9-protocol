@@ -71,7 +71,6 @@ contract KAY9AuditHubTest is Kay9TestBase {
     function setUp() public override {
         super.setUp();
         chainKey = reportRegistry.CHAIN_ROBINHOOD();
-        _seedAndWarm(2_500_000e18);
         _grantAccess(requester, TIER_FORENSIC);
     }
 

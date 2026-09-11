@@ -45,13 +45,15 @@ back. `docs/ACCESS_MODEL.md` is the specification.
 | Tier | What it requires | Period | Allowance per period |
 |---|---|---|---|
 | Basic scan | nothing: no lock, no wallet, no KAY9 | — | unlimited, and it runs in the visitor's own browser |
-| Deep | lock KAY9 worth about $100 | 30 days | 4 deep audits |
-| Forensic | lock KAY9 worth about $500 | 30 days | 1 forensic **and** 4 deep audits |
+| Deep | lock 5,000 KAY9 | 30 days | 4 deep audits |
+| Forensic | lock 10,000 KAY9 | 30 days | 1 forensic **and** 4 deep audits |
 
-The USD figures are targets held in `KAY9Pricing` and changeable only through the 48 hour timelock.
-The KAY9 amount is quoted from the target once, when the period opens, and then frozen for that
-period; renewal requotes. That is why a KAY9 price move never asks a live depositor for more and
-never refunds one either.
+The amounts are fixed in KAY9, held in the vault as `requirementOf[tier]` and changeable only
+through the 48 hour timelock, within on-chain bounds (one KAY9 to 10,000,000 KAY9, forensic never
+below deep). A period copies the requirement when it opens and keeps it; a later change applies
+only to periods opened or renewed afterwards, and `unlock` returns exactly what was locked. There
+is no price oracle in the access path, so the dollar value of a lock moves with the token until the
+owner adjusts the number, and every adjustment is public for 48 hours before it applies.
 
 **Nothing flows.** No KAY9 moves from a requester to an auditor, to a treasury, or to a burn
 address. Any diagram showing such a flow describes a model this protocol does not implement and is

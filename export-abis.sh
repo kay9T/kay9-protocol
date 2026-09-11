@@ -37,7 +37,6 @@ TARGETS=(
   "src/KAY9Genesis.sol:KAY9Genesis"
   "src/KAY9LiquidityLock.sol:KAY9LiquidityLock"
   "src/KAY9AuditorRegistry.sol:KAY9AuditorRegistry"
-  "src/KAY9Pricing.sol:KAY9Pricing"
   "src/KAY9Registry.sol:KAY9Registry"
   "src/KAY9AuditHub.sol:KAY9AuditHub"
   "src/KAY9AccessVault.sol:KAY9AccessVault"

@@ -10,8 +10,6 @@ import {KAY9TeamVesting} from "../../src/KAY9TeamVesting.sol";
 import {KAY9AccessVault} from "../../src/KAY9AccessVault.sol";
 import {KAY9AuditHub, JobStatus, Job} from "../../src/KAY9AuditHub.sol";
 import {KAY9Registry, AuditResult} from "../../src/KAY9Registry.sol";
-import {KAY9Pricing} from "../../src/KAY9Pricing.sol";
-import {MockV3Aggregator} from "../utils/MockV3Aggregator.sol";
 
 /// @title Kay9Handler
 /// @notice Drives the protocol through the actions an outsider can take, so the invariant runs
@@ -35,12 +33,6 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
 
     /// @notice The report log.
     KAY9Registry public immutable registry;
-
-    /// @notice The price oracle.
-    KAY9Pricing public immutable pricing;
-
-    /// @notice The mock ETH/USD feed, kept fresh alongside the pool observations.
-    MockV3Aggregator public immutable feed;
 
     /// @notice The job ids the handler has opened.
     uint256[] public jobIds;
@@ -87,8 +79,6 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
     /// @param accessVault_ The access lock.
     /// @param hub_ The audit hub.
     /// @param registry_ The report log.
-    /// @param pricing_ The price oracle.
-    /// @param feed_ The mock ETH/USD feed.
     /// @param sortedAuditorKeys The auditor keys, ordered by ascending signer address.
     /// @param actors_ The funded actors, which have already approved the vault.
     constructor(
@@ -97,8 +87,6 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
         KAY9AccessVault accessVault_,
         KAY9AuditHub hub_,
         KAY9Registry registry_,
-        KAY9Pricing pricing_,
-        MockV3Aggregator feed_,
         uint256[] memory sortedAuditorKeys,
         address[] memory actors_
     ) {
@@ -107,8 +95,6 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
         accessVault = accessVault_;
         hub = hub_;
         registry = registry_;
-        pricing = pricing_;
-        feed = feed_;
         auditorKeys = sortedAuditorKeys;
         actors = actors_;
     }
@@ -290,59 +276,41 @@ contract Kay9Handler is CommonBase, StdCheats, StdUtils {
     }
 
     // -------------------------------------------------------------------------------------------
-    // Time and the oracle
+    // Time and governance
     // -------------------------------------------------------------------------------------------
 
-    /// @notice Records a pool observation.
-    function poke() external {
-        try pricing.poke() {} catch {}
-    }
-
-    /// @notice Moves the clock forward and keeps the oracle warm.
-    /// @dev The step is two minutes at most, matching the keeper cadence the oracle is configured
-    ///      for, and is followed by a sample. A run that only ever saw an unavailable oracle would
-    ///      prove nothing, so the clock is advanced the way the real deployment advances it.
+    /// @notice Moves the clock forward by up to two minutes.
     /// @param secondsToAdvance The number of seconds to move forward.
     function warp(uint32 secondsToAdvance) external {
         uint256 delta = bound(secondsToAdvance, 1, 120);
         vm.warp(vm.getBlockTimestamp() + delta);
         vm.roll(vm.getBlockNumber() + delta * 10);
-        try pricing.poke() {} catch {}
-        feed.updateAnswer(feed.answer());
     }
 
-    /// @notice Moves the clock past the service level, keeping the oracle warm the whole way.
-    /// @dev Modelled on the audit worker's keeper, which samples the pool about once a minute.
+    /// @notice Moves the clock past the service level.
     function warpPastSla() external {
-        for (uint256 i = 0; i < 40; ++i) {
-            vm.warp(vm.getBlockTimestamp() + 120);
-            vm.roll(vm.getBlockNumber() + 1200);
-            try pricing.poke() {} catch {}
-        }
-        feed.updateAnswer(feed.answer());
+        vm.warp(vm.getBlockTimestamp() + 40 * 120);
+        vm.roll(vm.getBlockNumber() + 40 * 1200);
     }
 
-    /// @notice Moves the clock past a whole access period, then refills the observation buffer.
-    /// @dev A month cannot be walked two minutes at a time inside an invariant run, so the jump is
-    ///      taken in one step and the oracle is warmed afterwards, which is exactly the state a
-    ///      deployment is in when its keeper restarts.
+    /// @notice Moves the clock past a whole access period.
     function warpPastAccessPeriod() external {
         uint64 duration = accessVault.lockDuration();
         vm.warp(vm.getBlockTimestamp() + duration + 1);
         vm.roll(vm.getBlockNumber() + 1000);
-        for (uint256 i = 0; i < 15; ++i) {
-            vm.warp(vm.getBlockTimestamp() + 150);
-            vm.roll(vm.getBlockNumber() + 1500);
-            try pricing.poke() {} catch {}
-        }
-        feed.updateAnswer(feed.answer());
     }
 
-    /// @notice Moves the KAY9 price by moving the ETH price, so the requirement really does change.
-    /// @param answerSeed Selects the new ETH/USD answer.
-    function moveThePrice(uint256 answerSeed) external {
-        uint256 answer = bound(answerSeed, 500e8, 10_000e8);
-        feed.updateAnswer(int256(answer));
+    /// @notice Governance moves a tier's requirement anywhere in its bounds. A live period must not
+    ///         notice, and the vault must still hold exactly what it owes.
+    /// @param tier The tier, bounded to the two that exist.
+    /// @param kay9 The requirement, bounded to what the vault accepts.
+    function setRequirement(uint8 tier, uint256 kay9) external {
+        uint8 t = uint8(bound(tier, 1, 2));
+        uint256 lo = t == 1 ? accessVault.MIN_REQUIREMENT() : accessVault.requirementOf(1);
+        uint256 hi = t == 1 ? accessVault.requirementOf(2) : accessVault.MAX_REQUIREMENT();
+        uint256 amount = bound(kay9, lo, hi);
+        vm.prank(accessVault.owner());
+        accessVault.setRequirement(t, amount);
     }
 
     /// @notice Releases whatever the team schedule has unlocked.
