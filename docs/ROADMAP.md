@@ -120,6 +120,7 @@ the final launch report in `docs/DEPLOYMENT.md` §6.
 | T-0 + 4h | `KAY9LiquidityLock.lock()` makes the liquidity permanent | anyone |
 | T-0 + 4h | `KAY9Genesis.settle()` turns unsold supply into locked liquidity | anyone |
 | T-0 + 4h | Team tranche 1 unlocks, 10,000,000 KAY9, 1 percent | permissionless release |
+| T-0 + 4h | The Buy panel on kay9.io enables itself: it reads `launchState` 3 and quotes ETH → KAY9 through the Uniswap v4 quoter and Universal Router; the owner checks once that the Uniswap app's deep link opens the right chain and token | automatic; owner checks |
 
 Everything after the owner's single signature is permissionless. That is the point: no step
 depends on the team being alive, awake or willing.
@@ -163,6 +164,10 @@ with `metadata is not found`. Until an auditor runs or rents one, creator-histor
 unmeasured rather than clean.
 
 ## 4. Months 2–3 — reading, integrating, monitoring
+
+- **Selling from kay9.io.** The launch-day Buy panel takes ETH in and needs no token approval. The
+  reverse direction (KAY9 → ETH) needs Permit2 and an approval flow; it ships here, after the same
+  review the rest of the swap path gets, and until then the panel says "to sell, use Uniswap".
 
 The audience beyond the individual buyer is builders. This phase is about being consumable.
 

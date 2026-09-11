@@ -45,8 +45,7 @@ contract Kay9Invariants is Kay9TestBase {
             sortedKeys[i] = _keyOf(sorted[i]);
         }
 
-        handler =
-            new Kay9Handler(token, vesting, accessVault, hub, reportRegistry, sortedKeys, actors);
+        handler = new Kay9Handler(token, vesting, accessVault, hub, reportRegistry, sortedKeys, actors);
         targetContract(address(handler));
     }
 
