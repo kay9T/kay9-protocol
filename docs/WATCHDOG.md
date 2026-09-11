@@ -127,25 +127,30 @@ invalid.
 | ERC-20 / SPL metadata and supply | yes | yes | yes |
 | Pool discovery and depth | yes | yes | yes |
 | Solana top accounts | yes, one direct read | yes | yes |
-| EVM holder fold and concentration | no | yes | yes |
-| Transfer log scanning | no | yes | yes |
-| Log budget | — | 2,500 logs / 12 requests | 8,000 logs / 40 requests |
-| Recent-activity window | — | 3 hours | 24 hours |
-| Early-buyer window | — | 30 minutes after deployment | 2 hours |
-| Holders sampled from the fold | — | 50 | 100 |
+| EVM holder fold and concentration | yes, exact or nothing, within 150 calls | yes | yes |
+| Transfer log scanning | the balance fold only; activity windows are cut from it | separate early and recent windows | separate early and recent windows |
+| Log budget | 2,500 logs kept per window, no extra requests | 2,500 logs / 12 requests | 8,000 logs / 40 requests |
+| Recent-activity window | 3 hours, only when the fold reached the pinned block | 3 hours | 24 hours |
+| Early-buyer window | 30 minutes after the first transfer, only when the fold read past it | 30 minutes after deployment | 2 hours |
+| Holders sampled from the fold | 20 | 50 | 100 |
 | Creator identity and history | no | yes | yes |
-| Wallet clustering | none | shared first sender of this token | plus first native funder lookups |
-| Balance-fold getLogs calls | — | 120 | 400 |
+| Wallet clustering | shared first sender of this token, from the whole fold, only on a complete fold | shared first sender of this token | plus first native funder lookups |
+| Balance-fold getLogs calls | 150 | 400 | 1,000 |
 | Creation-block receipts | — | 200 | 600 |
 | Explorer timeout | — | 8 s | 12 s |
 
 Windows are expressed in seconds and converted to blocks using the chain's block time, so 30 minutes
 is 18,000 blocks on Robinhood (0.1 s blocks) and 600 blocks on BNB (3 s blocks).
 
-Tier limits are honest limits. At `basic` the report carries `EVM_ACTIVITY_NOT_SCANNED`, and the
-`holder`, `insider`, `trading`, `bot` and `creator` categories sit at the uncertainty floor of 35
-with the reason stated. A free scan says what it did not look at; it never scores an unexamined
-category as zero.
+Tier limits are honest limits, and they are stated per window rather than per tier. At `basic`
+the `creator` category always sits at the uncertainty floor (`EVM_CREATOR_NOT_SCANNED`: the
+deployer needs an archive node or an address index, and a browser has neither). `holder`,
+`insider`, `trading` and `bot` are measured whenever the fold read the blocks they need, and
+otherwise carry `EVM_HOLDERS_UNAVAILABLE`, `EVM_EARLY_WINDOW_NOT_COVERED` or
+`EVM_RECENT_WINDOW_NOT_COVERED` with the covered height as evidence, and sit at the floor. The
+report body names the floored categories in `uncertainCategories`, and the site draws those as
+"not measured" rather than as a number. A free scan says what it did not look at; it never scores
+an unexamined category as zero, and it never scores a partly read window at all.
 
 ### 2.4 Why the line falls exactly there
 
@@ -157,14 +162,30 @@ Everything on the basic list is a **bounded set of direct reads** — `eth_call`
 or visibly fails. Nobody should need permission to make reads a public node will serve them anyway,
 so those signals require no lock, no wallet and no KAY9.
 
-The EVM holder fold sits on the other side of the line for a reason about correctness rather than
-billing. The fold is **exact or it is nothing**: a balance set built from a truncated log range is
-not a smaller answer, it is a wrong one, because a holder whose only incoming transfer fell outside
-the range disappears and every remaining holder then looks larger than they are (§3.4). On Robinhood
-mainnet a fold over an active token is 30 to 40 sequential `eth_getLogs` calls (§2.5), so a browser
-tab closed, backgrounded or rate-limited halfway through would produce exactly the partial answer
-the engine refuses to produce. Putting the fold behind the deep tier means it always runs somewhere
-that can finish it, and always reconciles against `totalSupply()` before anything is trusted.
+The EVM holder fold is on the basic list too, with one rule that makes it safe to attempt in a
+browser: it is **exact or it is nothing**. A balance set built from a truncated log range is not a
+smaller answer, it is a wrong one, because a holder whose only incoming transfer fell outside the
+range disappears and every remaining holder then looks larger than they are (§3.4). On Robinhood
+mainnet a fold over an active token is 30 to 40 sequential `eth_getLogs` calls (§2.5); the basic
+tier allows 150, and a tab closed, backgrounded or rate-limited halfway through produces no
+holder distribution and a signal saying why, never the partial answer. A fold that finishes is
+reconciled against `totalSupply()` before anything is trusted, exactly as the deep tier's is.
+
+The activity heuristics — early buyers, bundles, round-trip patterns, funding clusters — ride on
+that same fold at no extra request (`fold-activity.ts`, since engine 1.5.0). The fold sees every
+transfer on its way up the chain; a collector keeps the early window, the recent window and each
+recipient's first sender. The exact-or-nothing rule then applies per window: the early window is
+scored only if the fold read past its end, the recent window only if the fold reached the pinned
+block, clustering only on a complete fold. A window the fold did not finish is reported as not
+covered, with the height it reached, and stays at the uncertainty floor. Nothing here is a
+"bounded scan" of a fraction of history presented as a result: the bound is the window's own
+definition, and the window is either read in full or not reported.
+
+What stays out of the basic tier is the deployer. Locating a deployment needs historical state a
+pruned public node refuses, and a deployer's other launches need an address index no node has. The
+site may show what a public explorer says about an address beside the report, but nothing an
+explorer says enters the score at this tier, because a score that changes with a third-party
+index is not one anybody can recompute from the chain.
 
 Solana is the instructive exception. `getTokenLargestAccounts` is a single direct read, so top
 accounts *are* a basic-tier signal there while EVM concentration is not. The boundary follows the
@@ -682,9 +703,10 @@ Stated plainly, because a scanner that hides its limits is worse than no scanner
   fifth-of-a-decile.
 - **Solana is narrower than EVM.** Mint state, top accounts, two AMM layouts and bounded mint initialization
   lookup are implemented. Executable trade verification, creator reputation and activity outside the bounded sample remain unmeasured.
-- **Basic-tier reports know less, and say so.** They do no log folding at all, so five of the seven
-  categories sit at the uncertainty floor. A basic scan with no flags has not found an asset to be
-  clean; it has looked at the part of the asset it could read in a browser.
+- **Basic-tier reports know less, and say so.** The deployer is never identified at this tier, and
+  any window the holder fold did not read in full is reported as not covered, so the categories
+  behind those sit at the uncertainty floor and the body names them. A basic scan with no flags has
+  not found an asset to be clean; it has looked at the part of the asset it could read in a browser.
 - **The quorum protects against one dishonest auditor, not two.** And at launch two of the three
   auditor identities run inside accounts the project owner controls
   (`docs/AUDITOR_NETWORK.md` §4.3), so it does not protect against a compromise of the owner's own
