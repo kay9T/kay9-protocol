@@ -169,7 +169,6 @@ contract KAY9ReentrancyTest is Kay9TestBase {
     function setUp() public override {
         super.setUp();
         hostile = new HostileToken();
-        _seedAndWarm(2_500_000e18);
         _deployHostileStack();
     }
 
@@ -191,7 +190,7 @@ contract KAY9ReentrancyTest is Kay9TestBase {
 
     /// @notice A hostile token cannot re-enter a lock to open a second period.
     function test_lockCannotBeReenteredToOpenASecondPeriod() public {
-        (uint256 required,) = hostileVault.quoteLock(TIER_DEEP);
+        uint256 required = hostileVault.requirementOf(TIER_DEEP);
         hostile.mint(address(this), required * 4);
         hostile.approve(address(hostileVault), type(uint256).max);
 
@@ -206,7 +205,7 @@ contract KAY9ReentrancyTest is Kay9TestBase {
 
     /// @notice A hostile token cannot re-enter an unlock to withdraw the same principal twice.
     function test_unlockCannotBeReenteredToWithdrawTwice() public {
-        (uint256 required,) = hostileVault.quoteLock(TIER_DEEP);
+        uint256 required = hostileVault.requirementOf(TIER_DEEP);
         hostile.mint(address(this), required);
         hostile.approve(address(hostileVault), type(uint256).max);
         hostileVault.lock(TIER_DEEP, type(uint256).max);
@@ -228,7 +227,7 @@ contract KAY9ReentrancyTest is Kay9TestBase {
         ReentrantDepositor depositor = new ReentrantDepositor(
             hostileVault, hostileHub, IERC20(address(hostile)), reportRegistry.CHAIN_ROBINHOOD()
         );
-        (uint256 required,) = hostileVault.quoteLock(TIER_DEEP);
+        uint256 required = hostileVault.requirementOf(TIER_DEEP);
         hostile.mint(address(depositor), required);
         depositor.openAccess(TIER_DEEP);
 
@@ -251,7 +250,7 @@ contract KAY9ReentrancyTest is Kay9TestBase {
         ReentrantDepositor depositor = new ReentrantDepositor(
             hostileVault, hostileHub, IERC20(address(hostile)), reportRegistry.CHAIN_ROBINHOOD()
         );
-        (uint256 required,) = hostileVault.quoteLock(TIER_DEEP);
+        uint256 required = hostileVault.requirementOf(TIER_DEEP);
         hostile.mint(address(depositor), required);
 
         depositor.arm();
@@ -279,10 +278,8 @@ contract KAY9ReentrancyTest is Kay9TestBase {
     }
 
     /// @notice Deploys a vault, hub and registry whose locked asset is the hostile token.
-    /// @dev The oracle is the real one: it quotes a KAY9 requirement whatever token the vault holds,
-    ///      which is all these tests need from it.
     function _deployHostileStack() internal {
-        hostileVault = new KAY9AccessVault(address(this), IERC20(address(hostile)), pricing);
+        hostileVault = new KAY9AccessVault(address(this), IERC20(address(hostile)));
 
         uint256 nonce = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), nonce + 1);

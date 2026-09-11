@@ -3,7 +3,7 @@
 The watchdog is the part of KAY9 that actually looks at chains. It is two npm workspaces:
 
 - **`services/watchdog`** (`@kay9/watchdog`) — the analysis engine and the chain adapters. A library with a CLI, no network services, no state. It runs in a Node process for an auditor and in the browser for a basic scan.
-- **`services/audit-worker`** (`@kay9/audit-worker`) — the auditor job that turns engine output into signed, on-chain attestations, plus the pricing keeper and an optional convenience scan endpoint.
+- **`services/audit-worker`** (`@kay9/audit-worker`) — the auditor job that turns engine output into signed, on-chain attestations, plus an optional convenience scan endpoint.
 
 Neither holds protocol state. Delete an auditor's local storage and nothing on-chain changes; that auditor simply re-scans. That is the point: the services are replaceable without touching a contract.
 
@@ -39,7 +39,6 @@ Sections 1 to 10 cover the engine and the auditor network — deep and forensic 
         │              → check attestationOf on-chain                    │
         │              → analyse at job.requestedAt                     │
         │              → pin → sign → attest → exit                      │
-        │  keeper.ts   KAY9Pricing.poke() once a minute                  │
         │  scan-api.ts optional convenience endpoint, not canonical      │
         │  db.ts       a block cursor; losing it costs a re-scan         │
         └────────────────────────────────────────────────────────────────┘
@@ -486,7 +485,6 @@ npm run build -w services/audit-worker
 
 export AUDITOR_PRIVATE_KEY=0x...        # never commit this; a platform secret store in production
 export AUDIT_HUB_ADDRESS=0x...
-export PRICING_ADDRESS=0x...
 export ROBINHOOD_RPC_URL=https://...    # a dedicated archive endpoint, not the public one
 
 node services/audit-worker/dist/index.js --once        # one pass, then exit: the production shape
@@ -570,27 +568,7 @@ on, deliberately: it holds no authority, cannot forge a signature, cannot suppre
 an auditor another way, and holds nothing the chain depends on. An auditor that cannot see a peer's
 signature simply attests alone, which costs one extra transaction and changes no outcome.
 
-### 7.6 The keeper
-
-Every `POKE_INTERVAL_MS` (120 s by default; the contract tolerates a 300 s gap) the keeper logs
-`pricingStatus()` and the account balance, and calls `poke()` if
-the observation ring has not yet seen the current block. The call is simulated first; a revert means
-another keeper already observed this block, which is a no-op and is logged at debug level, not as an
-incident.
-
-Running more than one keeper is safe and is the point. The pool observation ring is what keeps
-access locks quotable, and it should not depend on one process staying up. If every keeper stops,
-`quoteLock` reverts and new locks are refused; **`unlock` keeps working regardless**, because it
-reads no oracle.
-
-Measured on the 2026-09-11 testnet rehearsal: with `maxObservationGap` at 300 s and the window at
-30 minutes, a keeper outage of a little over five minutes made every `lock`, `renew`, `upgrade` and
-`quoteLock` revert `PricingUnavailable(3)` within nine minutes of the last poke, and the ring needed
-about thirty minutes of uninterrupted pokes afterwards before the gap aged out of the window and
-quotes came back. Treat the keeper as part of the access model's uptime, run two of them, and alert
-on a gap over 120 s rather than on `available` flipping, which is the symptom half an hour later.
-
-### 7.7 The basic scan runs in the browser
+### 7.6 The basic scan runs in the browser
 
 The canonical basic scan is not served by an auditor at all. It is the same engine, at tier `basic`,
 running in the visitor's own browser against a public RPC: no wallet, no KAY9, no job, no on-chain
@@ -615,7 +593,7 @@ It is **not canonical** and nothing depends on it. No score is authoritative bec
 there, and switching it off degrades nothing: the browser scan still works, and every tier that is
 recorded on-chain goes through the quorum instead.
 
-### 7.8 Three auditors locally, with Docker
+### 7.7 Three auditors locally, with Docker
 
 `docker-compose.yml` at the repository root runs three independent auditors against a configurable
 RPC, each with its own key and its own volume. That is a **rehearsal rig**, not the production
@@ -877,7 +855,7 @@ extrapolation from a measurement, it says so.
 | Gas, batch indexing nothing | **145,867** | `ScanBatchGasTest` |
 | Gas, per indexed asset | **≈24,700** | marginal across batches of 50-500 |
 | Gas price | **0.3086 gwei** | `eth_gasPrice` |
-| ETH | **$2,479.20** | the Chainlink ETH/USD feed on this chain |
+| ETH | **$2,479.20** | the Chainlink ETH/USD feed on this chain, read for this cost estimate only |
 
 A scan's cost is dominated by folding `Transfer` logs into balances — 29 log queries and half a
 minute. A quieter token costs less; this one was chosen because it had traded.

@@ -3,7 +3,6 @@ pragma solidity 0.8.26;
 
 import {Kay9TestBase} from "../utils/Kay9TestBase.sol";
 import {KAY9AccessVault, Access} from "../../src/KAY9AccessVault.sol";
-import {KAY9Pricing} from "../../src/KAY9Pricing.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
@@ -21,7 +20,7 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         vm.prank(address(hub));
         accessVault.consume(alice, TIER_DEEP);
 
-        _warpPastExpiryKeepingTheOracleWarm(alice);
+        _warpPastExpiry(alice);
         _fundKay9(alice, 1_000_000 ether);
         vm.prank(alice);
         token.approve(address(accessVault), type(uint256).max);
@@ -59,7 +58,6 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     function setUp() public override {
         super.setUp();
         chainKey = reportRegistry.CHAIN_ROBINHOOD();
-        _seedAndWarm(2_500_000e18);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -67,12 +65,10 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     // -------------------------------------------------------------------------------------------
 
     /// @notice The constants the tests mirror are the constants the contracts really use, and the
-    ///         vault is wired to the token, the oracle and the hub the deployment script gives it.
+    ///         vault is wired to the token and the hub the deployment script gives it.
     function test_theMirroredConstantsMatchTheContracts() public view {
         assertEq(accessVault.TIER_DEEP(), TIER_DEEP, "the deep tier");
         assertEq(accessVault.TIER_FORENSIC(), TIER_FORENSIC, "the forensic tier");
-        assertEq(pricing.TIER_DEEP(), TIER_DEEP, "the oracle agrees about the deep tier");
-        assertEq(pricing.TIER_FORENSIC(), TIER_FORENSIC, "the oracle agrees about the forensic tier");
         assertEq(hub.REQUESTER_UNKNOWN(), KIND_UNKNOWN, "the unknown requester kind");
         assertEq(hub.REQUESTER_INDEPENDENT(), KIND_INDEPENDENT, "the independent requester kind");
         assertEq(hub.REQUESTER_CREATOR(), KIND_CREATOR, "the creator requester kind");
@@ -85,7 +81,10 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(accessVault.forensicQuotaOf(TIER_FORENSIC), 1, "and one forensic one");
 
         assertEq(address(accessVault.kay9()), address(token), "the vault locks KAY9");
-        assertEq(address(accessVault.pricing()), address(pricing), "and quotes from the oracle");
+        assertEq(accessVault.requirementOf(TIER_DEEP), DEEP_REQUIREMENT, "a deep period locks 5,000 KAY9");
+        assertEq(accessVault.requirementOf(TIER_FORENSIC), FORENSIC_REQUIREMENT, "a forensic period locks 10,000 KAY9");
+        assertEq(accessVault.MIN_REQUIREMENT(), 1e18, "the floor is one KAY9");
+        assertEq(accessVault.MAX_REQUIREMENT(), 10_000_000e18, "the ceiling is one percent of the supply");
         assertEq(accessVault.auditHub(), address(hub), "and only the hub may move quota");
         assertEq(address(hub.accessVault()), address(accessVault), "and the hub asks that vault");
         assertEq(accessVault.owner(), address(timelock), "governance is the timelock");
@@ -95,12 +94,10 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     // What the lock takes
     // -------------------------------------------------------------------------------------------
 
-    /// @notice The vault takes exactly the oracle's quote for the tier, to the wei, and freezes it.
+    /// @notice The vault takes exactly the tier's requirement, to the wei, and freezes it.
     function test_lockTakesExactlyTheQuotedRequirement() public {
-        uint256 expected = pricing.getPriceInKay9(TIER_DEEP);
-        (uint256 quoted, uint256 usdTargetE8) = accessVault.quoteLock(TIER_DEEP);
-        assertEq(quoted, expected, "quoteLock is the oracle's price for the tier");
-        assertEq(usdTargetE8, DEEP_ACCESS_USD_E8, "and the USD target it came from");
+        uint256 quoted = accessVault.requirementOf(TIER_DEEP);
+        assertEq(quoted, DEEP_REQUIREMENT, "the requirement is the configured number");
 
         // A deliberate surplus, so the assertion below proves the vault took the quote and not
         // simply whatever the depositor held.
@@ -120,21 +117,19 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(access.tier, TIER_DEEP, "the deep tier");
         assertEq(access.startedAt, uint64(vm.getBlockTimestamp()), "the period starts now");
         assertEq(access.expiresAt, uint64(vm.getBlockTimestamp()) + accessVault.lockDuration(), "for lockDuration");
-        assertEq(access.lockedKay9, quoted, "the principal is the quote");
-        assertEq(access.quotedKay9, quoted, "the frozen requirement is the quote");
-        assertEq(access.usdTargetE8, DEEP_ACCESS_USD_E8, "the frozen USD target");
+        assertEq(access.lockedKay9, quoted, "the principal is the requirement");
         assertEq(access.deepQuota, 4, "four deep audits per deep period");
         assertEq(access.forensicQuota, 0, "and no forensic ones");
         assertEq(access.deepUsed, 0, "nothing used yet");
         assertEq(access.forensicUsed, 0, "nothing used yet");
     }
 
-    /// @notice The forensic lock takes the forensic quote, which is the larger of the two.
+    /// @notice The forensic lock takes the forensic requirement, which is the larger of the two.
     function test_forensicLockTakesTheForensicRequirement() public {
-        uint256 deepRequired = pricing.getPriceInKay9(TIER_DEEP);
+        uint256 deepRequired = accessVault.requirementOf(TIER_DEEP);
         uint256 locked = _grantAccess(alice, TIER_FORENSIC);
 
-        assertEq(locked, pricing.getPriceInKay9(TIER_FORENSIC), "the forensic quote");
+        assertEq(locked, accessVault.requirementOf(TIER_FORENSIC), "the forensic requirement");
         assertGt(locked, deepRequired, "forensic access locks more than deep access");
         assertEq(token.balanceOf(address(accessVault)), locked, "the vault holds exactly it");
 
@@ -142,12 +137,11 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(access.tier, TIER_FORENSIC, "the forensic tier");
         assertEq(access.deepQuota, 4, "four deep audits");
         assertEq(access.forensicQuota, 1, "and one forensic one");
-        assertEq(access.usdTargetE8, FORENSIC_ACCESS_USD_E8, "the forensic USD target");
     }
 
     /// @notice A requirement above the depositor's stated maximum is refused rather than taken.
     function test_lockRefusesARequirementAboveTheMaximum() public {
-        (uint256 quoted,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 quoted = accessVault.requirementOf(TIER_DEEP);
         _fundKay9(alice, quoted);
 
         vm.startPrank(alice);
@@ -201,7 +195,6 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         // Unlocking clears the record, after which locking again is the right call.
         vm.prank(alice);
         accessVault.unlock();
-        _warmBuffer();
         vm.prank(alice);
         accessVault.lock(TIER_DEEP, type(uint256).max);
         assertTrue(accessVault.isActive(alice), "a cleared record can be locked again");
@@ -211,7 +204,7 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     function test_lockWithPermit() public {
         uint256 depositorKey = 0xDEC0DE;
         address depositor = vm.addr(depositorKey);
-        (uint256 quoted,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 quoted = accessVault.requirementOf(TIER_DEEP);
         _fundKay9(depositor, quoted);
 
         uint256 deadline = vm.getBlockTimestamp() + 1 hours;
@@ -414,17 +407,16 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(accessVault.deepRemaining(alice), 3, "the spent audit is still spent");
     }
 
-    /// @notice Renewal after expiry requotes and takes exactly the shortfall when the price rose.
+    /// @notice Renewal after expiry re-reads the requirement and takes exactly the shortfall when
+    ///         governance raised it in the meantime.
     function test_renewTopsUpWhenTheRequirementRose() public {
         uint256 locked = _grantAccess(alice, TIER_DEEP);
         uint64 firstStart = accessVault.accessOf(alice).startedAt;
 
-        _warpPastExpiryKeepingTheOracleWarm(alice);
-        // Half the ETH price and the same KAY9-per-ETH reading is worth half as much, so a
-        // hundred-dollar lock needs about twice the KAY9.
-        ethUsdFeed.updateAnswer(INITIAL_ETH_USD / 2);
+        _warpPastExpiry(alice);
+        _setRequirement(TIER_DEEP, DEEP_REQUIREMENT * 2);
 
-        (uint256 required,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 required = accessVault.requirementOf(TIER_DEEP);
         assertGt(required, locked, "the requirement really did rise");
         _fundKay9(alice, required - locked);
         uint256 balanceBefore = token.balanceOf(alice);
@@ -438,20 +430,18 @@ contract KAY9AccessVaultTest is Kay9TestBase {
 
         Access memory access = accessVault.accessOf(alice);
         assertEq(access.lockedKay9, required, "the principal is the new requirement");
-        assertEq(access.quotedKay9, required, "requoted");
         assertGt(access.startedAt, firstStart, "a new period identity");
         assertEq(access.expiresAt, access.startedAt + accessVault.lockDuration(), "extended by a full duration");
     }
 
-    /// @notice Renewal returns the difference when the price fell, and never keeps the surplus.
+    /// @notice Renewal returns the difference when the requirement fell, and never keeps the surplus.
     function test_renewReturnsTheDifferenceWhenTheRequirementFell() public {
         uint256 locked = _grantAccess(alice, TIER_DEEP);
 
-        _warpPastExpiryKeepingTheOracleWarm(alice);
-        // Double the ETH price, so the same KAY9-per-ETH reading is worth twice as much.
-        ethUsdFeed.updateAnswer(INITIAL_ETH_USD * 2);
+        _warpPastExpiry(alice);
+        _setRequirement(TIER_DEEP, DEEP_REQUIREMENT / 2);
 
-        (uint256 required,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 required = accessVault.requirementOf(TIER_DEEP);
         assertLt(required, locked, "the requirement really did fall");
         uint256 balanceBefore = token.balanceOf(alice);
 
@@ -474,8 +464,8 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(accessVault.deepRemaining(alice), 1, "three of four deep audits are spent");
         uint64 oldExpiry = accessVault.accessOf(alice).expiresAt;
 
-        _warpPastExpiryKeepingTheOracleWarm(alice);
-        (uint256 required,) = accessVault.quoteLock(TIER_FORENSIC);
+        _warpPastExpiry(alice);
+        uint256 required = accessVault.requirementOf(TIER_FORENSIC);
         _fundKay9(alice, required);
 
         vm.prank(alice);
@@ -495,22 +485,20 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     // The requirement is frozen for the period
     // -------------------------------------------------------------------------------------------
 
-    /// @notice A hard price move mid-period changes nothing about a live period: not the principal,
-    ///         not the quota, not the expiry, and no top-up is demanded.
+    /// @notice Governance raising the requirement mid-period changes nothing about a live period:
+    ///         not the principal, not the quota, not the expiry, and no top-up is demanded.
     function test_theRequirementIsFrozenForThePeriod() public {
         uint256 locked = _grantAccess(alice, TIER_DEEP);
         Access memory before = accessVault.accessOf(alice);
 
-        // KAY9 collapses to a quarter of its price against ETH: the requirement for a new lock
-        // quadruples.
-        ethUsdFeed.updateAnswer(INITIAL_ETH_USD / 4);
-        (uint256 nowRequired,) = accessVault.quoteLock(TIER_DEEP);
-        assertGt(nowRequired, locked * 3, "a fresh lock would now cost far more");
+        // The requirement for a new lock doubles. Forensic is raised first so it stays above deep.
+        _setRequirement(TIER_FORENSIC, FORENSIC_REQUIREMENT * 2);
+        _setRequirement(TIER_DEEP, DEEP_REQUIREMENT * 2);
+        uint256 nowRequired = accessVault.requirementOf(TIER_DEEP);
+        assertGt(nowRequired, locked, "a fresh lock would now need more");
 
         Access memory after_ = accessVault.accessOf(alice);
         assertEq(after_.lockedKay9, before.lockedKay9, "the principal did not move");
-        assertEq(after_.quotedKay9, before.quotedKay9, "the frozen requirement did not move");
-        assertEq(after_.usdTargetE8, before.usdTargetE8, "nor the target it came from");
         assertEq(after_.expiresAt, before.expiresAt, "the period did not shorten");
         assertEq(after_.deepQuota, before.deepQuota, "the allowance did not shrink");
         assertEq(token.balanceOf(address(accessVault)), locked, "the vault demanded nothing extra");
@@ -520,17 +508,17 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         // The audits the period paid for still work, with no top-up.
         vm.prank(alice);
         hub.requestAudit(chainKey, assetId, TIER_DEEP, 1);
-        assertEq(accessVault.deepRemaining(alice), 3, "the audit was granted at the frozen price");
+        assertEq(accessVault.deepRemaining(alice), 3, "the audit was granted at the frozen requirement");
         assertEq(token.balanceOf(address(accessVault)), locked, "still exactly the original principal");
     }
 
-    /// @notice A price move in the depositor's favour does not shrink a live lock either.
+    /// @notice A change in the depositor's favour does not shrink a live lock either.
     function test_aFallingRequirementDoesNotRefundMidPeriod() public {
         uint256 locked = _grantAccess(alice, TIER_DEEP);
 
-        ethUsdFeed.updateAnswer(INITIAL_ETH_USD * 4);
-        (uint256 nowRequired,) = accessVault.quoteLock(TIER_DEEP);
-        assertLt(nowRequired, locked, "a fresh lock would now cost less");
+        _setRequirement(TIER_DEEP, DEEP_REQUIREMENT / 2);
+        uint256 nowRequired = accessVault.requirementOf(TIER_DEEP);
+        assertLt(nowRequired, locked, "a fresh lock would now need less");
 
         assertEq(accessVault.accessOf(alice).lockedKay9, locked, "the live principal is unchanged");
         assertEq(token.balanceOf(alice), 0, "nothing was returned early");
@@ -543,93 +531,93 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     }
 
     // -------------------------------------------------------------------------------------------
-    // Oracle outage
+    // The requirement is a number governance sets, within bounds
     // -------------------------------------------------------------------------------------------
 
-    /// @notice An unavailable oracle blocks every path that opens or resizes a period, and blocks
-    ///         no path that returns a depositor's tokens. An outage must never trap principal.
-    function test_anOracleOutageBlocksNewLocksButNeverTrapsPrincipal() public {
+    /// @notice Governance may set either tier's requirement, only within the bounds, and forensic
+    ///         may never require less than deep.
+    function test_setRequirementIsBoundedAndForensicNeverBelowDeep() public {
+        // Below the floor and above the ceiling are refused.
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AccessVault.InvalidRequirement.selector);
+        accessVault.setRequirement(TIER_DEEP, 1e18 - 1);
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AccessVault.InvalidRequirement.selector);
+        accessVault.setRequirement(TIER_FORENSIC, 10_000_000e18 + 1);
+
+        // Deep above forensic, or forensic below deep, is refused either way round.
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AccessVault.InvalidRequirement.selector);
+        accessVault.setRequirement(TIER_DEEP, FORENSIC_REQUIREMENT + 1);
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AccessVault.InvalidRequirement.selector);
+        accessVault.setRequirement(TIER_FORENSIC, DEEP_REQUIREMENT - 1);
+
+        // An unknown tier is refused.
+        vm.prank(address(timelock));
+        vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.InvalidTier.selector, uint8(3)));
+        accessVault.setRequirement(3, DEEP_REQUIREMENT);
+
+        // Equal is allowed, and the bounds themselves are allowed.
+        vm.prank(address(timelock));
+        vm.expectEmit(true, false, false, true, address(accessVault));
+        emit KAY9AccessVault.RequirementConfigured(TIER_DEEP, FORENSIC_REQUIREMENT);
+        accessVault.setRequirement(TIER_DEEP, FORENSIC_REQUIREMENT);
+        vm.prank(address(timelock));
+        accessVault.setRequirement(TIER_FORENSIC, 10_000_000e18);
+        vm.prank(address(timelock));
+        accessVault.setRequirement(TIER_DEEP, 1e18);
+        assertEq(accessVault.requirementOf(TIER_DEEP), 1e18, "the floor is a valid requirement");
+        assertEq(accessVault.requirementOf(TIER_FORENSIC), 10_000_000e18, "and so is the ceiling");
+    }
+
+    /// @notice Only the owner, which is the timelock, may change a requirement.
+    function test_setRequirementIsOwnerOnly() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        accessVault.setRequirement(TIER_DEEP, DEEP_REQUIREMENT * 2);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, owner));
+        accessVault.setRequirement(TIER_DEEP, DEEP_REQUIREMENT * 2);
+        assertEq(accessVault.requirementOf(TIER_DEEP), DEEP_REQUIREMENT, "unchanged");
+    }
+
+    /// @notice A requirement change is the whole story of what governance can do to a period's
+    ///         size, and it can do nothing to a live one: the live period keeps its principal,
+    ///         its quota and its expiry, and `unlock` returns exactly what was locked, whatever
+    ///         the number is by then.
+    function test_aRequirementChangeNeverTouchesALivePeriodAndUnlockReturnsExactly() public {
         uint256 locked = _grantAccess(alice, TIER_DEEP);
-        (uint256 bobRequired,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 bobRequired = accessVault.requirementOf(TIER_DEEP);
         _fundKay9(bob, bobRequired);
         vm.prank(bob);
         token.approve(address(accessVault), type(uint256).max);
 
-        // A zero answer is an invalid feed, failure code six.
-        ethUsdFeed.updateAnswer(0);
+        // Governance moves both numbers, up then far up.
+        _setRequirement(TIER_FORENSIC, FORENSIC_REQUIREMENT * 100);
+        _setRequirement(TIER_DEEP, DEEP_REQUIREMENT * 100);
 
+        // Bob's lock now needs the new number; his old maximum is refused, his balance untouched.
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(KAY9Pricing.PricingUnavailable.selector, uint8(6)));
-        accessVault.lock(TIER_DEEP, type(uint256).max);
+        vm.expectRevert(
+            abi.encodeWithSelector(KAY9AccessVault.RequirementAboveMax.selector, DEEP_REQUIREMENT * 100, bobRequired)
+        );
+        accessVault.lock(TIER_DEEP, bobRequired);
+        assertEq(token.balanceOf(bob), bobRequired, "nothing was taken from bob");
 
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(KAY9Pricing.PricingUnavailable.selector, uint8(6)));
-        accessVault.upgrade(type(uint256).max);
-
-        // The live period is unaffected: the hub never reads the oracle.
+        // Alice's live period is exactly as it was, and her audits still work.
         vm.prank(alice);
         hub.requestAudit(chainKey, assetId, TIER_DEEP, 1);
-        assertEq(accessVault.deepRemaining(alice), 3, "audits already paid for still work");
+        assertEq(accessVault.deepRemaining(alice), 3, "audits already locked for still work");
+        assertEq(accessVault.accessOf(alice).lockedKay9, locked, "the principal did not move");
 
-        // The period ends. The pool samples are refilled so that the only thing still broken is
-        // the feed, which is what makes the failure code below meaningful.
+        // And the period ends with the whole principal coming home, at the old number.
         vm.warp(accessVault.accessOf(alice).expiresAt);
-        vm.roll(vm.getBlockNumber() + 1);
-        _warmBuffer();
-        assertEq(pricing.pricingStatus().failureCode, 6, "the feed is still the only broken input");
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(KAY9Pricing.PricingUnavailable.selector, uint8(6)));
-        accessVault.renew(TIER_DEEP, type(uint256).max);
-
-        // And the one path that matters still works, in full.
         vm.prank(alice);
         accessVault.unlock();
-        assertEq(token.balanceOf(alice), locked, "the whole principal came back during the outage");
+        assertEq(token.balanceOf(alice), locked, "the whole principal came back");
         assertEq(token.balanceOf(address(accessVault)), 0, "the vault kept nothing");
         assertEq(accessVault.totalLocked(), 0, "and counts nothing");
-    }
-
-    /// @notice A stale Chainlink answer is an outage too, with the same asymmetry.
-    function test_aStaleFeedBlocksLockingAndStillReleasesPrincipal() public {
-        uint256 locked = _grantAccess(alice, TIER_DEEP);
-
-        ethUsdFeed.updateAnswerAt(INITIAL_ETH_USD, vm.getBlockTimestamp() - pricing.maxFeedAge() - 1);
-        assertEq(pricing.pricingStatus().failureCode, 5, "the feed is stale");
-
-        vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(KAY9Pricing.PricingUnavailable.selector, uint8(5)));
-        accessVault.lock(TIER_DEEP, type(uint256).max);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(KAY9Pricing.PricingUnavailable.selector, uint8(5)));
-        accessVault.upgrade(type(uint256).max);
-
-        vm.warp(accessVault.accessOf(alice).expiresAt);
-        vm.prank(alice);
-        accessVault.unlock();
-        assertEq(token.balanceOf(alice), locked, "a stale feed does not trap principal either");
-    }
-
-    /// @notice A pool that was never bound to the oracle blocks locking and still releases.
-    /// @dev The pool observations go stale the moment the clock jumps a month, which is the state a
-    ///      real deployment is in whenever its keeper stops. unlock must not care.
-    function test_aColdObservationBufferStillReleasesPrincipal() public {
-        uint256 locked = _grantAccess(alice, TIER_DEEP);
-        uint64 expiresAt = accessVault.accessOf(alice).expiresAt;
-
-        // A month with no keeper: the samples inside the window are gone.
-        vm.warp(expiresAt);
-        vm.roll(vm.getBlockNumber() + 1);
-        assertFalse(pricing.pricingStatus().available, "the oracle is cold");
-
-        vm.prank(alice);
-        vm.expectPartialRevert(KAY9Pricing.PricingUnavailable.selector);
-        accessVault.renew(TIER_DEEP, type(uint256).max);
-
-        vm.prank(alice);
-        accessVault.unlock();
-        assertEq(token.balanceOf(alice), locked, "the principal came back with a cold oracle");
     }
 
     // -------------------------------------------------------------------------------------------
@@ -648,7 +636,7 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         }
         assertEq(accessVault.accessOf(alice).deepUsed, 2, "two deep audits are spent");
 
-        (uint256 forensicRequired,) = accessVault.quoteLock(TIER_FORENSIC);
+        uint256 forensicRequired = accessVault.requirementOf(TIER_FORENSIC);
         _fundKay9(alice, forensicRequired - deepLocked);
         uint256 balanceBefore = token.balanceOf(alice);
 
@@ -667,7 +655,6 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(access.expiresAt, before.expiresAt, "the expiry did not move");
         assertEq(access.startedAt, before.startedAt, "and neither did the period identity");
         assertEq(access.lockedKay9, forensicRequired, "the principal is the forensic requirement");
-        assertEq(access.usdTargetE8, FORENSIC_ACCESS_USD_E8, "and the frozen target is the forensic one");
 
         // What the upgrade bought is exactly one forensic audit and the two deep ones left over.
         assertEq(accessVault.deepRemaining(alice), 2, "two deep audits remain, not four");
@@ -694,7 +681,7 @@ contract KAY9AccessVaultTest is Kay9TestBase {
     /// @notice Upgrade respects the caller's stated maximum.
     function test_upgradeRespectsTheMaximum() public {
         _grantAccess(alice, TIER_DEEP);
-        (uint256 forensicRequired,) = accessVault.quoteLock(TIER_FORENSIC);
+        uint256 forensicRequired = accessVault.requirementOf(TIER_FORENSIC);
 
         vm.prank(alice);
         vm.expectRevert(
@@ -892,13 +879,19 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         );
     }
 
-    /// @notice Warps to an account's expiry and refills the observation buffer, which the month-long
-    ///         jump empties.
+    /// @notice Warps to an account's expiry.
     /// @param account The account whose period to warp past.
-    function _warpPastExpiryKeepingTheOracleWarm(address account) internal {
+    function _warpPastExpiry(address account) internal {
         vm.warp(accessVault.accessOf(account).expiresAt);
         vm.roll(vm.getBlockNumber() + 1);
-        _warmBuffer();
+    }
+
+    /// @notice Sets a tier's requirement as governance would, through the timelock's authority.
+    /// @param tier The tier.
+    /// @param kay9 The new requirement.
+    function _setRequirement(uint8 tier, uint256 kay9) internal {
+        vm.prank(address(timelock));
+        accessVault.setRequirement(tier, kay9);
     }
 
     /// @notice Builds calldata for a function signature, guessing the argument shape from its name.

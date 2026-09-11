@@ -47,7 +47,6 @@ contract KAY9QuotaTest is Kay9TestBase {
     function setUp() public override {
         super.setUp();
         chainKey = reportRegistry.CHAIN_ROBINHOOD();
-        _seedAndWarm(2_500_000e18);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -197,8 +196,7 @@ contract KAY9QuotaTest is Kay9TestBase {
         hub.requestAudit(chainKey, bytes32(uint256(3)), TIER_DEEP, KIND_INDEPENDENT);
 
         // Renewal is what refreshes it.
-        _warmBuffer();
-        (uint256 required,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 required = accessVault.requirementOf(TIER_DEEP);
         uint256 held = accessVault.accessOf(deepHolder).lockedKay9;
         if (required > held) _fundKay9(deepHolder, required - held);
         vm.prank(deepHolder);
@@ -215,7 +213,7 @@ contract KAY9QuotaTest is Kay9TestBase {
         }
         assertEq(accessVault.deepRemaining(deepHolder), 1, "three of four are spent");
 
-        (uint256 forensicRequired,) = accessVault.quoteLock(TIER_FORENSIC);
+        uint256 forensicRequired = accessVault.requirementOf(TIER_FORENSIC);
         _fundKay9(deepHolder, forensicRequired);
         vm.prank(deepHolder);
         accessVault.upgrade(type(uint256).max);
@@ -262,8 +260,7 @@ contract KAY9QuotaTest is Kay9TestBase {
         // The period ends and is renewed into a fresh one, which spends nothing.
         vm.warp(accessVault.accessOf(deepHolder).expiresAt);
         vm.roll(vm.getBlockNumber() + 1);
-        _warmBuffer();
-        (uint256 required,) = accessVault.quoteLock(TIER_DEEP);
+        uint256 required = accessVault.requirementOf(TIER_DEEP);
         uint256 held = accessVault.accessOf(deepHolder).lockedKay9;
         if (required > held) _fundKay9(deepHolder, required - held);
         vm.prank(deepHolder);

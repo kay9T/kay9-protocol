@@ -64,7 +64,7 @@ independent auditors signed the same result), so a reader is never able to mista
 claim for the other.
 
 Because the watchdog does not depend on $KAY9 existing, `DeployWatchdog.s.sol` — the script that
-puts it live — contains no token, no price oracle, and no access vault. It is designed to run,
+puts it live — contains no token and no access vault. It is designed to run,
 and be verifiable as running, before the token launches at all.
 
 ## 3. The audit protocol: locked access, not payment
@@ -106,12 +106,15 @@ technical scan is a reading, not a guarantee.
 | Tier | Cost | Lock period | Allowance |
 |---|---|---|---|
 | Basic | Free, no wallet, no lock | — | Unlimited, runs in the requester's own browser |
-| Deep | Lock target: $100 in KAY9 | 30 days | 4 requests |
-| Forensic | Lock target: $500 in KAY9 | 30 days | 1 request (in addition to deep) |
+| Deep | Lock 5,000 KAY9 | 30 days | 4 requests |
+| Forensic | Lock 10,000 KAY9 | 30 days | 1 request (in addition to deep) |
 
-The USD figures are *access targets*, quoted in KAY9 from an on-chain TWAP oracle at the moment a
-lock opens and then frozen for the whole period — a later price move never asks the depositor for
-more, and never shortens or voids an already-open period.
+The amounts are fixed in KAY9 and stored in the vault (`requirementOf`); the owner can adjust them
+only through the 48-hour timelock, within on-chain bounds (one KAY9 to 10,000,000 KAY9, forensic
+never below deep). A change applies only to periods opened or renewed after it — an already-open
+period keeps the amount it locked with and `unlock` returns exactly that. There is no price
+oracle anywhere in the access path: the dollar value of a lock moves with the token's price until
+the owner adjusts the number, and the adjustment is public for 48 hours before it applies.
 
 ## 4. Trust model
 
@@ -123,9 +126,9 @@ a different interface against the same addresses.
 **What can never happen, by contract design, not by policy:**
 
 - No owner function can move a depositor's principal out of `KAY9AccessVault`. Its only owner-facing
-  functions point it at an audit hub, set future per-period allowances, or set the length of
-  *future* periods — none of them touch a balance, and none of them reach into an already-open
-  period.
+  functions point it at an audit hub, set the KAY9 amount *future* periods lock, set future
+  per-period allowances, or set the length of *future* periods — none of them touch a balance, and
+  none of them reach into an already-open period.
 - `KAY9Token` has no mint function beyond its one-time constructor mint, no owner, no pause, no
   blacklist, no transfer tax, and no upgrade proxy. What is deployed is permanent.
 - The Uniswap liquidity position backing the token's trading pool is locked into Uniswap's
@@ -134,7 +137,7 @@ a different interface against the same addresses.
   published report.
 
 **What requires a 48-hour public delay.** The small set of parameters that can change at all —
-adding an auditor, adjusting the audit SLA, adjusting future access-period length or targets —
+adding an auditor, adjusting the audit SLA, adjusting future access-period length or lock amounts —
 route through a `TimelockController` with a minimum 48-hour delay between a change being proposed
 and it taking effect, so any governance action is publicly visible for two days before it can do
 anything.
@@ -174,7 +177,7 @@ $KAY9 token (KAY9Token)                        immutable, no admin
 KAY9 protocol
   liquidity, vesting, launch vault              immutable or owner-signed once, then permissionless
 KAY9 Audit Protocol
-  access vault, audit hub, registry, oracle     admin surface limited to a 48h-delayed timelock
+  access vault, audit hub, registry             admin surface limited to a 48h-delayed timelock
 Off-chain auditors (three, independent identities, scale-to-zero)
   watchdog engine + audit worker jobs           stateless; replaceable without touching contracts
 Website (kay9.io)                               reads the chain directly; not the source of truth
@@ -207,7 +210,7 @@ a deployed, trading token. Specifically, as of this writing:
 - The watchdog's contracts (`KAY9ScanRegistry`) are written and tested but **deployed nowhere
   yet**. Token discovery has been run against live mainnet data (1,459 tokens found in one pass)
   but the always-on scanning job is not yet standing.
-- The audit protocol's contracts (`KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`, `KAY9Pricing`)
+- The audit protocol's contracts (`KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`)
   are written and pass an internal test suite (hundreds of tests including an invariant suite), but
   have **not yet been through a fresh third-party security review** against this version of the
   code, and have **not yet been rehearsed on testnet**.
@@ -236,8 +239,8 @@ all. A product asking to be trusted should be checkable first.
    the week before; the auction opens for a fixed four-hour window on the owner's single
    signature; migration, liquidity lock, and unsold-supply settlement are all permissionless
    afterwards. If a readiness gate is open on the date, the date moves.
-3. **Weeks 1–4:** the pricing oracle binds to the live pool, the access lock and its quorum of
-   auditors go live, and the free browser-based basic scan opens to the public.
+3. **Weeks 1–4:** the access lock and its quorum of auditors go live, and the free browser-based
+   basic scan opens to the public.
 4. **Months 2–6:** registry integration for external wallets/DEXs/launchpads, continuous monitoring
    of already-scored assets, additional chains (BNB Chain, Solana), and the forensic tier's deeper
    analysis capability.
@@ -260,9 +263,10 @@ want (resolving a token's original deployer, for instance) are unavailable throu
 endpoint, so those specific signals report as unmeasured rather than clean until an auditor runs
 against an archive node.
 
-**No access period can open before the token has a market price.** The pricing oracle requires 30
-minutes of clean trading observations after launch before it will quote a lock requirement at all;
-until then, every surface says the price is not available rather than showing a placeholder number.
+**The lock is denominated in KAY9, not in dollars.** The amount a tier requires is a fixed number
+of KAY9 held in the vault, so its dollar value moves with the token's price until the owner adjusts
+it through the 48-hour timelock. The website shows the current requirement read from the vault,
+never a hardcoded figure, and never claims a dollar value for it.
 
 ## 11. What KAY9 will never do
 

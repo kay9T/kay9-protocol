@@ -23,7 +23,6 @@ Filled in after the mainnet deployment. Every entry is verifiable on
 | KAY9Genesis | `0x…` | | |
 | KAY9LiquidityLock | `0x…` | | |
 | KAY9AuditorRegistry | `0x…` | | |
-| KAY9Pricing | `0x…` | | |
 | KAY9AccessVault | `0x…` | | |
 | KAY9Registry | `0x…` | | |
 | KAY9AuditHub | `0x…` | | |
@@ -45,7 +44,7 @@ Canonical dependencies, verified 2026-09-07 (see [`RESEARCH.md`](RESEARCH.md)):
 | FeeSplitter (40 % native to vault) | `0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf` |
 | UERC20BeneficiaryVault | `0xd35E9CA72F64C7F93BE30fad67524323396B36D7` |
 | CompoundingClaimRecipient | `0xf9526Dd3361fe0ba6b7a99533ed471D3E808E99a` |
-| Chainlink ETH/USD | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
+| Chainlink ETH/USD (display only: `Launch.s.sol` and the launch page use it to show implied FDV in USD; nothing in the access path reads it) | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
 
 ---
 
@@ -251,60 +250,6 @@ answers who is an auditor and how many signatures a result needs.
 
 ---
 
-## KAY9Pricing
-
-**Purpose.** Answers one question: how much KAY9 is a tier's USD target worth right now. It combines
-a time-weighted average of the official KAY9/ETH pool's tick with the Chainlink ETH/USD feed.
-Uniswap v4 pools carry no built-in oracle, so the contract keeps its own ring buffer of 2,048
-observations.
-
-`usdTarget[tier]` is **the USD value of the KAY9 an access lock must hold**, not a fee and not a
-price. Nothing is ever charged. `KAY9AccessVault` asks this contract once, when a period opens,
-freezes the answer for that period, and does not ask again until renewal.
-
-**Permissions.** Owner, which is the TimelockController.
-
-**Admin capabilities.**
-
-| Function | Effect | Constraint |
-|---|---|---|
-| `configurePool(PoolKey)` | Binds the official pool | Once only; the pool must be initialized and must pair native ETH with KAY9 |
-| `setUsdTarget(uint8,uint256)` | Sets a tier's USD lock target, zero deactivates the tier | |
-| `setParams(...)` | Sets the window and safety thresholds | Window within 15 to 120 minutes, at least two observations, non-zero gap no larger than the window, deviation at most 100 %, feed age at least the 86,400 s heartbeat |
-| `setFeed(AggregatorV3Interface)` | Replaces the ETH/USD aggregator | Non-zero |
-| `transferOwnership` / `acceptOwnership` | Moves the owner role | Two-step |
-
-`poke()` is permissionless.
-
-**Upgradeable.** No.
-
-**Defaults.** Window 1,800 s, minimum 10 observations in the window, maximum 300 s between
-observations, minimum pool liquidity 1e15, maximum deviation 5,000 bps, maximum feed age 90,000 s.
-Access targets: deep `100e8`, forensic `500e8`, both set in the constructor and both active.
-
-**Failure codes.** Every quoting getter reverts `PricingUnavailable(code)` rather than returning a
-degraded number. 0 available, 1 no pool, 2 too few observations, 3 gap too large, 4 low liquidity,
-5 feed stale, 6 feed invalid, 7 window not covered by stored observations. A tier whose target is
-zero reverts `InactiveTier(tier)` instead, which is a configuration answer rather than an oracle
-answer and must not be rendered as an outage. `pricingStatus()` returns the whole picture without
-reverting, for the website.
-
-**Conservatism rule, and which direction it points.** The KAY9 price in USD is `ethUsd / kay9PerEth`,
-so a *lower* KAY9 USD price means a *larger* KAY9 requirement for the same USD target. The contract
-takes the higher of the two KAY9-per-ETH readings, `max(twap, spot)`, which is the lower of the two
-candidate KAY9 USD prices. A pump that makes KAY9 look expensive for a single block therefore cannot
-shrink a lock, because the pumped reading has the lower KAY9-per-ETH value and is discarded. In the
-other direction a dump would inflate the requirement, so the spot reading is capped at
-`maxDeviationBps` above the TWAP before it is used. The error is always in the direction of asking
-for more KAY9, never less, because the failure that matters is somebody buying a period cheaply
-during a manipulation.
-
-**Precision.** `getPriceInKay9` computes `usdTarget × kay9PerEth / ethUsd` in one full-precision step
-rather than going through the 1e8-scaled display price, so it does not lose precision on a cheap
-token. `getKay9UsdPriceE8` is a display value and rounds to 1e8.
-
----
-
 ## KAY9AccessVault
 
 **Purpose.** Holds a depositor's KAY9 for one access period and tells the audit hub what that
@@ -321,47 +266,52 @@ only.
 | `setAuditHub(address)` | owner (Timelock) | Names the only address allowed to move quota | Non-zero |
 | `setQuota(uint8,uint32,uint32)` | owner (Timelock) | Sets a tier's per-period allowances | Each at most `MAX_QUOTA` (1000); the deep tier may not be given a forensic allowance |
 | `setLockDuration(uint64)` | owner (Timelock) | Sets the length of future periods | Within 7 and 365 days |
+| `setRequirement(uint8,uint256)` | owner (Timelock) | Sets the KAY9 amount future periods of a tier lock | Valid tier; within `MIN_REQUIREMENT` (1 KAY9) and `MAX_REQUIREMENT` (10,000,000 KAY9, 1 % of supply); the forensic requirement may not end up below the deep one; otherwise `InvalidRequirement` |
 | `transferOwnership` / `acceptOwnership` | owner | Moves the owner role | Two-step |
 
-**There is no fifth row, and that is the point.** No function on this contract — owner-only,
+**There is no sixth row, and that is the point.** No function on this contract — owner-only,
 timelocked, or otherwise — sends a depositor's KAY9 to any address other than the depositor. There
-is no withdrawal path, no rescue, no sweep, no reward path, no burn and no slashing. `setQuota` and
-`setLockDuration` do not reach into live periods either: the allowances and the expiry are copied
-into the access record when the period opens, so a governance change applies to the next period and
-never to one somebody is already inside.
+is no withdrawal path, no rescue, no sweep, no reward path, no burn and no slashing. `setRequirement`,
+`setQuota` and `setLockDuration` do not reach into live periods either: the locked amount, the
+allowances and the expiry are copied into the access record when the period opens, so a governance
+change applies to the next period and never to one somebody is already inside.
 
 **Upgradeable.** No.
 
 **The tiers.**
 
-| Tier | USD target | Period | Deep allowance | Forensic allowance |
+| Tier | Lock | Period | Deep allowance | Forensic allowance |
 |---|---|---|---|---|
-| `TIER_DEEP` = 1 | `usdTarget[1]`, `$100` at launch | `lockDuration`, 30 days | 4 | 0 |
-| `TIER_FORENSIC` = 2 | `usdTarget[2]`, `$500` at launch | `lockDuration`, 30 days | 4 | 1 |
+| `TIER_DEEP` = 1 | `requirementOf[1]`, 5,000 KAY9 at deployment | `lockDuration`, 30 days | 4 | 0 |
+| `TIER_FORENSIC` = 2 | `requirementOf[2]`, 10,000 KAY9 at deployment | `lockDuration`, 30 days | 4 | 1 |
 
 Basic scans are not a tier here. They need no lock, no wallet and no KAY9, and never touch this
 contract.
 
-**Opening a period.** `quoteLock(tier)` returns the KAY9 a tier currently requires and the USD
-target it came from, and bubbles `PricingUnavailable` when the oracle cannot be trusted. `lock(tier,
-maxKay9)` takes exactly the quoted amount — `maxKay9` is the caller's slippage bound, since the
-requirement is denominated in dollars but paid in a moving token — and writes it into the record as
-both `lockedKay9` and `quotedKay9`. `lockWithPermit` wraps an ERC-2612 permit; a failing permit is
+**Opening a period.** `requirementOf(tier)` is the KAY9 a tier currently requires: a number stored
+in the vault, not a quote from a price feed. `lock(tier, maxKay9)` takes exactly that amount —
+`maxKay9` is the caller's bound against a `setRequirement` executing between the read and the
+transaction — and writes it into the record as `lockedKay9`. `lockWithPermit` wraps an ERC-2612 permit; a failing permit is
 tolerated when the allowance is already in place, so a griefer cannot brick the call by
 front-running it. A period can only be opened when the account holds no principal at all, so an
 expired record must be `unlock`ed or `renew`ed first.
 
-**The requirement is frozen for the period.** After `lock`, the oracle is never consulted again for
-that period. If KAY9 doubles the next day nobody is asked for more and no period is shortened or
-voided; if it halves, nobody is refunded either, because the period was opened at the price of the
-day. Renewal is where the number is asked again, so the requirement tracks the token over time
-without ever moving underneath somebody who is already inside a period.
+**The requirement is frozen for the period.** After `lock`, `requirementOf` is not consulted again
+for that period. If the owner changes the requirement the next day nobody is asked for more, no
+period is shortened or voided, and nobody is refunded early either. Renewal is where the number is
+read again, so the requirement can follow the owner's adjustments over time without ever moving
+underneath somebody who is already inside a period.
+
+**There is no price oracle.** No TWAP, no ETH/USD feed, and nothing that has to be kept alive for
+a lock to open. The amount is a fixed number of KAY9, so its dollar value moves with the token's
+price until the owner adjusts it; every adjustment goes through the timelock and is therefore
+public for 48 hours before it applies.
 
 **Renewal is refused before expiry, deliberately.** This is the one rule in the vault that exists
 purely to close an abuse, so it is worth stating why. If a depositor could renew early they could
 spend four deep audits on day one, renew on day two for no extra KAY9, and spend four more; the
 allowance would be unbounded for anyone willing to send one extra transaction. At or after expiry
-the period genuinely ended and there is no such problem, so `renew` requotes, settles the difference
+the period genuinely ended and there is no such problem, so `renew` reads the current requirement, settles the difference
 in whichever direction it went, and starts a fresh period without an unlock-and-relock round trip.
 
 **Upgrading is allowed mid-period**, deep to forensic only. It tops the lock up to the forensic
@@ -369,9 +319,9 @@ requirement, leaves the expiry alone, and carries `deepUsed` across. Deep allowa
 tiers, so upgrading buys the forensic slot and nothing else; without carrying the used counter,
 upgrading would be a way to reset the deep allowance for the price of the difference.
 
-**Unlocking never reads the oracle.** `unlock()` returns `lockedKay9` in full at or after expiry and
-touches no price feed at all. An oracle outage must be able to stop a new lock and must never be
-able to trap an existing one.
+**Unlocking reads nothing but the record.** `unlock()` returns `lockedKay9` in full at or after
+expiry. No configuration change and no external contract stands between a depositor and their
+principal.
 
 **Quota is moved by the hub and by nobody else.** `consume(account, tier)` reverts unless the caller
 is `auditHub`, and reverts for the requester when there is no live period, when the held tier is
@@ -543,10 +493,11 @@ shortened without going through the delay.
 **Upgradeable.** No.
 
 **What it can do.** Exactly the administrative functions listed above for `KAY9AuditorRegistry`,
-`KAY9Pricing`, `KAY9AccessVault` and `KAY9AuditHub`, each after a 48-hour public delay. It has no
+`KAY9AccessVault` and `KAY9AuditHub`, each after a 48-hour public delay. It has no
 power over `KAY9Token`, `KAY9TeamVesting`, `KAY9Genesis` or `KAY9LiquidityLock`, and no power over a
-depositor's principal in `KAY9AccessVault`: the three functions it holds there configure the hub
-address, the allowances and the period length, and none of them moves a balance.
+depositor's principal in `KAY9AccessVault`: the four functions it holds there configure the hub
+address, the lock requirement of future periods, the allowances and the period length, and none of
+them moves a balance.
 
 ---
 
@@ -559,8 +510,7 @@ address, the allowances and the period length, and none of them moves a balance.
 | KAY9Genesis | owner Safe | `launch`, and relaunch after a marked failure | 48 h for relaunch |
 | KAY9LiquidityLock | none | — | — |
 | KAY9AuditorRegistry | Timelock | add or remove auditor, set threshold | 48 h |
-| KAY9Pricing | Timelock | USD access targets, window and thresholds, feed address, bind the pool once | 48 h |
-| KAY9AccessVault | Timelock | audit hub address, per-period allowances, period length | 48 h |
+| KAY9AccessVault | Timelock | audit hub address, lock requirement per tier (`setRequirement`), per-period allowances, period length | 48 h |
 | KAY9Registry | none | — | — |
 | KAY9AuditHub | Timelock | SLA, pause new requests | 48 h |
 | TimelockController | owner Safe as proposer and executor, itself as admin | schedule and execute | 48 h minimum |

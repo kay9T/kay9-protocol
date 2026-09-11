@@ -14,7 +14,7 @@ One file per chain id. The deploy script writes it; the website and the services
     "KAY9Genesis":        "0x…",
     "KAY9LiquidityLock":  "0x…",
     "KAY9AuditorRegistry":"0x…",
-    "KAY9Pricing":        "0x…",
+    "KAY9AccessVault":    "0x…",
     "KAY9Registry":       "0x…",
     "KAY9AuditHub":       "0x…",
     "Timelock":           "0x…",

@@ -11,13 +11,12 @@ import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionMa
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 
 import {KAY9Genesis, LaunchParams} from "../src/KAY9Genesis.sol";
-import {KAY9Pricing, PricingStatus} from "../src/KAY9Pricing.sol";
 import {KAY9AccessVault, Access} from "../src/KAY9AccessVault.sol";
 import {KAY9AuditHub, Job, JobStatus} from "../src/KAY9AuditHub.sol";
+import {KAY9AuditorRegistry} from "../src/KAY9AuditorRegistry.sol";
 import {KAY9Registry, AuditResult} from "../src/KAY9Registry.sol";
 import {KAY9LiquidityLock} from "../src/KAY9LiquidityLock.sol";
 import {IContinuousClearingAuction} from "../src/interfaces/uniswap/IContinuousClearingAuction.sol";
-import {MockV3Aggregator} from "../test/utils/MockV3Aggregator.sol";
 import {Launch} from "./Launch.s.sol";
 
 /// @title Rehearse
@@ -32,19 +31,20 @@ import {Launch} from "./Launch.s.sol";
 ///        bid              depositor: three bids that carry the auction past graduation
 ///        graduate         anyone: checkpoint after the end block
 ///        migrate          anyone: LBPStrategy.migrate, then lock the LP NFT, then settle
-///        govSchedule      owner: one timelock batch — accept vault ownership, bind the oracle to
-///                         the pool, shorten the period and the SLA to their minimums
+///        govSchedule      owner: one timelock batch — accept vault ownership, shorten the
+///                         period and the SLA to their minimums
 ///        govExecute       owner: execute that batch after the rehearsal delay
-///        poke             anyone: one oracle observation (looped from the shell)
-///        feed             anyone: set the mock ETH/USD answer (the mock has no access control)
+///        deployAuditStack deployer: a fresh vault, registry and hub against the existing token
+///                         (the 2026-09-11 redenomination; the old stack stays where it is)
+///        requirementSchedule / requirementExecute
+///                         owner: setRequirement(TIER, KAY9) through the timelock
 ///        claim            depositor: claim the auction tokens
-///        lockAccess       depositor: quote, approve, lock a deep period
+///        lockAccess       depositor: approve, lock a deep period at requirementOf(1)
 ///        request          depositor: one requestAudit
 ///        attestPair       auditor A: two agreeing signatures in one transaction
 ///        dispute          auditors A, B, C: three different results, one transaction each
 ///        expire           anyone: markExpired after the SLA
 ///        upgradeAccess    depositor: deep to forensic mid-period
-///        staleFeed        anyone: age the feed and show lock refuses while unlock is unaffected
 ///        renew / unlock   depositor: at or after expiresAt
 contract Rehearse is Script {
     bytes32 internal constant CHAIN_KEY = keccak256("eip155:46630");
@@ -55,10 +55,6 @@ contract Rehearse is Script {
 
     function _genesis() internal view returns (KAY9Genesis) {
         return KAY9Genesis(payable(vm.envAddress("GENESIS")));
-    }
-
-    function _pricing() internal view returns (KAY9Pricing) {
-        return KAY9Pricing(vm.envAddress("PRICING"));
     }
 
     function _vault() internal view returns (KAY9AccessVault) {
@@ -75,10 +71,6 @@ contract Rehearse is Script {
 
     function _timelock() internal view returns (TimelockController) {
         return TimelockController(payable(vm.envAddress("TIMELOCK")));
-    }
-
-    function _feed() internal view returns (MockV3Aggregator) {
-        return MockV3Aggregator(vm.envAddress("FEED"));
     }
 
     function _auction() internal view returns (IContinuousClearingAuction) {
@@ -109,7 +101,9 @@ contract Rehearse is Script {
     function launch() external {
         KAY9Genesis genesis = _genesis();
         Launch deriver = new Launch();
-        (, int256 answer,,,) = _feed().latestRoundData();
+        // The rehearsal has no Chainlink feed; the ETH/USD answer the launch parameters are
+        // derived from comes from the environment, as a plain number scaled by 1e8.
+        int256 answer = int256(vm.envUint("ETH_USD_E8"));
         LaunchParams memory p = deriver.derive(
             genesis,
             vm.envUint("FLOOR_FDV_USD"),
@@ -213,17 +207,15 @@ contract Rehearse is Script {
         view
         returns (address[] memory targets, uint256[] memory values, bytes[] memory payloads)
     {
-        targets = new address[](4);
-        values = new uint256[](4);
-        payloads = new bytes[](4);
+        targets = new address[](3);
+        values = new uint256[](3);
+        payloads = new bytes[](3);
         targets[0] = address(_vault());
         payloads[0] = abi.encodeWithSignature("acceptOwnership()");
-        targets[1] = address(_pricing());
-        payloads[1] = abi.encodeCall(KAY9Pricing.configurePool, (_genesis().poolKey()));
-        targets[2] = address(_vault());
-        payloads[2] = abi.encodeCall(KAY9AccessVault.setLockDuration, (uint64(7 days)));
-        targets[3] = address(_hub());
-        payloads[3] = abi.encodeCall(KAY9AuditHub.setSla, (uint64(1 hours)));
+        targets[1] = address(_vault());
+        payloads[1] = abi.encodeCall(KAY9AccessVault.setLockDuration, (uint64(7 days)));
+        targets[2] = address(_hub());
+        payloads[2] = abi.encodeCall(KAY9AuditHub.setSla, (uint64(1 hours)));
     }
 
     /// @notice Schedules the governance batch.
@@ -248,52 +240,75 @@ contract Rehearse is Script {
         _timelock().executeBatch(targets, values, payloads, bytes32(0), bytes32(0));
         vm.stopBroadcast();
         console2.log("vault owner              ", _vault().owner());
-        console2.log("pool configured          ", _pricing().poolConfigured());
         console2.log("lockDuration             ", _vault().lockDuration());
         console2.log("slaSeconds               ", _hub().slaSeconds());
     }
 
     // ----------------------------------------------------------------------------------------
-    // Oracle
+    // The audit stack, redeployed against the token that already exists
     // ----------------------------------------------------------------------------------------
 
-    /// @notice One oracle observation, plus the full status afterwards.
-    function poke() external {
+    /// @notice Deploys a fresh KAY9AccessVault, KAY9Registry and KAY9AuditHub on the existing
+    ///         token, auditor registry and timelock, exactly as Deploy.s.sol wires them. The old
+    ///         hub keeps its `restore` right on the old vault and nothing about the old stack is
+    ///         touched. Prints the three addresses; the shell puts them in the environment for
+    ///         the stages that follow, and govSchedule/govExecute then hand the vault to the
+    ///         timelock.
+    function deployAuditStack() external {
+        address deployer = vm.addr(_ownerKey());
         vm.startBroadcast(_ownerKey());
-        _pricing().poke();
+        KAY9AccessVault vault = new KAY9AccessVault(deployer, _token());
+        address predictedHub = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
+        KAY9Registry registry = new KAY9Registry(predictedHub);
+        KAY9AuditHub hub = new KAY9AuditHub(
+            address(_timelock()), address(registry), KAY9AuditorRegistry(vm.envAddress("AUDITOR_REGISTRY")), vault
+        );
+        require(address(hub) == predictedHub, "hub address prediction failed");
+        vault.setAuditHub(address(hub));
+        vault.transferOwnership(address(_timelock()));
         vm.stopBroadcast();
-        _printPricing();
+        console2.log("KAY9AccessVault          ", address(vault));
+        console2.log("KAY9Registry             ", address(registry));
+        console2.log("KAY9AuditHub             ", address(hub));
+        console2.log("requirementOf(1)         ", vault.requirementOf(1));
+        console2.log("requirementOf(2)         ", vault.requirementOf(2));
     }
 
-    /// @notice Sets the mock ETH/USD answer. The mock has no access control; anyone may do this.
-    function feed() external {
-        int256 answer = int256(vm.envUint("FEED_ANSWER_E8"));
+    // ----------------------------------------------------------------------------------------
+    // Requirement, through the timelock
+    // ----------------------------------------------------------------------------------------
+
+    /// @notice Schedules `setRequirement(TIER, KAY9)` on the vault. TIER and KAY9 from env.
+    function requirementSchedule() external {
+        (address target, bytes memory payload) = _requirementCall();
+        TimelockController timelock = _timelock();
+        uint256 delay = timelock.getMinDelay();
         vm.startBroadcast(_ownerKey());
-        _feed().updateAnswer(answer);
+        timelock.schedule(target, 0, payload, bytes32(0), _requirementSalt(), delay);
         vm.stopBroadcast();
-        _printPricing();
+        console2.log("scheduled, executable after", block.timestamp + delay);
+        console2.log("operation id             ", vm.toString(timelock.hashOperation(target, 0, payload, bytes32(0), _requirementSalt())));
     }
 
-    /// @notice Ages the feed past `maxFeedAge` so every quoting path refuses.
-    function staleFeed() external {
-        (, int256 answer,,,) = _feed().latestRoundData();
+    /// @notice Executes the scheduled `setRequirement` once the delay has elapsed.
+    function requirementExecute() external {
+        (address target, bytes memory payload) = _requirementCall();
         vm.startBroadcast(_ownerKey());
-        _feed().updateAnswerAt(answer, block.timestamp - _pricing().maxFeedAge() - 1 hours);
+        _timelock().execute(target, 0, payload, bytes32(0), _requirementSalt());
         vm.stopBroadcast();
-        _printPricing();
+        console2.log("requirementOf(1)         ", _vault().requirementOf(1));
+        console2.log("requirementOf(2)         ", _vault().requirementOf(2));
     }
 
-    function _printPricing() internal view {
-        PricingStatus memory s = _pricing().pricingStatus();
-        console2.log("available                ", s.available);
-        console2.log("failureCode              ", s.failureCode);
-        console2.log("observationsInWindow     ", s.observationsInWindow);
-        console2.log("largestGap               ", s.largestGap);
-        console2.log("oldestObservationAge     ", s.oldestObservationAge);
-        console2.log("twap kay9/eth e18        ", s.twapKay9PerEthE18);
-        console2.log("spot kay9/eth e18        ", s.spotKay9PerEthE18);
-        console2.log("eth/usd e8               ", s.ethUsdE8);
-        console2.log("poolLiquidity            ", uint256(s.poolLiquidity));
+    function _requirementCall() internal view returns (address target, bytes memory payload) {
+        uint8 tier = uint8(vm.envUint("TIER"));
+        uint256 kay9 = vm.envUint("KAY9");
+        target = address(_vault());
+        payload = abi.encodeCall(KAY9AccessVault.setRequirement, (tier, kay9));
+    }
+
+    function _requirementSalt() internal view returns (bytes32) {
+        return keccak256(abi.encodePacked("requirement", vm.envUint("TIER"), vm.envUint("KAY9")));
     }
 
     // ----------------------------------------------------------------------------------------
@@ -316,9 +331,8 @@ contract Rehearse is Script {
     function lockAccess() external {
         KAY9AccessVault vault = _vault();
         address depositor = vm.addr(_userKey());
-        (uint256 required, uint256 usd) = vault.quoteLock(1);
+        uint256 required = vault.requirementOf(1);
         console2.log("deep requirement KAY9    ", required);
-        console2.log("usd target e8            ", usd);
         console2.log("depositor KAY9 before    ", _token().balanceOf(depositor));
 
         vm.startBroadcast(_userKey());
@@ -394,7 +408,7 @@ contract Rehearse is Script {
     /// @notice Deep to forensic, mid-period.
     function upgradeAccess() external {
         address depositor = vm.addr(_userKey());
-        (uint256 required,) = _vault().quoteLock(2);
+        uint256 required = _vault().requirementOf(2);
         console2.log("forensic requirement     ", required);
         vm.startBroadcast(_userKey());
         _vault().upgrade(required);

@@ -2,7 +2,7 @@
 
 KAY9 is an audit protocol, an automatic watchdog, and — later — a token, on Robinhood Chain. The website at kay9.io is only a window onto the contracts. If kay9.io disappears, every contract, balance, lock, auction record, access period, audit request, committed result and committed scan survives on-chain and any developer can build another interface against the same addresses.
 
-**The order matters and is enforced by the deployment scripts, not by intention.** `DeployWatchdog.s.sol` stands up the auditor set and `KAY9ScanRegistry` with no token, no oracle and no access vault anywhere in it, so the watchdog can run on mainnet before $KAY9 exists. `Deploy.s.sol` — the token launch — then attaches to that same governance rather than standing up a second auditor registry, and refuses to run if the registry it is pointed at disagrees with the launch about its quorum, its members or its owner. What has to be true before the token launches at all is `docs/LAUNCH_READINESS.md`.
+**The order matters and is enforced by the deployment scripts, not by intention.** `DeployWatchdog.s.sol` stands up the auditor set and `KAY9ScanRegistry` with no token and no access vault anywhere in it, so the watchdog can run on mainnet before $KAY9 exists. `Deploy.s.sol` — the token launch — then attaches to that same governance rather than standing up a second auditor registry, and refuses to run if the registry it is pointed at disagrees with the launch about its quorum, its members or its owner. What has to be true before the token launches at all is `docs/LAUNCH_READINESS.md`.
 
 This document is the implementation spec shared by the contracts, the website, and the services. Numbers, addresses and behaviours here are the ones the code must reproduce. Research sources and verification commands are in `docs/RESEARCH.md`.
 
@@ -22,7 +22,6 @@ KAY9 Audit Protocol
   ├─ KAY9AuditHub                              requests, on-chain access check, attestation, quorum
   ├─ KAY9Registry                              append-only report history, cross-chain asset identity
   ├─ KAY9AuditorRegistry                       auditor set + quorum threshold
-  ├─ KAY9Pricing                               KAY9/ETH TWAP × Chainlink ETH/USD → KAY9 per USD lock target
   └─ TimelockController (48 h) ← owner Safe    the only admin, always delayed
 Off-chain auditors (three, scale-to-zero)
   ├─ services/watchdog                         analysis engine + chain adapters (EVM, Solana)
@@ -81,13 +80,13 @@ Canonical addresses on mainnet 4663 (all confirmed to have code on-chain):
 | FeeSplitter (100 % native + 100 % token → Compounding) | `0x222D6d4f1ce59b0d48D5505114eC8Addc90A4359` |
 | UERC20BeneficiaryVault (nativeFallback `0x2aC03e14…82F8`, tokenFallback `0xdead`) | `0xd35E9CA72F64C7F93BE30fad67524323396B36D7` |
 | CompoundingClaimRecipient (minLiquidityIncrease 1e20) | `0xf9526Dd3361fe0ba6b7a99533ed471D3E808E99a` |
-| Chainlink ETH/USD proxy (8 decimals, heartbeat 86400 s, 0.5 % deviation) | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
+| Chainlink ETH/USD proxy (8 decimals, heartbeat 86400 s, 0.5 % deviation) — display only: the launch page and `Launch.s.sol` use it to show implied FDV in USD; nothing in the access path reads it | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
 | WETH (L2) | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
 | Deterministic CREATE2 deployer | `0x4e59b44847b379578588920cA78FbF26c0B4956C` |
 | Safe 1.4.1 singleton / proxy factory | present; Safe{Wallet} supports Robinhood Chain |
 
-Testnet 46630 has PoolManager, PositionManager, CCA factory, Permit2 and Multicall3 at the same addresses, but **no LiquidityLauncher, no LBPStrategy, no FeeSplitter and no Chainlink feed**. Testnet rehearsal therefore deploys pinned copies of the launcher stack and a mock feed (`docs/DEPLOYMENT.md`).
+Testnet 46630 has PoolManager, PositionManager, CCA factory, Permit2 and Multicall3 at the same addresses, but **no LiquidityLauncher, no LBPStrategy, no FeeSplitter and no Chainlink feed**. Testnet rehearsal therefore deploys pinned copies of the launcher stack (`docs/DEPLOYMENT.md`); the missing feed only affects the USD display of FDV.
 
 ---
 
@@ -185,41 +184,38 @@ TimelockController. `addAuditor` and threshold changes are timelocked (48 h); `r
 goes through the timelock but exists so a compromised key can be dropped, and it lowers the
 threshold rather than leaving it unsatisfiable. `1 <= threshold <= auditorCount` always holds.
 
-**KAY9Pricing** — see §6. Its `usdTarget[tier]` is the USD value an access lock must hold, not a
-fee.
-
 **KAY9AccessVault** — holds a depositor's KAY9 for one access period and returns all of it
 afterwards.
 
-- `quoteLock(tier)` asks the oracle what the tier's USD target is worth in KAY9 right now, and
-  reverts `PricingUnavailable` rather than answering with a number it does not trust.
-- `lock(tier, maxKay9)` (or `lockWithPermit`) takes exactly the quoted amount, writes it into the
-  access record as both `lockedKay9` and `quotedKay9`, and stops consulting the oracle. The
-  requirement is frozen for the period: a later price move never asks the depositor for more and
-  never shortens or voids a live period.
+- `requirementOf(tier)` is the KAY9 amount a tier locks: 5,000 KAY9 for deep and 10,000 KAY9 for
+  forensic at deployment, changed only by `setRequirement` through the timelock (§6). There is no
+  oracle: the number is stored, not quoted.
+- `lock(tier, maxKay9)` (or `lockWithPermit`) copies `requirementOf[tier]` into the access record
+  as `lockedKay9` and takes exactly that amount. The requirement is frozen for the period: a later
+  `setRequirement` never asks the depositor for more and never shortens or voids a live period.
 - `renew(tier, maxKay9)` is refused before `expiresAt`. That single rule is what stops the quota
   being farmed: an early renewal would reset the allowance inside a period that was already opened
   once, so four deep audits on day one plus a renewal on day two would buy four more for nothing.
-  At or after expiry the period genuinely ended, so `renew` requotes and settles the difference in
-  whichever direction it went, without an unlock-and-relock round trip.
+  At or after expiry the period genuinely ended, so `renew` reads the current requirement and
+  settles the difference in whichever direction it went, without an unlock-and-relock round trip.
 - `upgrade(maxKay9)` raises a live deep period to forensic. It tops the lock up, leaves the expiry
   alone and **preserves `deepUsed`**, because deep allowance is four in both tiers and upgrading
   should buy the forensic slot and nothing else.
-- `unlock()` returns the whole principal at or after expiry and **reads no oracle at all**, so an
-  oracle outage can never trap a depositor's tokens.
+- `unlock()` returns exactly `lockedKay9` at or after expiry and reads nothing else, so no
+  configuration change and no external dependency can ever trap a depositor's tokens.
 - `consume(account, tier)` and `restore(account, tier, periodStartedAt)` are callable only by the
   configured hub, move a counter and never a balance. `consume` returns the period it debited so a
   later `restore` cannot credit a period that did not pay for it. A hub that `setAuditHub` has
   replaced keeps the right to `restore` and loses everything else, so a job left pending across a
   hub migration can still expire or dispute and hand its unit back.
-- `lock`, `renew` and `upgrade` refuse a requirement that quotes to zero KAY9 (`ZeroRequirement`),
-  because a record with no principal is the vault's spelling of "no record".
+- A requirement can never be zero: `setRequirement` is bounded on chain (`InvalidRequirement`), so
+  a record with no principal — the vault's spelling of "no record" — cannot be created.
 
-| Tier | USD target | Period | Deep allowance | Forensic allowance |
+| Tier | Lock | Period | Deep allowance | Forensic allowance |
 |---|---|---|---|---|
 | Basic | free, no lock, no wallet | — | unlimited, in the visitor's browser | — |
-| Deep (1) | $100 | 30 days | 4 | 0 |
-| Forensic (2) | $500 | 30 days | 4 | 1 |
+| Deep (1) | 5,000 KAY9 | 30 days | 4 | 0 |
+| Forensic (2) | 10,000 KAY9 | 30 days | 4 | 1 |
 
 **KAY9AuditHub** — `requestAudit(chainKey, assetId, tier, declaredRequesterKind)` calls
 `accessVault.consume(msg.sender, tier)` first, and that call is the whole authorisation: it reverts
@@ -256,12 +252,11 @@ string reportURI;        // ipfs://… or ar://…; integrity verified by report
 
 ### 5.2 Lifecycle of an access period and an audit
 
-1. **Quote.** The caller reads `accessVault.quoteLock(tier)`. Before the launch auction has produced
-   a price and the oracle has thirty minutes of observations this reverts, and every surface must
-   say so rather than invent a number.
+1. **Read the requirement.** The caller reads `accessVault.requirementOf(tier)`. It is a stored
+   number, not a quote, and the website shows it from that read rather than hardcoding it.
 2. **Lock.** `approve` then `lock(tier, maxKay9)`, or `lockWithPermit` in one transaction. `maxKay9`
-   is the caller's slippage bound on a USD-denominated requirement quoted in a moving token.
-   `AccessLocked` records the tier, the principal, the USD target, the period and the allowances.
+   is the caller's bound against a `setRequirement` executing between the read and the transaction.
+   `AccessLocked` records the tier, the principal, the period and the allowances.
 3. **Request.** `requestAudit(chainKey, assetId, tier, declaredRequesterKind)`. The hub consumes one
    quota unit through the vault and records `requestedBlock` on the job. `declaredRequesterKind` is
    metadata the caller states about itself; the hub records it verbatim, which is why every surface
@@ -282,7 +277,7 @@ string reportURI;        // ipfs://… or ar://…; integrity verified by report
    to the period it came from, so a request that produced no result costs nothing. Contradictory
    results are never averaged.
 7. **Renew or unlock.** At or after `expiresAt` the depositor either takes the whole principal back
-   with `unlock`, or `renew`s at the fresh quote and keeps going. A live deep period can become
+   with `unlock`, or `renew`s at the current requirement and keeps going. A live deep period can become
    forensic at any point with `upgrade`.
 8. **Monitoring.** Between requests the auditors sweep assets that already have a report and, when a
    delta is material, publish through `publishWatchdogReport`. Nobody asked and nobody paid, which
@@ -306,49 +301,27 @@ to bound the cost of running genuinely expensive analysis, not to price it.
 
 ---
 
-## 6. Pricing (KAY9 per USD)
+## 6. The lock requirement (a fixed amount of KAY9)
 
-USD-denominated **access targets**, not fees: `usdTarget[TIER_DEEP] = 100e8` and
-`usdTarget[TIER_FORENSIC] = 500e8`. The oracle answers one question — how much KAY9 is worth that
-many dollars right now — and it is asked once, when a period opens.
+The amount a tier locks is a number of KAY9 stored in the vault, `requirementOf[tier]`, not a
+dollar target and not a quote: `requirementOf[TIER_DEEP] = 5_000e18` and
+`requirementOf[TIER_FORENSIC] = 10_000e18` at deployment.
 
-```
-kay9PerEth   = max(twapKay9PerEth, spotKay9PerEth)     // spot capped at maxDeviationBps above TWAP
-kay9UsdPrice = ethUsd / kay9PerEth                       // conservative for the protocol
-requiredKay9 = tierUsd / kay9UsdPrice
-```
-
-- **KAY9/ETH**: Uniswap v4 pools have no built-in oracle, so `KAY9Pricing` maintains its own
-  observation ring buffer of the official pool's tick, read from `PoolManager` slot0. `configurePool`
-  binds once and only to a native-ETH / KAY9 pool at fee 10000 and tick spacing 200 — the hooked
-  pool the launch migrates into, or the hookless one `recover` builds. `poke()` is
-  permissionless, records at most one observation per block and never more than one every
-  `MIN_OBSERVATION_INTERVAL` (4 s), and is called by a keeper every minute. The sampling floor is
-  what stops anyone churning the 2,048-slot ring buffer faster than the averaging window at a 0.1 s
-  block cadence: a full buffer always spans at least 8,192 s, which is above the widest configurable
-  window. The TWAP window is 30 minutes (bounds 15–120 minutes, timelocked). Safety checks, each of
-  which makes the price *unavailable* (revert) rather than degrading: fewer than `minObservations`
-  (default 10) inside the window; any observation gap larger than `maxObservationGap` (default
-  5 minutes); pool liquidity below `minPoolLiquidity`; a window not covered by stored observations.
-  Spot is capped at `maxDeviationBps` (default 50 %) above the TWAP before the conservative reading
-  is taken.
-- **ETH/USD**: Chainlink `AggregatorV3Interface`, answer > 0, `updatedAt` within `maxFeedAge`
-  (default 90,000 s, above the 86,400 s heartbeat), round complete.
-- Exposed functions: `getPriceInKay9(tier)`, `getDeepAccessRequirement()`,
-  `getForensicAccessRequirement()`, `getKay9UsdPriceE8()`, `pricingStatus()` (returns every check's
-  state for the UI without reverting).
-- Governance: USD targets and bounds are changed only through the 48 h TimelockController, so a
-  change to what a lock requires is public for two days before it can take effect.
-
-**Why the failure mode is a revert.** A manipulated or stale price would let somebody open a period
-for far less KAY9 than it should cost, so `lock`, `renew` and `upgrade` all refuse while the oracle
-is untrusted. `unlock` deliberately does the opposite and never reads the oracle at all: an outage
-must be able to stop a new lock, and must never be able to trap an existing one.
-
-**Which direction is conservative.** More KAY9 per ETH means a cheaper KAY9 in USD, which means a
-*larger* KAY9 requirement for the same $100. Taking the higher KAY9-per-ETH reading therefore means
-a pump cannot shrink a lock, and capping spot above the TWAP means a dump cannot inflate one
-without bound.
+- **Changing it.** `setRequirement(tier, kay9)` is an owner function behind the 48 h
+  TimelockController, like every other owner function on the vault. The contract bounds it:
+  `MIN_REQUIREMENT` is 1 KAY9, `MAX_REQUIREMENT` is 10,000,000 KAY9 (1 % of supply), and after
+  the change the forensic requirement must be at least the deep one; anything else reverts
+  `InvalidRequirement`. `RequirementConfigured(tier, kay9)` is emitted.
+- **What a change reaches.** Only periods opened or renewed after it. `lock` copies the
+  requirement into the record; `renew` (after expiry) reads the current one and settles the
+  difference; `upgrade` tops a live deep period up to the current forensic requirement; `unlock`
+  returns exactly `lockedKay9` and reads nothing else. A live period is never asked for more and
+  never shortened.
+- **No oracle.** There is no TWAP, no ETH/USD feed and no off-chain process in the access path. A USD-
+  denominated lock would have needed a price feed that somebody funds forever, and every new lock
+  would have depended on that feed being alive. The trade-off is accepted knowingly: the dollar
+  value of a lock moves with the token's price until the owner adjusts the number, and because
+  the adjustment goes through the timelock it is public for two days before it applies.
 
 ---
 
@@ -358,14 +331,14 @@ without bound.
 
 **services/watchdog, discovery** — `runDiscoveryPass` reads launch and pool-creation events from ten verified sources on Robinhood Chain and returns an ordered scan queue plus the cursors it reached. It holds no state: losing every cursor costs a replay, not the record. `runScanPass` drains that queue in priority order — graduations before the launch firehose, oldest first inside a band — scans each token with the same engine at the basic tier, and commits what succeeded in Merkle batches. **A scan that could not read the chain is never committed as a score**; it is counted as a failure and left in the queue. `docs/TOKEN_DISCOVERY.md` and `docs/WATCHDOG.md` §11.
 
-**services/discovery-worker** — the scheduled job that actually runs the above unattended: a real chain reader, a real batch-document publisher (Merkle root and per-asset proofs, keyed by root), a real `KAY9ScanRegistry.commitScanBatch` committer with the same simulate-before-broadcast discipline as the auditor's keeper, and a cursor that holds a source back — rather than losing a token to an advanced cursor — for any scan still unresolved, bounded so a permanently unreadable token cannot stall a source forever. Written, tested, **not deployed**. `services/discovery-worker/deploy/README.md`.
+**services/discovery-worker** — the scheduled job that actually runs the above unattended: a real chain reader, a real batch-document publisher (Merkle root and per-asset proofs, keyed by root), a real `KAY9ScanRegistry.commitScanBatch` committer with the same simulate-before-broadcast discipline as the auditor's attest path, and a cursor that holds a source back — rather than losing a token to an advanced cursor — for any scan still unresolved, bounded so a permanently unreadable token cannot stall a source forever. Written, tested, **not deployed**. `services/discovery-worker/deploy/README.md`.
 
 **services/audit-worker** — one stateless job per auditor, on a scale-to-zero footing: it wakes on a
 schedule (or on an optional nudge), reads `AuditRequested` logs since its cursor, runs the engine
 pinned to `job.requestedAt`, pins the report (IPFS via a configured pinning endpoint, or a local
 content-addressed store in development), signs the EIP-712 `AuditResult` and attests. There is no
-always-on process and no VPS fleet; when nobody has requested an audit, nothing runs. It also runs
-the `poke()` keeper. The nudge is a latency optimisation and never a correctness requirement: turn
+always-on process and no VPS fleet; when nobody has requested an audit, nothing runs. The nudge is
+a latency optimisation and never a correctness requirement: turn
 kay9.io off and every request is still served on the next scheduled wake. Its `beta`/`beta-api`
 commands are the pre-token substitute for `requestAudit` (point 9 above); `beta` reuses the same
 sign/gossip/collect/broadcast quorum logic monitoring's `publishWatchdogReport` path already relies
@@ -402,7 +375,7 @@ apps/web                 Next.js site
 packages/contracts       Foundry project (src, test, script)
 packages/chain           TS: chain definitions, addresses, ABIs (generated), helpers
 services/watchdog        analysis engine + adapters + token discovery
-services/audit-worker    auditor job + keeper + optional convenience scan endpoint
+services/audit-worker    auditor job + optional convenience scan endpoint
 services/discovery-worker  discovery-to-commit job: scans and batches new launches unattended
 docs/                    protocol documentation
 ```
@@ -420,17 +393,17 @@ docs/                    protocol documentation
 | KAY9LiquidityLock | none | — | — |
 | KAY9AuditorRegistry | Timelock | add auditor, set threshold | 48 h; remove is immediate via Timelock proposer-executor |
 | KAY9ScanRegistry | Timelock | authorise or de-authorise a scanner | 48 h |
-| KAY9Pricing | Timelock | USD access targets, window, thresholds, feed address, bind the pool once | 48 h |
-| KAY9AccessVault | Timelock | `setAuditHub`, `setQuota`, `setLockDuration` | 48 h |
+| KAY9AccessVault | Timelock | `setRequirement`, `setQuota`, `setLockDuration`, `setAuditHub` | 48 h |
 | KAY9AuditHub | Timelock | SLA, pause new requests (attestations, disputes and expiries are never pausable) | 48 h |
 | TimelockController | owner Safe (proposer/executor), Timelock itself (admin) | schedule/execute | 48 h min delay |
 
-**No owner function can move a depositor's principal.** The vault's three setters point it at a hub,
-set the per-period allowances, and set the length of future periods. None of them touches a balance,
+**No owner function can move a depositor's principal.** The vault's four setters point it at a hub,
+set the KAY9 amount future periods lock, set the per-period allowances, and set the length of future
+periods. None of them touches a balance,
 and there is no function on `KAY9AccessVault` — timelocked, owner-only or otherwise — that sends a
-depositor's KAY9 to any address other than the depositor. `setQuota` and `setLockDuration` do not
-reach into live periods either, because the allowances and the expiry are copied into the access
-record when the period opens. The tests assert this directly rather than by inspection.
+depositor's KAY9 to any address other than the depositor. `setRequirement`, `setQuota` and
+`setLockDuration` do not reach into live periods either, because the locked amount, the allowances
+and the expiry are copied into the access record when the period opens. The tests assert this directly rather than by inspection.
 
 The hub's administrative surface lost its treasury setter along with the payment model: there is no
 recipient to configure because there is no money to send. Pausing is limited to *new requests*

@@ -1,10 +1,11 @@
 # Slither results
 
-Static analysis of the ten KAY9 contracts and their libraries, run on 2026-09-11 against the
-current tree — after the access-lock model, after `KAY9AccessVault` existed, and after the changes
-made the same day (auditor-only `attest`/`publishWatchdogReport`, retired-hub `restore`,
-`ZeroRequirement`, the `configurePool` fee and spacing check, and the `BlockNumberish` clock).
-Dependencies, tests and scripts are excluded.
+Static analysis of the nine KAY9 contracts and their libraries, run on 2026-09-11 against the
+current tree — after the access-lock model, after `KAY9AccessVault` existed, after the changes
+made earlier the same day (auditor-only `attest`/`publishWatchdogReport`, retired-hub
+`restore`, the `BlockNumberish` clock), and after the same evening's redenomination of the lock
+to a fixed amount of KAY9, which removed `KAY9Pricing` and with it every finding it carried
+(the one High, `weak-prng`, among them). Dependencies, tests and scripts are excluded.
 
 Every earlier revision of this file described contracts that no longer exist (the payment split,
 `submitResult`, `TreasuryUpdated`). Nothing below is carried over unread.
@@ -18,7 +19,7 @@ and is what produced the results below. Slither 0.11.6, solc 0.8.26, `--via-ir`,
 ```bash
 export PATH="$HOME/.foundry/bin:$PATH"
 solc-select install 0.8.26 && solc-select use 0.8.26
-for f in KAY9Genesis KAY9AuditHub KAY9AccessVault KAY9ScanRegistry KAY9Pricing KAY9Registry \
+for f in KAY9Genesis KAY9AuditHub KAY9AccessVault KAY9ScanRegistry KAY9Registry \
          KAY9AuditorRegistry KAY9TeamVesting KAY9LiquidityLock KAY9Token; do
   slither "src/$f.sol" \
     --compile-force-framework solc \
@@ -32,37 +33,24 @@ another. The runs overlap on shared libraries; findings are counted once below.
 
 ## Summary
 
-**68 distinct findings in 11 detector classes. None is a defect.** One finding is reported as
-High by this slither version (`weak-prng`) and is a false positive on a rounding modulo. Every
-finding is listed with its disposition.
+**52 distinct findings in 10 detector classes. None is a defect, and nothing is reported above
+Medium.** The earlier run's single High (`weak-prng`, a rounding modulo in the TWAP) went with the
+contract that held it. Every finding is listed with its disposition. Per contract: Genesis 29,
+AuditHub 20, AccessVault 9, LiquidityLock 6, Registry 4, ScanRegistry 3, TeamVesting 1,
+AuditorRegistry 0, Token 0 (overlapping library hits counted once in the totals).
 
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|
-| High | `weak-prng` | 1 | False positive: a modulo used to round toward negative infinity |
 | Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status guards, immutable callees |
-| Medium | `incorrect-equality` | 8 | False positives: comparisons against zero, the current block, or a Merkle root |
+| Medium | `incorrect-equality` | 6 | False positives: comparisons against zero or a Merkle root |
 | Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
-| Medium | `uninitialized-local` | 4 | False positives: accumulators that start at the zero default |
-| Medium | `unused-return` | 9 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall`, `latestRoundData` |
+| Medium | `uninitialized-local` | 1 | False positive: an accumulator that starts at the zero default |
+| Medium | `unused-return` | 5 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
 | Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
-| Low | `timestamp` | 21 | Intentional: vesting, cooldowns, periods, service levels, oracle windows |
-| Informational | `unindexed-event-address` | 3 | Event shapes fixed by `docs/CONTRACT_INTERFACES.md` |
-
----
-
-## High
-
-### `weak-prng` — `KAY9Pricing._twap`
-
-`weighted < 0 && weighted % divisor != 0` is flagged as a weak pseudo-random number generator.
-
-The modulo rounds the time-weighted mean tick toward negative infinity instead of toward zero,
-which is how Uniswap's own tick averaging behaves. Nothing is random and nothing depends on being
-unpredictable. The detector fires on the `%` operator alone.
-
-**Action: false positive, no change.**
+| Low | `timestamp` | 16 | Intentional: vesting, cooldowns, periods, service levels |
+| Informational | `unindexed-event-address` | 2 | Event shapes fixed by `docs/CONTRACT_INTERFACES.md` |
 
 ---
 
@@ -94,18 +82,16 @@ of its own, and only appends to storage.
 
 ### `incorrect-equality`
 
-Eight reports:
+Six reports:
 
 - `balance == 0`, `liquidity == 0`, `leftover == 0` in `KAY9Genesis._settleRemainder`, and
   `ethAmount == 0`, `liquidity == 0` in `KAY9Genesis.recover`
-- `latest.blockNumber == uint64(_getBlockNumberish())` in `KAY9Pricing.poke`
-- `status.twapKay9PerEthE18 == 0 || status.spotKay9PerEthE18 == 0` in `KAY9Pricing.pricingStatus`
 - `computed == _batches[batchId].root` in `KAY9ScanRegistry.verifyScan`
 
 The detector fires on strict equality because comparing a *token balance* to an exact expected
 value is fragile under fee-on-transfer tokens. None of these compare a balance to an expected
-amount: they test for zero, for the current block, or for a Merkle root, where strict equality is
-the only correct operator.
+amount: they test for zero or for a Merkle root, where strict equality is the only correct
+operator.
 
 **Action: false positives, no change.**
 
@@ -120,19 +106,17 @@ it *is* the snap-to-spacing operation, and the same expression appears in v4-cor
 
 ### `uninitialized-local`
 
-`burned` in `KAY9Genesis._settleRemainder`, and `weighted`, `inWindow` and `covered` in
-`KAY9Pricing._twap`. All four are accumulators or flags that deliberately start at the Solidity
-zero default and are either written before use or read as zero on purpose.
+`burned` in `KAY9Genesis._settleRemainder`: an accumulator that deliberately starts at the
+Solidity zero default and is read as zero on purpose when nothing is burned.
 
-**Action: false positives, no change.**
+**Action: false positive, no change.**
 
 ### `unused-return`
 
-Nine reports of one shape: `getSlot0` returns four values and the caller destructures the one or
-two it needs (`KAY9Genesis.recover`, `_settleRemainder`, `_migrationOutcome`; `KAY9Pricing.poke`,
-`pricingStatus`, `configurePool`); `poolManager.initialize` returns the tick, which the vault does
-not need; `launcher.multicall` returns per-call return data, which the vault does not need;
-`feed.latestRoundData` is destructured inside a `try`.
+Five reports of one shape: `getSlot0` returns four values and the caller destructures the one or
+two it needs (`KAY9Genesis.recover`, `_settleRemainder`, `_migrationOutcome`);
+`poolManager.initialize` returns the tick, which the vault does not need; `launcher.multicall`
+returns per-call return data, which the vault does not need.
 
 **Action: intentional, no change.**
 
@@ -173,10 +157,9 @@ owns and ids already locked, and every caller can fall back to the single-item `
 
 ### `timestamp`
 
-Twenty-one reports across `KAY9Genesis`, `KAY9TeamVesting`, `KAY9AccessVault`, `KAY9AuditHub`,
-`KAY9Pricing` and `KAY9Registry`. Time-based logic is the point in all of them: the vesting
-schedule, the 48-hour relaunch cooldown, the access period and its expiry, the audit service level,
-and the oracle window. Every tolerance is orders of magnitude larger than any plausible sequencer
+Sixteen reports across `KAY9Genesis`, `KAY9TeamVesting`, `KAY9AccessVault`, `KAY9AuditHub`
+and `KAY9Registry`. Time-based logic is the point in all of them: the vesting schedule, the
+48-hour relaunch cooldown, the access period and its expiry, and the audit service level. Every tolerance is orders of magnitude larger than any plausible sequencer
 clock drift, and Robinhood Chain is a single-sequencer Orbit chain where drift is not an adversarial
 lever. The `KAY9Registry.getReports` and `history` hits are the detector misclassifying ordinary
 array bounds arithmetic.
@@ -189,12 +172,12 @@ array bounds arithmetic.
 
 ### `unindexed-event-address`
 
-`KAY9Pricing.FeedUpdated(address)`, `KAY9AccessVault.AuditHubUpdated(address)` and
-`KAY9AccessVault.AuditHubRetired(address)` carry an address parameter that is not indexed.
+`KAY9AccessVault.AuditHubUpdated(address)` and `KAY9AccessVault.AuditHubRetired(address)` carry
+an address parameter that is not indexed.
 
-All three are governance events that fire a handful of times in the protocol's life, their shapes
-are specified in `docs/CONTRACT_INTERFACES.md`, and the current value of each is a plain getter
-(`feed()`, `auditHub()`, `isRetiredHub(address)`).
+Both are governance events that fire a handful of times in the protocol's life, their shapes are
+specified in `docs/CONTRACT_INTERFACES.md`, and the current value of each is a plain getter
+(`auditHub()`, `isRetiredHub(address)`).
 
 **Action: documented, no change.**
 

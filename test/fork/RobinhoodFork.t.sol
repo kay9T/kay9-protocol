@@ -24,7 +24,6 @@ import {IFeeSplitter} from "liquidity-launcher/src/interfaces/IFeeSplitter.sol";
 import {KAY9Genesis, LaunchParams} from "../../src/KAY9Genesis.sol";
 import {KAY9Token} from "../../src/KAY9Token.sol";
 import {KAY9LiquidityLock} from "../../src/KAY9LiquidityLock.sol";
-import {KAY9Pricing} from "../../src/KAY9Pricing.sol";
 import {AuctionSteps} from "../../src/libraries/AuctionSteps.sol";
 import {AuctionPriceLib} from "../../src/libraries/AuctionPriceLib.sol";
 import {IContinuousClearingAuction} from "../../src/interfaces/uniswap/IContinuousClearingAuction.sol";
@@ -250,17 +249,6 @@ contract RobinhoodForkTest is Test {
         IFeeSplitter(book.feeSplitter).collectFees(ids);
         assertGt(book.beneficiaryVault.balance, vaultBefore, "40 % of native fees reached the vault");
 
-        // The oracle observes the freshly created pool.
-        KAY9Pricing pricing = _deployPricing();
-        vm.prank(address(this));
-        pricing.configurePool(key);
-        for (uint256 i = 0; i < 40; ++i) {
-            vm.warp(vm.getBlockTimestamp() + 120);
-            _setBlock(currentBlock + 1200);
-            pricing.poke();
-        }
-        assertGt(pricing.pricingStatus().twapKay9PerEthE18, 0, "the oracle produced a price");
-
         console2.log("fork launch cycle complete at block", currentBlock);
     }
 
@@ -355,19 +343,6 @@ contract RobinhoodForkTest is Test {
             auctionStepsData: AuctionSteps.convexSchedule(startBlock, endBlock),
             salt: keccak256("KAY9 fork rehearsal")
         });
-    }
-
-    /// @notice Deploys a pricing oracle against the live pool manager and Chainlink feed.
-    /// @return The oracle.
-    function _deployPricing() internal returns (KAY9Pricing) {
-        return new KAY9Pricing(
-            address(this),
-            IPoolManager(book.poolManager),
-            address(token),
-            AggregatorV3Interface(book.ethUsdFeed),
-            100e8,
-            500e8
-        );
     }
 
     /// @notice Runs a bidding sequence that carries the auction past its graduation threshold.
