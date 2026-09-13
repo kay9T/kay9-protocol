@@ -413,13 +413,25 @@ nothing above that step needs to know the scale flipped:
 
 ```
 categoryRisk   = clamp(round(sum over signals in that category of points * confidence), 0, 100)
-overallRisk    = clamp(round(sum over categories of weight * categoryRisk), 0, 100)
+
+# Only categories this scan actually measured feed the headline number, renormalized to their
+# own combined weight -- a category held at the uncertainty floor (§7.2) is excluded here, not
+# averaged in, so being unmeasured no longer drags overallRisk toward it by default.
+measuredWeight = sum over measured categories of weight
+overallRisk    = clamp(round(sum over measured categories of weight * categoryRisk / measuredWeight), 0, 100)
+                 if measuredWeight > 0, else the uncertainty floor itself (35; see §7.2)
 overallRisk    = max(overallRisk, 60)  if any scoring signal is high severity
 overallRisk    = max(overallRisk, 80)  if any scoring signal is critical severity
 
 # The one conversion, in engine/scoring.ts's toTrustScores — everything published is this:
 publishedTrust = 100 - risk
 ```
+
+`measuredWeight` (0..1) is published alongside `confidence` and `uncertainCategories` in the report
+body. A reader should scale their trust in the headline number by it: an overall trust of 90 built
+on a `measuredWeight` of 0.3 is a confident read of three-tenths of the token, not of the whole
+thing — the uncertain categories are still visible, each held at its own 65 ceiling, in the
+per-category breakdown.
 
 Category weights, summing to exactly 1:
 

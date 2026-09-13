@@ -166,7 +166,9 @@ prediction as a view for the website.
 from the auction, then places everything the vault holds as a single-sided KAY9 position and locks
 that position through `KAY9LiquidityLock`. Because native ETH sorts before KAY9, KAY9 is currency1
 and buying KAY9 pushes the tick down, so a KAY9-only range sits *below* the current tick, at KAY9
-prices above the current one. Anything under the 1,000 KAY9 dust threshold is burned instead of
+prices above the current one. Its upper edge is anchored at the lower of the current tick and the
+auction's clearing tick, so the leftover is never offered below the clearing price and pushing the
+price down before calling `settle()` gains nothing. Anything under the 1,000 KAY9 dust threshold is burned instead of
 placed. Unsold supply can never become a team allocation.
 
 **Recovery.** `recover()` is permissionless and only possible when the auction graduated but the

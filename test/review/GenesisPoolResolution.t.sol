@@ -44,6 +44,7 @@ contract GenesisPoolResolutionTest is Kay9TestBase {
         assertEq(address(key.hooks), address(uni.initializerHook), "official key");
 
         vm.roll(p.endBlock + 1);
+        IContinuousClearingAuction(genesis.auction()).checkpoint();
         assertEq(genesis.launchState(), 4, "failed, not migrated");
         vm.expectRevert(KAY9Genesis.PoolNotReady.selector);
         genesis.settle();

@@ -31,6 +31,8 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PositionInfo, PositionInfoLibrary} from "@uniswap/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 
 /// @title KAY9LaunchTest
 /// @notice Exercises the fair launch against the real Uniswap liquidity launcher, LBP strategy and
@@ -39,6 +41,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 contract KAY9LaunchTest is Kay9TestBase {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
+    using PositionInfoLibrary for PositionInfo;
 
     /// @notice A four-hour auction on the auction's own clock: 14,400 s at the chain's 0.1 s cadence.
     /// @dev The auction reads `ArbSys.arbBlockNumber()` through Uniswap's `BlockNumberish`, and so
@@ -371,6 +374,8 @@ contract KAY9LaunchTest is Kay9TestBase {
         genesis.launch(p);
 
         vm.roll(p.endBlock + 1);
+        assertEq(genesis.launchState(), 2, "ended; not failed until the final checkpoint says so");
+        IContinuousClearingAuction(genesis.auction()).checkpoint();
         assertEq(genesis.launchState(), 4, "failed");
 
         uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
@@ -396,6 +401,96 @@ contract KAY9LaunchTest is Kay9TestBase {
         assertEq(genesis.launchCount(), 2);
         assertEq(genesis.launchState(), 1, "the new auction is live");
         assertEq(token.balanceOf(address(genesis)), 0, "the whole allocation moved again");
+    }
+
+    /// @notice A relaunch releases the strategy's reserve itself when nobody called migrate on
+    ///         the failed auction, and refuses cleanly while the strategy still cannot release it.
+    function test_relaunchReleasesReserveFromStrategy() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p.migrationBlock = p.endBlock + 1000;
+        vm.prank(owner);
+        genesis.launch(p);
+
+        vm.roll(p.endBlock + 1);
+        IContinuousClearingAuction(genesis.auction()).checkpoint();
+        assertEq(genesis.launchState(), 4, "failed");
+        genesis.markFailed();
+        vm.warp(genesis.earliestRelaunchTimestamp());
+
+        LaunchParams memory p2 = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p2.salt = bytes32(uint256(7));
+
+        // The strategy still holds the reserve and the pool id, and its migration block has not
+        // arrived, so the relaunch cannot release either yet and says so.
+        assertEq(token.balanceOf(address(genesis)), 0, "reserve still in the strategy");
+        vm.prank(owner);
+        vm.expectRevert();
+        genesis.launch(p2);
+
+        vm.roll(p.migrationBlock);
+        p2 = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p2.salt = bytes32(uint256(7));
+        vm.prank(owner);
+        genesis.launch(p2);
+
+        assertEq(genesis.launchCount(), 2);
+        assertEq(genesis.launchState(), 1, "the new auction is live");
+        assertEq(token.balanceOf(address(genesis)), 0, "the whole allocation moved again");
+        assertEq(token.balanceOf(address(uni.lbpStrategy)), genesis.LIQUIDITY_RESERVE(), "one reserve, not two");
+    }
+
+    /// @notice Pushing the price down right before `settle` cannot pull the leftover ladder below
+    ///         the auction's clearing price. Anchored at spot alone, the ladder moved with the dump
+    ///         and the manipulator could buy the leftover back below what every bidder paid.
+    function test_settleIgnoresPushedDownPrice() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        lock.lock(_latestPositionId());
+
+        int24 clearingTick = TickMath.getTickAtSqrtPrice(
+            AuctionPriceLib.toSqrtPriceX96(IContinuousClearingAuction(genesis.auction()).clearingPrice(), true)
+        );
+
+        uint256 dump = 50_000_000e18;
+        deal(address(token), address(this), dump);
+        _sellKay9(dump);
+        (, int24 pushedTick,,) = uni.poolManager.getSlot0(genesis.poolKey().toId());
+        assertGt(pushedTick, clearingTick + 2 * genesis.POOL_TICK_SPACING(), "the dump really moved the price");
+
+        uint256 positionsBefore = lock.lockedCount();
+        genesis.settle();
+        assertEq(lock.lockedCount(), positionsBefore + 1, "the leftover was placed, not burned");
+
+        (, PositionInfo info) = uni.positionManager.getPoolAndPositionInfo(lock.lockedTokenIds(positionsBefore));
+        assertLe(
+            info.tickUpper(),
+            clearingTick - genesis.POOL_TICK_SPACING(),
+            "the ladder starts no cheaper than the clearing price"
+        );
+        assertLt(info.tickUpper(), pushedTick, "and below spot, so the position stays single-sided");
+    }
+
+    /// @notice An auction that graduates only at its final checkpoint must not read as failed
+    ///         before that checkpoint, and nobody may start the relaunch cooldown on it.
+    function test_launchStateWaitsForFinalCheckpoint() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        vm.prank(owner);
+        genesis.launch(p);
+
+        IContinuousClearingAuction auction = IContinuousClearingAuction(genesis.auction());
+        vm.roll(p.startBlock + 1);
+        _bid(auction, alice, p.floorPriceQ96 * 8, uint128(uint256(p.requiredCurrencyRaised) * 3));
+
+        vm.roll(p.endBlock + 1);
+        assertFalse(auction.isGraduated(), "the stored figure still predates the final block");
+        assertEq(genesis.launchState(), 2, "ended, not failed: the final checkpoint has not run");
+        vm.expectRevert(KAY9Genesis.NotFailed.selector);
+        genesis.markFailed();
+
+        auction.checkpoint();
+        assertTrue(auction.isGraduated(), "the final checkpoint graduates it");
+        assertEq(genesis.launchState(), 2, "ended and graduated, awaiting migration");
     }
 
     /// @notice A partially filled, non-graduating auction still returns everything.

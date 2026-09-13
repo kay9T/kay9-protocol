@@ -210,8 +210,9 @@ contract DeployWatchdogTest is Test {
         vm.setEnv("TEAM_BENEFICIARY", vm.toString(address(0xBEEF)));
         vm.setEnv("CREATOR_FEE_RECIPIENT", vm.toString(address(0xFEE5)));
         vm.setEnv("TGE_TIMESTAMP", "1800000000");
-        vm.setEnv("UNLOCK_6M_TIMESTAMP", "1815000000");
-        vm.setEnv("UNLOCK_12M_TIMESTAMP", "1830000000");
+        // 2027-01-15 08:00 UTC, then exactly six and twelve calendar months later.
+        vm.setEnv("UNLOCK_6M_TIMESTAMP", "1815638400");
+        vm.setEnv("UNLOCK_12M_TIMESTAMP", "1831536000");
         vm.setEnv("ETH_USD_FEED", vm.toString(address(0xFEED)));
         vm.setEnv("INITIALIZER_HOOK", vm.toString(address(0x400C)));
     }

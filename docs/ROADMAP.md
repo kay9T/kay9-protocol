@@ -86,9 +86,6 @@ scan-pass logic, not yet deployed. Standing it up on a real schedule, against a 
   then the access model: lock, request, attest with two auditors, dispute with three,
   expire an unanswered job, renew, and unlock the whole principal. This is scripted in
   `docs/DEPLOYMENT.md` §3 and §3.1 and needs only a funded testnet key.
-- **Confirm the jurisdiction.** The owner confirms which jurisdiction they operate from and obtains
-  professional legal and tax review for it before launch. No contract property can substitute for
-  this and no test can catch its absence; `docs/DEPLOYMENT.md` §2 lists what the review has to cover.
 - **Owner wallets.** Owner Safe, team beneficiary, creator-fee recipient, three auditor addresses.
   Nothing deploys until these exist and none of them may be a developer key.
 - **An independent audit, if the launch valuation justifies it.** The Uniswap Liquidity
@@ -280,7 +277,6 @@ Fill these in and the relative weeks above become a calendar.
 | Deep access lock | 5,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below 1 KAY9 |
 | Forensic access lock | 10,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below the deep lock, never above 10,000,000 KAY9 |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
-| Jurisdiction confirmed, with professional review | to be confirmed by the owner before launch |
 
 ### 8.1 The calendar, working back from 10 November 2026
 
@@ -297,7 +293,6 @@ promise: a slipped line moves the launch, not the gate.
 | Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
 | Fri 16 Oct 2026 | External review report received | 6 |
 | Fri 23 Oct 2026 | Every review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree | 6, 7 |
-| Fri 23 Oct 2026 | Jurisdiction confirmed and professional legal and tax review obtained | `DEPLOYMENT.md` §2 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
 | Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |

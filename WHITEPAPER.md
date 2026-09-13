@@ -232,9 +232,8 @@ all. A product asking to be trusted should be checkable first.
 1. **Before launch (September–October 2026):** static analysis and the fork suite re-run against
    the current contracts (done 2026-09-11), the testnet rehearsal of both the launch cycle and the
    access-lock cycle (in progress 2026-09-11), an external review of the launch path, the watchdog
-   live on mainnet by 9 October so it has thirty unattended days before the target, calibration
-   against fifty-plus tokens, and the operating jurisdiction confirmed with professional legal and
-   tax review.
+   live on mainnet by 9 October so it has thirty unattended days before the target, and calibration
+   against fifty-plus tokens.
 2. **Launch week (target Tuesday 10 November 2026):** contracts deploy and are verified publicly
    the week before; the auction opens for a fixed four-hour window on the owner's single
    signature; migration, liquidity lock, and unsold-supply settlement are all permissionless

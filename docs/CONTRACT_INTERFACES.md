@@ -97,7 +97,7 @@ contract KAY9Genesis is Ownable2Step {
                 address poolManager, address permit2, address feeSplitter, address beneficiaryVault);
 
     function launch(LaunchParams calldata p) external;   // onlyOwner; first launch or after failure + delay
-    function launchState() external view returns (uint8);  // 0 NotLaunched, 1 AuctionLive, 2 AuctionEnded, 3 Migrated, 4 Failed
+    function launchState() external view returns (uint8);  // 0 NotLaunched, 1 AuctionLive (also between launch and startBlock), 2 AuctionEnded, 3 Migrated, 4 Failed (for a non-graduated auction, only once the auction has checkpointed its end block)
     function poolKey() external view returns (PoolKey memory);  // (ETH, KAY9, 10000, 200, poolHook); the hookless recovery pool after recover()
     function poolHook() external view returns (address);        // canonical InitializerHook, immutable
     function recovered() external view returns (bool);          // true once recover() rebuilt the pool
@@ -644,11 +644,11 @@ The Solidity implementation exposes these additional members. They are supersets
 
 ```solidity
 // KAY9Genesis
-function markFailed() public;              // permissionless: records a failed launch (auction ended without graduation, or migration recovered) and starts the 48 h relaunch cooldown
+function markFailed() public;              // permissionless: records a failed launch (auction ended without graduation and its end block checkpointed, or migration recovered) and starts the 48 h relaunch cooldown
 function previewLaunch(LaunchParams calldata p) external view returns (address predictedAuction, uint256 impliedFloorFdvWei, uint256 impliedGraduationRaiseWei);
 
 // KAY9LiquidityLock
 function track(uint256 tokenId) external;  // permissionless: registers a position this contract already owns (PositionManager mints without a receiver callback)
 ```
 
-Settlement range note: with native ETH as `currency0` and KAY9 as `currency1`, a KAY9-only position must sit **below the current tick** (`[minUsableTick, currentTick - tickSpacing]`); in price terms that is KAY9 offered at prices above the current market price, which is what ARCHITECTURE §4.2 describes.
+Settlement range note: with native ETH as `currency0` and KAY9 as `currency1`, a KAY9-only position must sit **below the current tick**. Its upper edge is anchored at the lower of the current tick and the auction's clearing tick (`[minUsableTick, min(currentTick, clearingTick) - tickSpacing]`); in price terms that is KAY9 offered at prices above both the current market price and the auction's clearing price, which is what ARCHITECTURE §4.2 describes.

@@ -33,7 +33,7 @@ The team allocation is released in three steps by `KAY9TeamVesting`. The three t
 - The pool's LP fee is **1 %** (`fee = 10000`, tick spacing 200). This is a pool fee paid by traders to the liquidity position, not a token tax.
 - The LP NFT is delivered to `KAY9LiquidityLock`, which registers the project's creator-fee beneficiary and then transfers the NFT into Uniswap's `FeeSplitter`, a contract with no admin and no withdrawal path. **No one, including the team, can withdraw the liquidity principal.**
 - Fee accounting, as deployed on Robinhood Chain in `FeeSplitter 0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf`: of the native-ETH side of collected fees, 40 % is claimable by the beneficiary NFT holder and 60 % is compounded back into the position; 100 % of the KAY9 side is compounded back into the position. Anyone can call `collectFees`.
-- Unsold auction tokens and any unused part of the reserve are settled by the permissionless `KAY9Genesis.settle()`: they become a single-sided KAY9 position just above the market price, locked the same way. Amounts under 1,000 KAY9 are burned. Unsold tokens never become a team allocation.
+- Unsold auction tokens and any unused part of the reserve are settled by the permissionless `KAY9Genesis.settle()`: they become a single-sided KAY9 position just above the market price and never below the auction's clearing price, locked the same way. Amounts under 1,000 KAY9 are burned. Unsold tokens never become a team allocation.
 
 ## What KAY9 is for
 
