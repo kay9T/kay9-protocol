@@ -63,6 +63,33 @@ contract KAY9RecoverTest is Kay9TestBase {
         assertGt(p.migrationBlock, 0);
     }
 
+    /// @notice Recovery sweeps the auction's unsold supply too. Only this contract can sweep it,
+    ///         and recovery is the last call that settles the launch, so a recovery that forgot the
+    ///         sweep would strand those tokens in the auction forever.
+    function test_recoverSweepsUnsoldSupply() public {
+        // Graduate on a quarter of the default threshold with a bid that buys half of the supply
+        // at the floor, so half of the auction supply is genuinely unsold.
+        _graduateThenFailMigration(4, 2);
+        IContinuousClearingAuction auction = IContinuousClearingAuction(genesis.auction());
+
+        uint256 unsold = auction.remainingSupply();
+        uint256 auctionBalanceBefore = token.balanceOf(address(auction));
+        assertGt(unsold, genesis.DUST_THRESHOLD(), "the bid left a real unsold remainder in the auction");
+        assertEq(auction.sweepUnsoldTokensBlock(), 0, "nothing swept before recovery");
+
+        genesis.recover();
+
+        assertGt(auction.sweepUnsoldTokensBlock(), 0, "recovery swept the unsold supply");
+        assertEq(
+            auctionBalanceBefore - token.balanceOf(address(auction)),
+            unsold,
+            "the auction kept only what bidders have yet to claim"
+        );
+        assertLt(token.balanceOf(address(genesis)), genesis.DUST_THRESHOLD(), "and the vault placed it");
+        assertTrue(genesis.settled());
+        assertEq(lock.lockedCount(), 2, "full-range recovery position plus the single-sided remainder");
+    }
+
     /// @notice Recovery cannot run twice and cannot run on a healthy launch.
     function test_recoverGuards() public {
         _graduateThenFailMigration();
@@ -116,12 +143,23 @@ contract KAY9RecoverTest is Kay9TestBase {
     /// @return p The launch parameters.
     /// @return clearingPrice The auction's final clearing price.
     function _graduateThenFailMigration() internal returns (LaunchParams memory p, uint256 clearingPrice) {
+        return _graduateThenFailMigration(1, 3);
+    }
+
+    /// @param requiredDivisor Divides the default graduation threshold, so a bid can graduate the
+    ///        auction while filling only part of the supply and leave a real unsold remainder.
+    /// @param bidMultiplier How many times the (divided) threshold the single bid commits.
+    function _graduateThenFailMigration(uint128 requiredDivisor, uint256 bidMultiplier)
+        internal
+        returns (LaunchParams memory p, uint256 clearingPrice)
+    {
         p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p.requiredCurrencyRaised = p.requiredCurrencyRaised / requiredDivisor;
         vm.prank(owner);
         genesis.launch(p);
 
         IContinuousClearingAuction auction = IContinuousClearingAuction(genesis.auction());
-        uint128 amount = uint128(uint256(p.requiredCurrencyRaised) * 3);
+        uint128 amount = uint128(uint256(p.requiredCurrencyRaised) * bidMultiplier);
         uint256 price = p.floorPriceQ96 * 8;
         price -= price % p.auctionTickSpacingQ96;
 

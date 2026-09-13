@@ -66,6 +66,10 @@ interface IContinuousClearingAuction is ILBPInitializer {
     /// @return True once the auction has graduated.
     function isGraduated() external view returns (bool);
 
+    /// @notice The last block the auction has checkpointed. Equals the end block once the auction
+    ///         is final, and only then is `isGraduated` final too.
+    function lastCheckpointedBlock() external view returns (uint64);
+
     /// @notice Refunds a bid that cleared above the final price.
     /// @param bidId The bid to exit.
     function exitBid(uint256 bidId) external;

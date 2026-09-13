@@ -146,6 +146,52 @@ contract GenesisLaunchGriefTest is Kay9TestBase {
         );
     }
 
+    /// @notice The strategy creates the official pool for any registered distribution of KAY9, so a
+    ///         KAY9 holder can create it before the launch does. The launch must then refuse, rather
+    ///         than run an auction whose migration could only fail and whose raise would be frozen.
+    function test_launchRefusesAnExistingOfficialPool() public {
+        // Stands in for a stranger's distribution migrating through the strategy, the only caller
+        // the InitializerHook admits.
+        vm.prank(address(uni.lbpStrategy));
+        uni.poolManager.initialize(_officialKey(), ONE_TO_ONE);
+
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.OfficialPoolExists.selector);
+        genesis.launch(p);
+        assertEq(genesis.launchState(), 0, "nothing launched");
+    }
+
+    /// @notice A launch that did not graduate stays failed when somebody else's distribution later
+    ///         creates the official pool: `settle` must not pour the supply into that pool, and the
+    ///         relaunch refuses to run an auction that could never migrate.
+    function test_failedLaunchIgnoresAStrangersOfficialPool() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        vm.prank(owner);
+        genesis.launch(p);
+
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        assertEq(genesis.launchState(), 4, "failed");
+
+        vm.prank(address(uni.lbpStrategy));
+        uni.poolManager.initialize(_officialKey(), ONE_TO_ONE);
+
+        assertEq(genesis.launchState(), 4, "still failed: the pool is not this launch's");
+        vm.expectRevert(KAY9Genesis.PoolNotReady.selector);
+        genesis.settle();
+        vm.expectRevert(KAY9Genesis.NothingToRecover.selector);
+        genesis.recover();
+
+        genesis.markFailed();
+        vm.warp(genesis.earliestRelaunchTimestamp());
+        LaunchParams memory p2 = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p2.salt = bytes32(uint256(7));
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.OfficialPoolExists.selector);
+        genesis.launch(p2);
+    }
+
     /// @notice Runs a full auction that graduates.
     function _runGraduatingAuction() internal returns (LaunchParams memory p) {
         p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);

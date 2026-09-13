@@ -14,6 +14,7 @@ import {KAY9AuditorRegistry} from "../src/KAY9AuditorRegistry.sol";
 import {KAY9Registry} from "../src/KAY9Registry.sol";
 import {KAY9AccessVault} from "../src/KAY9AccessVault.sol";
 import {KAY9AuditHub} from "../src/KAY9AuditHub.sol";
+import {CalendarMonths} from "../src/libraries/CalendarMonths.sol";
 import {ChainAddresses, RobinhoodAddresses} from "./config/RobinhoodAddresses.sol";
 
 /// @notice The project-specific addresses and settings the deployment was given.
@@ -202,6 +203,12 @@ contract Deploy is Script {
         cfg.unlock6m = uint64(vm.envUint("UNLOCK_6M_TIMESTAMP"));
         cfg.unlock12m = uint64(vm.envUint("UNLOCK_12M_TIMESTAMP"));
         if (!(cfg.tge < cfg.unlock6m && cfg.unlock6m < cfg.unlock12m)) revert BadSchedule();
+        // The schedule is burned into the vesting contract, so a typo in either unlock would be
+        // permanent. Both must be the exact calendar dates ComputeVesting prints, never an estimate.
+        if (
+            cfg.unlock6m != CalendarMonths.addMonths(cfg.tge, 6)
+                || cfg.unlock12m != CalendarMonths.addMonths(cfg.tge, 12)
+        ) revert BadSchedule();
 
         cfg.auditorThreshold = uint8(vm.envUint("AUDITOR_THRESHOLD"));
         cfg.auditorCount = auditorCount;

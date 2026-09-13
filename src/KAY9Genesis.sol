@@ -175,6 +175,12 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @param predicted The predicted address.
     error AuctionMismatch(address predicted);
 
+    /// @notice Thrown when a launch is attempted while the official pool already exists.
+    /// @dev The strategy initializes the official key for any registered distribution of KAY9, not
+    ///      only this contract's, so a KAY9 holder can bring it into being while no launch of ours
+    ///      holds the key. An auction launched after that could never migrate. See `launch`.
+    error OfficialPoolExists();
+
     /// @notice Thrown when settle or recover is called before the pool exists.
     error PoolNotReady();
 
@@ -420,10 +426,18 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
             if (state != uint8(LaunchState.Failed)) revert WrongLaunchState(state);
             if (earliestRelaunchTimestamp == 0) revert FailureNotMarked();
             if (block.timestamp < earliestRelaunchTimestamp) revert RelaunchTooEarly(earliestRelaunchTimestamp);
+            _releaseStrategyReserve();
             _sweepUnsoldTokens();
         }
 
         _validate(p);
+
+        // The InitializerHook stops anyone but the strategy from creating the official pool, but
+        // the strategy creates it for any registered distribution of KAY9. If one already has, this
+        // auction's migration could only fail, and its raise would come back to a vault that reads
+        // the stranger's pool as the migrated one. Refusing here keeps every bidder's ETH out of it.
+        (uint160 officialPrice,,,) = poolManager.getSlot0(_officialKey().toId());
+        if (officialPrice != 0) revert OfficialPoolExists();
 
         uint256 balance = token.balanceOf(address(this));
         if (balance < LAUNCH_ALLOCATION) revert InsufficientLaunchBalance(balance);
@@ -507,6 +521,10 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @notice The state of the current launch.
     /// @dev Compared on the auction's own clock (`chainBlockNumber`), never on `block.number`,
     ///      which on this Orbit chain is the parent chain's height. See MIN_DURATION_BLOCKS.
+    ///      1 is also reported between `launch` and the start block, while bids still revert; a
+    ///      reader that needs "scheduled" apart from "live" compares `chainBlockNumber` with
+    ///      `launchParams().startBlock`. 4 is reported for a non-graduated auction only once the
+    ///      auction has checkpointed its end block; anyone can call the auction's `checkpoint()`.
     /// @return 0 not launched, 1 auction live, 2 auction ended, 3 migrated, 4 failed.
     function launchState() public view returns (uint8) {
         address currentAuction = auction;
@@ -517,8 +535,12 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         (bool attempted, bool succeeded,) = _migrationOutcome();
         if (!attempted) {
             // The auction is over. Once a non-graduated auction can no longer graduate, the launch
-            // has failed even though nobody has called migrate yet.
-            if (!_graduated(currentAuction)) return uint8(LaunchState.Failed);
+            // has failed even though nobody has called migrate yet. That is only settled once the
+            // auction has checkpointed its end block: `isGraduated` reads the figure stored at the
+            // last checkpoint, and the launch schedule releases its largest slice in the final
+            // block, so an auction can read as not graduated right up to the checkpoint that
+            // graduates it. Until then the honest answer is "ended".
+            if (!_graduated(currentAuction) && _finalized(currentAuction)) return uint8(LaunchState.Failed);
             return uint8(LaunchState.AuctionEnded);
         }
         return succeeded ? uint8(LaunchState.Migrated) : uint8(LaunchState.Failed);
@@ -554,8 +576,10 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     ///         Permissionless.
     /// @dev The position sits entirely below the current tick, which is where a currency1-only
     ///      range lives when currency0 is native ETH: buying KAY9 pushes the tick down, so the
-    ///      offered supply sits at KAY9 prices above the current one. Amounts below the dust
-    ///      threshold are burned rather than placed.
+    ///      offered supply sits at KAY9 prices above the current one. Its upper edge is anchored
+    ///      at the lower of the current tick and the auction's clearing tick, so the leftover is
+    ///      never offered below the clearing price and moving the price down before calling this
+    ///      gains nothing. Amounts below the dust threshold are burned rather than placed.
     function settle() external nonReentrant {
         if (settled) revert AlreadySettled();
         (bool attempted, bool succeeded, PoolKey memory key) = _migrationOutcome();
@@ -584,6 +608,11 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
         uint256 ethAmount = address(this).balance;
         if (ethAmount == 0) revert NothingToRecover();
+
+        // The auction hands unsold supply only to its tokensRecipient, which is this contract, and
+        // `_settleRemainder` below marks the launch settled. Sweeping here is therefore the last
+        // chance those tokens get: without it they would stay in the auction with no caller left.
+        _sweepUnsoldTokens();
 
         PoolKey memory key = _recoveryKey();
         uint160 sqrtPriceX96 =
@@ -792,6 +821,13 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
         if (recovered) return (true, true, _recoveryKey());
 
+        // A migration attempt checkpoints the auction's end block in both of the strategy's
+        // branches, so graduation is final here, and the strategy cannot migrate an auction that
+        // did not graduate. An official pool that exists anyway was created by somebody else's
+        // distribution of KAY9, and this launch still failed: `settle` must not pour the supply
+        // into it, and the relaunch path must stay open.
+        if (!_graduated(currentAuction)) return (true, false, key);
+
         (uint160 officialPrice,,,) = poolManager.getSlot0(officialId);
         if (officialPrice != 0) return (true, true, official);
 
@@ -807,6 +843,38 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         } catch {
             return false;
         }
+    }
+
+    /// @notice Whether the auction has checkpointed its end block, after which its graduation can
+    ///         no longer change.
+    /// @dev Every call that settles an ended auction (`exitBid`, `claimTokens`, both sweeps)
+    ///      checkpoints the end block first, and its public `checkpoint()` does so on its own. A
+    ///      reverting read counts as not finalized, which keeps the state at AuctionEnded rather
+    ///      than declaring a launch failed on no evidence.
+    /// @param currentAuction The auction to query.
+    /// @return True once the auction's last checkpoint is its end block.
+    function _finalized(address currentAuction) private view returns (bool) {
+        try IContinuousClearingAuction(currentAuction).lastCheckpointedBlock() returns (uint64 lastBlock) {
+            return lastBlock >= _params.endBlock;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice Makes the strategy give the liquidity reserve back after an auction that did not
+    ///         graduate, if nobody has done so yet.
+    /// @dev The strategy keeps the reserve and the official pool id registered until `migrate` is
+    ///      called on the failed auction. A relaunch needs both released: the reserve because the
+    ///      vault must hold the full allocation again, the pool id because the strategy refuses to
+    ///      register it twice. Only reached from the relaunch branch, which has already established
+    ///      that the auction did not graduate, so the strategy's call can only take its recovery
+    ///      branch and never build a pool. If the migration block has not arrived yet the strategy
+    ///      reverts, and the relaunch reverts with it, which is the honest answer at that point.
+    function _releaseStrategyReserve() private {
+        address currentAuction = auction;
+        if (currentAuction == address(0)) return;
+        if (lbpStrategy.registeredPoolIds(_officialKey().toId()) != currentAuction) return;
+        lbpStrategy.migrate(ILBPInitializer(currentAuction));
     }
 
     /// @notice Claims unsold tokens from the auction if they have not been claimed yet.
@@ -840,7 +908,17 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         (uint160 sqrtPriceX96, int24 currentTick,,) = poolManager.getSlot0(key.toId());
         if (sqrtPriceX96 == 0) revert PoolNotReady();
 
-        int24 tickUpper = TickRange.floorToSpacing(currentTick - POOL_TICK_SPACING, POOL_TICK_SPACING);
+        // The ladder starts no cheaper than the auction's final clearing price. A currency1-only
+        // range holds its tokens in proportion to sqrt(price), so the ticks nearest its anchor hold
+        // the most: anchored at spot alone, anyone holding KAY9 could push the price down, call
+        // settle and buy a large share of the leftover back below what every bidder paid, all in
+        // one transaction. The lower tick of the two is the dearer KAY9 price, and it is always at
+        // or below the current tick, so the range stays single-sided.
+        int24 clearingTick = TickMath.getTickAtSqrtPrice(
+            AuctionPriceLib.toSqrtPriceX96(IContinuousClearingAuction(auction).clearingPrice(), true)
+        );
+        int24 anchor = clearingTick < currentTick ? clearingTick : currentTick;
+        int24 tickUpper = TickRange.floorToSpacing(anchor - POOL_TICK_SPACING, POOL_TICK_SPACING);
         int24 tickLower = TickRange.minUsableTick(POOL_TICK_SPACING);
         if (tickUpper <= tickLower) revert PoolNotReady();
 

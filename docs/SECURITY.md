@@ -413,14 +413,22 @@ initialize that hookless key, so `recover()` refuses to run unless the pool is e
 or already sitting at exactly the auction's final clearing price: minting the whole raise as a
 full-range position at a price a stranger chose would be a drain, and failing closed is not. A
 squatted key is not a permanent block either — an empty pool's price moves to any target for the cost
-of a swap that fills nothing, after which recovery proceeds. Severity: low, fails closed.
+of a swap that fills nothing, after which recovery proceeds. `recover()` also sweeps the auction's
+unsold supply before it settles the remainder: only this contract may sweep it, and after recovery
+nothing else would. Severity: low, fails closed.
 
-**Settlement is permissionless and prices itself off spot.** `settle()` places the leftover supply as
-one single-sided range anchored to the pool's current tick, so whoever calls it chooses the anchor.
-Someone who moves the price first and calls `settle()` in the same transaction gets a marginally
-better ladder than the market would have given. The position spans every tick down to
-`minUsableTick`, so its depth near the current price is thin and the manipulation has to be paid for
-twice through a 1 % pool fee. Severity: low, inherent to adding a large one-sided position at market.
+**Settlement is permissionless and anchors no cheaper than the clearing price.** `settle()` places
+the leftover supply as one single-sided range whose upper edge sits one tick spacing below the lower
+of the pool's current tick and the auction's final clearing tick: a KAY9 price no cheaper than the
+market and no cheaper than what every bidder paid. An earlier revision anchored at spot alone, on the
+reasoning that the range's depth near the current price was thin. It is not. A currency1-only range
+holds its tokens in proportion to √P, so the ticks nearest the anchor hold the most, and the share of
+the leftover sold within a price ratio k of the anchor is 1 − 1/√k whatever the lower edge is.
+Anyone holding KAY9 could push the price down, call `settle()` and buy a large part of the leftover
+back below the clearing price in the same transaction, paying only the two 1 % fees. With the
+clearing price as a floor, pushing the price down first gains nothing, and pushing it up only makes
+the leftover dearer for everybody, the manipulator included. `test_settleIgnoresPushedDownPrice`
+pins it. Severity: was medium, fixed.
 
 **Frozen ETH dust in the genesis vault.** After a successful migration the LBP strategy forwards its
 leftover ETH dust, on the order of 10⁻⁵ ETH, to the vault. The vault has no withdrawal path, so that
@@ -430,14 +438,39 @@ a far worse trade than losing a rounding remainder. Severity: negligible, accept
 **Relaunch requires an explicit failure marker.** The chain does not record the timestamp at which a
 failure became observable, so the 48-hour relaunch cooldown starts when someone calls the
 permissionless `markFailed()`. If nobody calls it, the cooldown never starts and the owner cannot
-relaunch. This delays a relaunch; it can never accelerate one. Severity: low, accepted.
+relaunch. This delays a relaunch; it can never accelerate one. `markFailed()` accepts a
+non-graduated auction only once the auction has checkpointed its end block: before that checkpoint
+`isGraduated` still reports an earlier figure, and the final block releases the largest slice of
+supply, so a launch that is about to graduate would otherwise read as failed. Anyone can call the
+auction's `checkpoint()`. Severity: low, accepted.
 
 **A relaunch reuses the same pool key.** After a non-graduated auction no pool was ever initialized,
-so a relaunch can reserve the same key, provided somebody has called `migrate()` on the dead auction
-first, which is what releases the strategy's pool-id reservation and returns the LP reserve. After a
+so a relaunch can reserve the same key. The relaunch itself calls `migrate()` on the dead auction
+when nobody has, which releases the strategy's pool-id reservation and returns the LP reserve inside
+the same transaction; before the auction's migration block that call reverts, and so does the
+relaunch. After a
 `recover()`, the hookless recovery pool exists but the hooked official key does not, so a relaunch
 would reserve it again. In practice a recovery is terminal: the liquidity is
 already locked and there is nothing left to relaunch. Severity: informational.
+
+**KAY9 held outside the launch before the official pool exists.** The InitializerHook stops anybody
+but the LBP strategy from initializing the official pool, but the strategy initializes it for any
+registered distribution of KAY9, not only this vault's. While no auction of ours holds the key's
+registration (before the first `launch`, during a relaunch cooldown, after a failed migration),
+anybody holding KAY9 can run a small distribution of their own through the launcher and bring the
+official pool into being at a price they chose. Before that pool exists, the only KAY9 outside the
+launch pipeline is the team's TGE tranche, so `TGE_TIMESTAMP` is set no earlier than the planned
+migration and the team moves nothing before the pool exists (`docs/DEPLOYMENT.md`). Two checks make
+the contract fail closed if that rule is broken. `launch` refuses while the official pool exists
+(`OfficialPoolExists`), so no bidder's ETH enters an auction whose migration could only fail. A
+launch whose auction did not graduate never reads as migrated, whatever happens to the official
+pool, so `settle` cannot place the supply into a stranger's pool. `test/review/GenesisLaunchGrief.t.sol`
+pins both. One case remains: after a graduated auction whose migration failed, bidders hold KAY9,
+and one who creates the official pool before anybody calls `recover()` makes the vault read the
+launch as migrated, which blocks recovery and leaves the raise frozen in the vault. A migration
+failure is not expected with a static-fee pool and a standard token, and `recover()` is
+permissionless, so the operational answer is to call it in the block the failure is seen.
+Severity: medium, fails closed except for that residual case.
 
 **Owner pricing discretion.** The owner can choose a floor or graduation valuation that the market
 considers absurd. The contract cannot judge that; the website shows the implied numbers from

@@ -40,7 +40,7 @@ FDV is always computed over the full 1,000,000,000 supply. The floor price in th
 3. **End and claim.** After `endBlock`, the final checkpoint fixes the clearing price. Winners claim KAY9 after `claimBlock`.
 4. **Migration (anyone).** `LBPStrategy.migrate(auction)` sweeps the ETH, initializes the pool at the clearing price, mints the full-range position, and sends the LP NFT to `KAY9LiquidityLock`.
 5. **Lock (anyone).** `KAY9LiquidityLock.lock(tokenId)` registers the creator-fee beneficiary and transfers the NFT into `FeeSplitter`, permanently.
-6. **Settle (anyone).** `KAY9Genesis.settle()` sweeps unsold KAY9 from the auction and any returned reserve, adds them as single-sided liquidity above the market price, locks that position too, and burns dust.
+6. **Settle (anyone).** `KAY9Genesis.settle()` sweeps unsold KAY9 from the auction and any returned reserve, adds them as single-sided liquidity above both the market price and the auction's clearing price, locks that position too, and burns dust.
 
 ## Proceeds
 
