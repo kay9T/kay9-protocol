@@ -208,23 +208,40 @@ One idle container would consume a quarter of the budget for the privilege of do
 | B | GitHub Actions scheduled workflow, in a separate repository | zero | `schedule` plus `repository_dispatch` |
 | C | a third key the project holds, in a store separate from A and B, run as its own scheduled job | zero when not running | cron plus HTTP nudge |
 
-Three signing keys, three secret stores, three identities in `KAY9AuditorRegistry`. What that
-deployment does **not** have is three independent operators. **All three keys are held by the
-project owner.** No second party holds one, and none is promised.
+Three signing keys, three secret stores, three identities in `KAY9AuditorRegistry`.
 
-Say what that leaves, exactly. The quorum still does two things: a single leaked key cannot commit
-a result on its own, and a single lost key does not stop the protocol, because removing an auditor
-lowers the threshold with it. What it does not do is protect anyone against the project itself. A
-holder of all three keys can produce any result the contracts will accept, and no arrangement of
-software changes that.
+**Who holds them, as of 2026-09-16.** One key is the developer's. One is the project owner's. One is
+held by a third person who is not otherwise involved in the project. The three are in three
+countries. The project does not publish their identities, so a reader cannot check any of that
+sentence — it is the project's statement about itself and is written here as one.
 
-It also means the three keys are only as separate as the two easiest of them. If two live on the
-same machine, the quorum is worth what one key is worth. Each key therefore belongs in a different
-store with a different way in, and the key that signs governance belongs on hardware, held by a
-person, not in a job.
+**Two of the three are the project.** The developer and the owner are both inside it, and the
+threshold is two, so the project can still produce any result the contracts will accept without the
+third holder waking up. The third vote can never decide anything on its own. So this arrangement is
+**not** protection against the project, and nothing on the website may suggest that it is. What
+changed on 2026-09-16 is that no single person holds a quorum, which is a smaller claim and a true
+one.
 
-This is the sharpest limitation in the whole design, and it is stated on the website in these
-terms rather than buried here. It ends when somebody else holds a key, not when the code changes.
+**What the quorum does do**, precisely: a single leaked key cannot commit a result on its own, and a
+single lost key does not stop the protocol, because removing an auditor lowers the threshold with
+it. The arrangement is only as strong as its two weakest keys, so each belongs in a different store
+with a different way in, and the key that signs governance belongs on hardware, held by a person,
+rather than in a job.
+
+**What a reader can check**, without taking anything on trust: every report names its signers, so
+the distribution of signatures over time is public; and the funding of the three auditor addresses
+is visible on chain. Today that funding is central — gas for all three comes from the project's
+deployer account, because two of the holders are not being asked to pay for the project's costs.
+Anyone auditing this will see one address paying for three auditors, and should read it as exactly
+what it is rather than as evidence of anything hidden.
+
+**The real protection is elsewhere, and it always was.** If the record is reproducible — run the
+engine at the block the chain chose and get the same bytes — then a wrong verdict is detectable by
+anyone, whoever signed it and however many of them there are. That is gate 3 of
+`docs/LAUNCH_READINESS.md`, and it is worth more than the operator count.
+
+This ends being a limitation when two of the three keys are held outside the project, not when the
+code changes.
 
 **The subscription can be suspended, and that takes the website with it.** The Azure subscription
 is `MSDN_2014-09-01` with the spending limit **on**, so overspending cannot produce a bill. It
