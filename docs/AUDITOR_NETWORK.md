@@ -30,8 +30,8 @@ a public array.
 
 ## 2. Why the analysis is reproducible
 
-A two-of-three quorum only means something if two honest auditors, running separately, arrive at
-the same answer without talking to each other. Most risk analysis is not like that: it involves
+A two-of-three quorum only means something if two honest analyses, run separately, arrive at the
+same answer without talking to each other. Most risk analysis is not like that: it involves
 thresholds, heuristics and floating point, and two honest implementations will disagree in the
 last digit. So the protocol makes agreement structural rather than hopeful.
 
@@ -206,14 +206,25 @@ One idle container would consume a quarter of the budget for the privilege of do
 |---|---|---|---|
 | A | Azure Container Apps job, in the owner's existing subscription | zero when not running | cron plus HTTP nudge |
 | B | GitHub Actions scheduled workflow, in a separate repository | zero | `schedule` plus `repository_dispatch` |
-| C | held by an independent operator, who runs it wherever they choose | not the owner's cost | operator's choice |
+| C | a third key the project holds, in a store separate from A and B, run as its own scheduled job | zero when not running | cron plus HTTP nudge |
 
 Three signing keys, three secret stores, three identities in `KAY9AuditorRegistry`. What that
-deployment does **not** have at launch is three independent platform operators: A and B both sit
-inside accounts the project owner controls. A two-of-three quorum protects against one compromised
-or dishonest auditor. If the owner's two accounts are both compromised, the quorum is met by an
-attacker. That is a real limitation of the launch configuration and it is stated on the website in
-those terms, not buried here.
+deployment does **not** have is three independent operators. **All three keys are held by the
+project owner.** No second party holds one, and none is promised.
+
+Say what that leaves, exactly. The quorum still does two things: a single leaked key cannot commit
+a result on its own, and a single lost key does not stop the protocol, because removing an auditor
+lowers the threshold with it. What it does not do is protect anyone against the project itself. A
+holder of all three keys can produce any result the contracts will accept, and no arrangement of
+software changes that.
+
+It also means the three keys are only as separate as the two easiest of them. If two live on the
+same machine, the quorum is worth what one key is worth. Each key therefore belongs in a different
+store with a different way in, and the key that signs governance belongs on hardware, held by a
+person, not in a job.
+
+This is the sharpest limitation in the whole design, and it is stated on the website in these
+terms rather than buried here. It ends when somebody else holds a key, not when the code changes.
 
 **The subscription can be suspended, and that takes the website with it.** The Azure subscription
 is `MSDN_2014-09-01` with the spending limit **on**, so overspending cannot produce a bill. It
