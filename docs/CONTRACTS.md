@@ -108,7 +108,7 @@ the vault), deploys and funds `KAY9TeamVesting` with 90,000,000 KAY9, and deploy
 `KAY9LiquidityLock`. The vault then holds the 910,000,000 KAY9 launch allocation and is the only
 route by which those tokens can leave.
 
-**Permissions.** The project owner Safe, through `Ownable2Step`.
+**Permissions.** The project owner's address, through `Ownable2Step`. That address is a single externally owned account, not a multisig; see `docs/LAUNCH_READINESS.md` gate 10.
 
 **Admin capabilities, complete list.**
 
@@ -488,7 +488,7 @@ KAY9 a watchdog rather than a vendor. Free basic scans never touch this contract
 **Purpose.** The only administrator of the audit protocol. OpenZeppelin's standard
 `TimelockController` with a 48-hour minimum delay.
 
-**Roles.** The project owner Safe is both proposer and executor. The admin role is renounced at
+**Roles.** The project owner's address is both proposer and executor, and it is a single externally owned account rather than a multisig. The admin role is renounced at
 construction by passing `address(0)`, so the timelock administers itself and the delay cannot be
 shortened without going through the delay.
 
@@ -509,13 +509,13 @@ them moves a balance.
 |---|---|---|---|
 | KAY9Token | none | — | — |
 | KAY9TeamVesting | beneficiary | change beneficiary | none |
-| KAY9Genesis | owner Safe | `launch`, and relaunch after a marked failure | 48 h for relaunch |
+| KAY9Genesis | owner key | `launch`, and relaunch after a marked failure | 48 h for relaunch |
 | KAY9LiquidityLock | none | — | — |
 | KAY9AuditorRegistry | Timelock | add or remove auditor, set threshold | 48 h |
 | KAY9AccessVault | Timelock | audit hub address, lock requirement per tier (`setRequirement`), per-period allowances, period length | 48 h |
 | KAY9Registry | none | — | — |
 | KAY9AuditHub | Timelock | SLA, pause new requests | 48 h |
-| TimelockController | owner Safe as proposer and executor, itself as admin | schedule and execute | 48 h minimum |
+| TimelockController | owner key as proposer and executor, itself as admin | schedule and execute | 48 h minimum |
 
 Nothing outside this table can be changed by anyone, and one thing that is not in the table cannot
 be changed by anyone at all: a depositor's principal in `KAY9AccessVault`. No row above, and no
