@@ -65,6 +65,7 @@ contract KAY9Genesis is Ownable2Step {
     event RelaunchScheduled(uint256 earliestRelaunchTimestamp);
     event UnsoldSettled(uint256 amountToLiquidity, uint256 amountBurned, uint256 positionTokenId);
     event Recovered(uint256 ethAmount, uint256 tokenAmount, uint256 positionTokenId);
+    event MigrationOutcomeRecorded(bool succeeded);
 
     // immutables
     KAY9Token         public immutable token;
@@ -94,13 +95,16 @@ contract KAY9Genesis is Ownable2Step {
 
     constructor(address owner, address teamBeneficiary, uint64 tge, uint64 unlock6m, uint64 unlock12m,
                 address creatorFeeRecipient, address launcher, address lbpStrategy, address positionManager,
-                address poolManager, address permit2, address feeSplitter, address beneficiaryVault);
+                address poolManager, address permit2, address feeSplitter, address beneficiaryVault,
+                address poolHook);
 
     function launch(LaunchParams calldata p) external;   // onlyOwner; first launch or after failure + delay
     function launchState() external view returns (uint8);  // 0 NotLaunched, 1 AuctionLive (also between launch and startBlock), 2 AuctionEnded, 3 Migrated, 4 Failed (for a non-graduated auction, only once the auction has checkpointed its end block)
     function poolKey() external view returns (PoolKey memory);  // (ETH, KAY9, 10000, 200, poolHook); the hookless recovery pool after recover()
     function poolHook() external view returns (address);        // canonical InitializerHook, immutable
     function recovered() external view returns (bool);          // true once recover() rebuilt the pool
+    function outcomeRecorded() external view returns (bool);    // true once settle() or recover() wrote the migration outcome down
+    function migrationSucceeded() external view returns (bool); // the recorded outcome: this launch's own migration built the official pool
     function settle() external;                           // permissionless after migration: unsold+leftover → single-sided LP or burn
     function recover() external;                          // permissionless if graduated but migration failed
     function previewLaunch(LaunchParams calldata p) external view returns (address predictedAuction, uint256 impliedFloorFdvWei, uint256 impliedGraduationRaiseWei);
