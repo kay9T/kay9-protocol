@@ -9,7 +9,7 @@ what kind of claim it is, before you read a single number.
 |---|---|---|
 | Holds | automatic basic scans, in Merkle batches | signed DEEP and FORENSIC reports |
 | The claim is | **reproducibility** — run the engine at this block and get these bytes | **consensus** — independent auditors agreed |
-| Who stands behind it | one authorised publisher | 2 of 3 separately operated auditors |
+| Who stands behind it | one authorised publisher | 2 of 3 auditor keys, all of them held by the project today |
 | Written by | `commitScanBatch` | `recordReport`, called by `KAY9AuditHub` |
 | Volume | thousands a day | as many as are requested |
 | Costs the subject | nothing | nothing |

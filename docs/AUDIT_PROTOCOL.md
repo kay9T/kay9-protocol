@@ -586,8 +586,8 @@ taken a position. A transaction that reverts with `AlreadyAttested` is treated a
 
 ### 9.2 Why three independent analyses can agree
 
-A two-of-three quorum only means something if two honest auditors, running separately, reach the
-same answer without talking to each other. Most risk analysis is not naturally like that, so the
+A two-of-three quorum only means something if two honest analyses, run separately, reach the same
+answer without talking to each other. Most risk analysis is not naturally like that, so the
 protocol makes agreement structural:
 
 - **The moment is chosen by the chain.** Every auditor analyses the asset as of `job.requestedAt`,

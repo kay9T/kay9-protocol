@@ -181,27 +181,13 @@ contract Testnet is Script {
             type(LBPStrategy).creationCode,
             abi.encode(positionManager, poolManager, IDistributorFactory(auctionFactory))
         );
-        address create2Deployer = RobinhoodAddresses.testnet().create2Deployer;
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG);
-        for (uint256 salt = 0; salt < 200_000; ++salt) {
-            address candidate = address(
-                uint160(
-                    uint256(
-                        keccak256(
-                            abi.encodePacked(bytes1(0xFF), create2Deployer, bytes32(salt), keccak256(creationCode))
-                        )
-                    )
-                )
-            );
-            if (uint160(candidate) & Hooks.ALL_HOOK_MASK == flags && candidate.code.length == 0) {
-                LBPStrategy deployed = new LBPStrategy{salt: bytes32(salt)}(
-                    positionManager, poolManager, IDistributorFactory(auctionFactory)
-                );
-                require(address(deployed) == candidate, "strategy salt mismatch");
-                return deployed;
-            }
-        }
-        revert("no hook salt found");
+        (uint256 salt, address candidate) =
+            _mineSalt(RobinhoodAddresses.testnet().create2Deployer, keccak256(creationCode));
+        LBPStrategy deployed = new LBPStrategy{salt: bytes32(salt)}(
+            positionManager, poolManager, IDistributorFactory(auctionFactory)
+        );
+        require(address(deployed) == candidate, "strategy salt mismatch");
+        return deployed;
     }
 
     /// @notice Deploys the initializer hook the official pool is keyed on, bound to the rehearsal
@@ -215,24 +201,41 @@ contract Testnet is Script {
     function _deployInitializerHook(IPoolManager poolManager, address authorized) internal returns (InitializerHook) {
         bytes memory creationCode =
             abi.encodePacked(type(InitializerHook).creationCode, abi.encode(poolManager, authorized));
-        address create2Deployer = RobinhoodAddresses.testnet().create2Deployer;
+        (uint256 salt, address candidate) =
+            _mineSalt(RobinhoodAddresses.testnet().create2Deployer, keccak256(creationCode));
+        InitializerHook deployed = new InitializerHook{salt: bytes32(salt)}(poolManager, authorized);
+        require(address(deployed) == candidate, "hook salt mismatch");
+        return deployed;
+    }
+
+    /// @notice Mines the first CREATE2 salt whose address carries the beforeInitialize permission
+    ///         bit and no other, and that nothing has been deployed to yet.
+    /// @dev The buffer is built once and only its salt word is rewritten, so the search does not
+    ///      grow EVM memory. Building the preimage inside the loop instead is what this replaces:
+    ///      memory expansion is priced quadratically, and once the earlier rehearsals have occupied
+    ///      the addresses the search used to stop at, it runs long enough to cost more gas than the
+    ///      script frame has, and the run ends in MemoryOOG rather than in a deployment.
+    /// @param create2Deployer The deployer forge salts a deployment through.
+    /// @param initCodeHash The hash of the creation code, constructor arguments included.
+    /// @return salt The mined salt.
+    /// @return candidate The address that salt deploys to.
+    function _mineSalt(address create2Deployer, bytes32 initCodeHash)
+        internal
+        view
+        returns (uint256 salt, address candidate)
+    {
         uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG);
-        for (uint256 salt = 0; salt < 200_000; ++salt) {
-            address candidate = address(
-                uint160(
-                    uint256(
-                        keccak256(
-                            abi.encodePacked(bytes1(0xFF), create2Deployer, bytes32(salt), keccak256(creationCode))
-                        )
-                    )
-                )
-            );
+        // 1 + 20 + 32 + 32 bytes; the salt occupies bytes 21 to 52, which is 0x35 into the data.
+        bytes memory buffer = abi.encodePacked(bytes1(0xFF), create2Deployer, bytes32(0), initCodeHash);
+        for (salt = 0; salt < 200_000; ++salt) {
+            assembly ("memory-safe") {
+                mstore(add(buffer, 0x35), salt)
+            }
+            candidate = address(uint160(uint256(keccak256(buffer))));
             if (uint160(candidate) & Hooks.ALL_HOOK_MASK == flags && candidate.code.length == 0) {
-                InitializerHook deployed = new InitializerHook{salt: bytes32(salt)}(poolManager, authorized);
-                require(address(deployed) == candidate, "hook salt mismatch");
-                return deployed;
+                return (salt, candidate);
             }
         }
-        revert("no hook salt found");
+        revert("no salt carries the required permission bits");
     }
 }
