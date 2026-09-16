@@ -86,7 +86,8 @@ scan-pass logic, not yet deployed. Standing it up on a real schedule, against a 
   then the access model: lock, request, attest with two auditors, dispute with three,
   expire an unanswered job, renew, and unlock the whole principal. This is scripted in
   `docs/DEPLOYMENT.md` §3 and §3.1 and needs only a funded testnet key.
-- **Owner wallets.** Owner Safe, team beneficiary, creator-fee recipient, three auditor addresses.
+- **Owner wallets.** Owner address (a single account, not a Safe), team beneficiary, creator-fee
+  recipient, three auditor addresses.
   Nothing deploys until these exist and none of them may be a developer key.
 - **An independent audit, if the launch valuation justifies it.** The Uniswap Liquidity
   Launcher, the Continuous Clearing Auction and Uniswap v4 are already audited by OpenZeppelin,
@@ -287,11 +288,11 @@ promise: a slipped line moves the launch, not the gate.
 | By | What must be true | Gate |
 |---|---|---|
 | Fri 18 Sep 2026 | Testnet rehearsal complete end to end, including the renew and unlock steps that need a period to expire (the 7-day minimum period locked on 11 Sep expires 18 Sep) | 8 |
-| Fri 18 Sep 2026 | External review of the launch path commissioned (`KAY9Genesis`, `KAY9Token`, `KAY9TeamVesting`, `KAY9LiquidityLock`), with the 11 Sep clock fix named in the scope | 6 |
-| Fri 25 Sep 2026 | Owner Safe, team beneficiary, creator-fee recipient and three auditor addresses exist and are held by the owner; auditor keys prove control | 10, 11 |
+| Fri 18 Sep 2026 | Model review of the launch path run (`KAY9Genesis`, `KAY9Token`, `KAY9TeamVesting`, `KAY9LiquidityLock`) by the first of two model families, at the commit to be deployed | 6 |
+| Fri 25 Sep 2026 | Owner address, team beneficiary, creator-fee recipient and three auditor addresses exist; the auditor keys are held by three people in three countries and prove control | 10, 11 |
 | Fri 9 Oct 2026 | Watchdog live on mainnet: `DeployWatchdog.s.sol` broadcast, scanner authorised, `services/discovery-worker` committing batches unattended. This is the latest start that gives 30 days before launch | 1, 2 |
 | Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
-| Fri 16 Oct 2026 | External review report received | 6 |
+| Fri 16 Oct 2026 | Second model family's review run and both published in full, with every finding either fixed or accepted in writing | 6 |
 | Fri 23 Oct 2026 | Every review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree | 6, 7 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |

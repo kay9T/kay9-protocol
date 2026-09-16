@@ -22,7 +22,7 @@ KAY9 Audit Protocol
   ├─ KAY9AuditHub                              requests, on-chain access check, attestation, quorum
   ├─ KAY9Registry                              append-only report history, cross-chain asset identity
   ├─ KAY9AuditorRegistry                       auditor set + quorum threshold
-  └─ TimelockController (48 h) ← owner Safe    the only admin, always delayed
+  └─ TimelockController (48 h) ← owner key     the only admin, always delayed
 Off-chain auditors (three, scale-to-zero)
   ├─ services/watchdog                         analysis engine + chain adapters (EVM, Solana)
   └─ services/audit-worker                     auditor job: detect → analyse → sign → attest
@@ -84,7 +84,7 @@ Canonical addresses on mainnet 4663 (all confirmed to have code on-chain):
 | WETH (L2) | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
 | Deterministic CREATE2 deployer | `0x4e59b44847b379578588920cA78FbF26c0B4956C` |
-| Safe 1.4.1 singleton / proxy factory | present; Safe{Wallet} supports Robinhood Chain |
+| Safe 1.4.1 singleton / proxy factory | present; Safe{Wallet} supports Robinhood Chain. **Not used:** the owner decided on 2026-09-16 that the owner address stays a single externally owned account |
 
 Testnet 46630 has PoolManager, PositionManager, CCA factory, Permit2 and Multicall3 at the same addresses, but **no LiquidityLauncher, no LBPStrategy, no FeeSplitter and no Chainlink feed**. Testnet rehearsal therefore deploys pinned copies of the launcher stack (`docs/DEPLOYMENT.md`); the missing feed only affects the USD display of FDV.
 
@@ -116,7 +116,7 @@ Team schedule enforced by `KAY9TeamVesting` (immutable timestamps set at deploym
 
 ### 4.1 KAY9Genesis
 
-Deploys the token and the vesting contract in its constructor, holds the 910 M launch allocation, and is the only path by which those tokens leave. Its owner is the project owner's Safe. Owner powers are limited to calling `launch(LaunchParams)` and, if a launch fails, `relaunch` after a 48 h delay. There is no withdraw.
+Deploys the token and the vesting contract in its constructor, holds the 910 M launch allocation, and is the only path by which those tokens leave. Its owner is the project owner's address, a single externally owned account rather than a multisig. Owner powers are limited to calling `launch(LaunchParams)` and, if a launch fails, `relaunch` after a 48 h delay. There is no withdraw.
 
 `launch()` executes `LiquidityLauncher.multicall([permit2 approve path, depositToken(910M), distributeToken(LBPStrategy, 910M, configData)])` after enforcing on-chain:
 
@@ -138,7 +138,7 @@ Because every trust-relevant field is asserted by the contract, the owner's rema
 1. **Auction** (CCA v2.1.0, native ETH, 455 M KAY9, 4 h ≈ 144,000 blocks on the chain's own clock, emission schedule from the Uniswap SDK's convex default). Anyone bids with `submitBid`; the Uniswap web app auctions tab also lists it.
 2. **Graduation** requires `currencyRaised ≥ requiredCurrencyRaised` (deployment parameter, default = clearing the full auction supply at the floor price).
 3. **Migration**: anyone calls `LBPStrategy.migrate(auction)` after `migrationBlock`. The strategy sweeps the ETH, initializes the v4 pool `(ETH, KAY9, fee 10000, tickSpacing 200, InitializerHook)` at the clearing price, mints one full-range position with 100 % of the ETH and up to 455 M KAY9, and transfers the LP NFT to `KAY9LiquidityLock`. Leftover ETH dust and unused reserve KAY9 go to Genesis.
-4. **Lock**: anyone calls `KAY9LiquidityLock.lock(tokenId)`. The lock registers the owner's creator-fee address as beneficiary in `UERC20BeneficiaryVault` (possible only while the lock owns the NFT) and then transfers the NFT to FeeSplitter `0xeFF1…`, where it is irrecoverable. Fees: 40 % of native-side fees to the beneficiary NFT holder (owner Safe), 60 % native and 100 % KAY9-side fees compound back into the position via the CompoundingClaimRecipient.
+4. **Lock**: anyone calls `KAY9LiquidityLock.lock(tokenId)`. The lock registers the owner's creator-fee address as beneficiary in `UERC20BeneficiaryVault` (possible only while the lock owns the NFT) and then transfers the NFT to FeeSplitter `0xeFF1…`, where it is irrecoverable. Fees: 40 % of native-side fees to the beneficiary NFT holder (the owner address), 60 % native and 100 % KAY9-side fees compound back into the position via the CompoundingClaimRecipient.
 5. **Unsold and leftover KAY9**: anyone calls `KAY9Genesis.settle()`. It sweeps unsold tokens from the auction (`sweepUnsoldTokens`, Genesis is `tokensRecipient`), adds them plus any returned reserve as a **single-sided KAY9 position at KAY9 prices above both the current one and the auction's clearing price** (range `[minUsableTick, min(currentTick, clearingTick) - tickSpacing]`, so pushing the price down before `settle()` gains nothing; native ETH is `currency0` and KAY9 is `currency1`, so a currency1-only range sits *below* the current tick, which is where KAY9 is more expensive) and locks that NFT through `KAY9LiquidityLock` as well. Amounts below `DUST_THRESHOLD` (1,000 KAY9) are burned instead. Unsold tokens can never become a team allocation.
 6. **Failure paths**: if the auction does not graduate, bidders refund themselves via `exitBid`, the auction returns 455 M to Genesis, migration recovery returns the 455 M reserve to Genesis, and the owner may `relaunch` after 48 h with new pricing (same invariants). `launchState` reads Failed for a non-graduated auction only once the auction has checkpointed its end block, because the final block releases the largest slice of supply and graduation is not settled before that checkpoint; anyone can call the auction's `checkpoint()`. The relaunch calls the strategy's `migrate` itself when nobody has, so the reserve comes back inside the relaunch transaction. If the auction graduates but migration fails (practically impossible with a static-fee pool and a standard token), Genesis receives the ETH and reserve; `recover()` is permissionless, sweeps the auction's unsold supply, mints the full-range position itself at the auction's final clearing price, locks it, and places what remains as the single-sided position. Because only the strategy may initialize the hooked pool, recovery rebuilds into the **hookless** pool `(ETH, KAY9, 10000, 200, 0x0)` and refuses to proceed unless that pool is either uninitialized or already sitting exactly at the auction's clearing price; `poolKey()` then reports the recovery pool. ETH never becomes withdrawable by the owner.
 
@@ -390,13 +390,13 @@ docs/                    protocol documentation
 | KAY9Token | none | — | — |
 | KAY9Registry | none | — | — (binding to its hub is immutable; see `docs/REGISTRY_UPGRADE.md`) |
 | KAY9TeamVesting | beneficiary | change beneficiary | none |
-| KAY9Genesis | owner Safe | `launch` (once), `relaunch` after failure | 48 h for relaunch |
+| KAY9Genesis | owner key | `launch` (once), `relaunch` after failure | 48 h for relaunch |
 | KAY9LiquidityLock | none | — | — |
 | KAY9AuditorRegistry | Timelock | add auditor, set threshold | 48 h; remove is immediate via Timelock proposer-executor |
 | KAY9ScanRegistry | Timelock | authorise or de-authorise a scanner | 48 h |
 | KAY9AccessVault | Timelock | `setRequirement`, `setQuota`, `setLockDuration`, `setAuditHub` | 48 h |
 | KAY9AuditHub | Timelock | SLA, pause new requests (attestations, disputes and expiries are never pausable) | 48 h |
-| TimelockController | owner Safe (proposer/executor), Timelock itself (admin) | schedule/execute | 48 h min delay |
+| TimelockController | owner key (proposer/executor), Timelock itself (admin) | schedule/execute | 48 h min delay |
 
 **No owner function can move a depositor's principal.** The vault's four setters point it at a hub,
 set the KAY9 amount future periods lock, set the per-period allowances, and set the length of future

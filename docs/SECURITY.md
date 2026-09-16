@@ -18,7 +18,7 @@ decision follows from that:
   beneficiary role) and `KAY9LiquidityLock` have no administrator at all.
 - **Where governance exists, it is delayed and public.** The audit protocol's only administrator is
   an OpenZeppelin `TimelockController` with a 48-hour minimum delay whose proposer and executor is
-  the project owner Safe and whose admin is itself.
+  the project owner's address — a single account, not a multisig — and whose admin is itself.
 - **Where the owner acts, the contract constrains the action.** The launch owner supplies pricing
   and timing. Every trust-relevant field of the auction and the migration is constructed by
   `KAY9Genesis` from its own immutables, so there is no code path that accepts a hostile struct.
@@ -79,7 +79,7 @@ edited after the fact would be worth nothing even when nobody had been compromis
 
 ### 2.2 Adversaries and what they can do
 
-**A compromised owner Safe.** Can call `launch` with hostile pricing: an absurd floor, an absurd
+**A compromised owner key.** Can call `launch` with hostile pricing: an absurd floor, an absurd
 graduation threshold, or a window at the legal minimum. It cannot redirect the raise, keep unsold
 supply, change the pool parameters, change the position recipient, withdraw anything, or touch the
 audit protocol without waiting out the 48-hour timelock. The residual power is *bad pricing*, which
@@ -143,8 +143,9 @@ inside the threat model the quorum already accepts. `test_onlyAnActiveAuditorMay
 - **Robinhood Chain's sequencer does not reorder the world arbitrarily.** The auction is
   block-based; a sequencer that censored bids could influence the clearing price. This is a property
   of the chain, not of KAY9.
-- **The owner Safe's signers are who the project says they are.** This is the one social assumption
-  the contracts cannot remove. It is bounded to the launch pricing decision and the timelocked
+- **The owner key is held by whom the project says holds it.** This is the one social assumption
+  the contracts cannot remove, and since 2026-09-16 it rests on one key rather than on a multisig's
+  signer set, so there is no second signature between a stolen key and a hostile launch price. It is bounded to the launch pricing decision and the timelocked
   governance calls, and it explicitly does **not** extend to depositors' principal, which no owner
   function can reach. It does, at launch, extend to two of the three auditor identities: see §2.6.
 - **Two of the three auditors are honest.** The quorum is an assumption, not a proof. Where that
@@ -237,7 +238,9 @@ This table is the requirement side of the suite: what has to be true, and the te
 As of 2026-09-11 the offline suite is green — 290 tests across 24 suites, default and `ci` fuzz
 profiles — and the three fork tests pass against live Robinhood mainnet state (block 59,996,178).
 `docs/STATUS.md` §3 carries the run. A green suite is evidence for the rows below, not a launch
-sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (external review of the launch path) is still open.
+sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (model review of the launch path) is still open. A
+human external review was sought and not funded; the gate now asks for reviews by two model families,
+published in full, and says plainly that this is not a professional audit.
 
 | Requirement | Test |
 |---|---|
