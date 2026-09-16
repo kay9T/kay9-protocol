@@ -125,6 +125,10 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @param positionTokenId The minted full-range position.
     event Recovered(uint256 ethAmount, uint256 tokenAmount, uint256 positionTokenId);
 
+    /// @notice Emitted once per launch, when the migration outcome is written down.
+    /// @param succeeded True when this launch's own migration built the official pool.
+    event MigrationOutcomeRecorded(bool succeeded);
+
     /// @notice Thrown when a constructor argument is the zero address.
     error ZeroAddress();
 
@@ -316,6 +320,14 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     ///      which pool the liquidity actually ended up in.
     bool public recovered;
 
+    /// @notice Whether the migration outcome of the current launch has been written down.
+    /// @dev `settle` and `recover` both move the balances the outcome is read from, so the first of
+    ///      them to run records the answer and every later read returns the recorded one.
+    bool public outcomeRecorded;
+
+    /// @notice The recorded outcome: true when this launch's own migration built the official pool.
+    bool public migrationSucceeded;
+
     /// @notice The parameters of the current launch, kept for state resolution and for the website.
     LaunchParams private _params;
 
@@ -461,6 +473,8 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         earliestRelaunchTimestamp = 0;
         settled = false;
         recovered = false;
+        outcomeRecorded = false;
+        migrationSucceeded = false;
 
         _execute(mp, ap, p.salt);
 
@@ -585,6 +599,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         (bool attempted, bool succeeded, PoolKey memory key) = _migrationOutcome();
         if (!attempted || !succeeded) revert PoolNotReady();
 
+        _recordOutcome(true);
         _sweepUnsoldTokens();
         _settleRemainder(key);
     }
@@ -608,6 +623,8 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
         uint256 ethAmount = address(this).balance;
         if (ethAmount == 0) revert NothingToRecover();
+
+        _recordOutcome(false);
 
         // The auction hands unsold supply only to its tokensRecipient, which is this contract, and
         // `_settleRemainder` below marks the launch settled. Sweeping here is therefore the last
@@ -800,14 +817,29 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         key.hooks = IHooks(address(0));
     }
 
-    /// @notice Resolves whether migration has been attempted and whether it produced a pool.
-    /// @dev With the official pool keyed on the InitializerHook there is exactly one candidate and
-    ///      no ambiguity: `PoolManager.initialize` on that key reverts for every caller except the
-    ///      strategy, so an initialized official pool is proof that the migration ran, and nobody
-    ///      can plant a decoy. The only other pool this contract ever reports is the hookless one it
-    ///      built itself in `recover`.
+    /// @notice Resolves whether migration has been attempted and whether this launch's own
+    ///         migration produced a pool.
+    /// @dev The InitializerHook stops anyone but the strategy from creating the official pool, but
+    ///      the strategy creates it for any registered distribution of KAY9, and it frees the pool
+    ///      id before it attempts a migration and never takes it back when that migration reverts.
+    ///      An initialized official pool is therefore not on its own proof that *this* launch
+    ///      migrated: after a failed migration a stranger holding a little KAY9 can register their
+    ///      own distribution on the same key and migrate it. Reading such a pool as this launch's
+    ///      would refuse `recover`, refuse `markFailed` and refuse a relaunch, which would leave the
+    ///      whole raise in this contract with no code path able to spend it.
+    ///
+    ///      The discriminator is the raise. A migration that reverts makes the strategy sweep the
+    ///      auction's currency and hand all of it to this contract; a migration that succeeds spends
+    ///      it on the position instead and returns only dust. The currency side is the one that
+    ///      always binds: the auction sold at most its whole allocation at the clearing price, so
+    ///      pairing the equally sized liquidity reserve against the raise consumes the raise and
+    ///      leaves part of the reserve over, never the other way round. Holding half the raise or
+    ///      more therefore means the migration failed, whoever else has since built a pool on the
+    ///      key. The answer is still written down by the first of `settle` and `recover` to run,
+    ///      because both of them move that balance afterwards.
     /// @return attempted True once the strategy has released the reserved pool id.
-    /// @return succeeded True when the pool the migration or the recovery produced is initialized.
+    /// @return succeeded True when the pool this launch's migration or recovery produced is
+    ///         initialized.
     /// @return key The resolved pool key, or a zeroed key.
     function _migrationOutcome() private view returns (bool attempted, bool succeeded, PoolKey memory key) {
         address currentAuction = auction;
@@ -820,6 +852,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         if (!attempted) return (false, false, key);
 
         if (recovered) return (true, true, _recoveryKey());
+        if (outcomeRecorded) return (true, migrationSucceeded, migrationSucceeded ? official : key);
 
         // A migration attempt checkpoints the auction's end block in both of the strategy's
         // branches, so graduation is final here, and the strategy cannot migrate an auction that
@@ -829,9 +862,34 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         if (!_graduated(currentAuction)) return (true, false, key);
 
         (uint160 officialPrice,,,) = poolManager.getSlot0(officialId);
-        if (officialPrice != 0) return (true, true, official);
+        if (officialPrice != 0 && !_raiseCameBack(currentAuction)) return (true, true, official);
 
         return (true, false, key);
+    }
+
+    /// @notice Whether the strategy handed the auction's raise back, which is what it does only
+    ///         when a migration reverted.
+    /// @dev A successful migration leaves this contract with currency dust, several orders of
+    ///      magnitude below the raise, so the half-way mark separates the two outcomes with room to
+    ///      spare. A reverting read counts as not returned, which keeps a launch whose auction has
+    ///      become unreadable out of the recovery path.
+    /// @param currentAuction The auction to measure against.
+    /// @return True when this contract holds at least half of what the auction raised.
+    function _raiseCameBack(address currentAuction) private view returns (bool) {
+        try IContinuousClearingAuction(currentAuction).currencyRaised() returns (uint256 raised) {
+            return raised != 0 && address(this).balance >= raised / 2;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice Writes the migration outcome down, before the balances it is read from move.
+    /// @param succeeded True when this launch's own migration built the official pool.
+    function _recordOutcome(bool succeeded) private {
+        if (outcomeRecorded) return;
+        outcomeRecorded = true;
+        migrationSucceeded = succeeded;
+        emit MigrationOutcomeRecorded(succeeded);
     }
 
     /// @notice Whether the auction reached its graduation threshold.
