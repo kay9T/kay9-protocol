@@ -206,7 +206,7 @@ One idle container would consume a quarter of the budget for the privilege of do
 |---|---|---|---|
 | A | Azure Container Apps job, in the owner's existing subscription | zero when not running | cron plus HTTP nudge |
 | B | GitHub Actions scheduled workflow, in a separate repository | zero | `schedule` plus `repository_dispatch` |
-| C | a third key the project holds, in a store separate from A and B, run as its own scheduled job | zero when not running | cron plus HTTP nudge |
+| C | a third key, held by the third person named below, in a store separate from A and B, run as its own scheduled job | zero when not running | cron plus HTTP nudge |
 
 Three signing keys, three secret stores, three identities in `KAY9AuditorRegistry`.
 

@@ -46,19 +46,19 @@ outside the project. If a gate is open on the date, the date moves.
 ## 0. What is already done
 
 The product changed after the first end-to-end build: pay-per-audit was removed and replaced by the
-access lock in `KAY9AccessVault`. The contracts have been rewritten for it; the tests, the services
-and the website are being rewritten now. `docs/STATUS.md` is the current state, and this table
-deliberately does not claim more than it says.
+access lock in `KAY9AccessVault`. The contracts, the tests, the services and the website have all
+been rewritten for it. `docs/STATUS.md` is the current state, and this table deliberately does not
+claim more than it says.
 
 | Item | State |
 |---|---|
 | Nine contracts, governance wiring | rewritten for the access model |
-| Contract tests | rewritten for `KAY9AccessVault`, `KAY9AuditHub`, `KAY9Registry`; invariant handler and reentrancy suite still being rewritten |
-| Adversarial security review | done against the previous contracts; must be repeated against these |
-| Static analysis | done against the previous contracts; must be re-run, the vault has never been analysed |
-| Website | being rewritten for the access model |
-| Analysis engine, EVM and Solana adapters | written; tier boundaries being revised for a browser-side basic scan |
-| Auditor job, quorum signing | being rewritten for attestation and scale-to-zero |
+| Contract tests | rewritten: unit, fuzz, invariant and reentrancy suites, run by CI on every contract change; the fork suite is run by hand against mainnet state (gate 7) |
+| Adversarial security review | repeated against the access-model contracts on 2026-09-11, by one reviewer who is not the author. A model review of the whole tree on 2026-09-17 had its contract findings decided and merged on 2026-09-18. Gate 6 is still open: it asks for two model families at the commit to be deployed, published in full |
+| Static analysis | re-run on 2026-09-11 against all nine contracts, the vault included (`packages/contracts/SLITHER.md`). The contracts changed on 2026-09-18, so it is run again against the final tree (gate 7) |
+| Website | rewritten for the access model; live on kay9.io |
+| Analysis engine, EVM and Solana adapters | written; the basic scan runs in the visitor's browser (`docs/BASIC_SCAN.md`) |
+| Auditor job, quorum signing | rewritten for attestation and scale-to-zero (`services/audit-worker`), and tested; not running against mainnet |
 | Continuous integration and deployment | GitHub Actions |
 | Token discovery | ten verified sources on Robinhood Chain; a live pass over 20,000 blocks found 1,459 tokens in nine requests |
 | `KAY9ScanRegistry` and Merkle batching | written and tested; deployed nowhere yet |
@@ -67,7 +67,7 @@ deliberately does not claim more than it says.
 | Deep/forensic beta intake, pre-token | `beta`/`beta-api` written and tested (`services/audit-worker`) — a free, walletless queue feeding the existing `publishWatchdogReport` quorum path; not yet deployed |
 | Score calibration against real tokens | four tokens, three systematic defects found and fixed; needs 50+ including known rugs |
 | Live feed, watchdog dashboard, token pages | on kay9.io, rendering "not deployed yet" until the registry exists |
-| Documentation | 21 documents |
+| Documentation | in `docs/`, kept in step with the code: `docs/CONTRACT_INTERFACES.md` changes before the contracts do |
 
 ## 1. Before launch — the watchdog runs, and hardening
 
@@ -82,10 +82,13 @@ the job that does this — written and tested against `services/watchdog`'s exis
 scan-pass logic, not yet deployed. Standing it up on a real schedule, against a real
 `setScanner`-authorised key, is what starts the 30-day clock.
 
-- **Finish the rewrite.** Tests, services and website. Nothing below starts until `forge test` is
-  green against the access-model contracts and the invariant suite drives the new job states.
-- **Re-run static analysis and the adversarial review.** Both were done against contracts that no
-  longer exist. `KAY9AccessVault` holds other people's money and has never been through either.
+- **Finish the rewrite.** Done: `forge test` is green against the access-model contracts and the
+  invariant suite drives the new job states. It stays first on this list because everything below
+  assumes it, and a contract change reopens it.
+- **Re-run static analysis and the adversarial review against the final tree.** Both were repeated
+  on 2026-09-11 against the access-model contracts, `KAY9AccessVault` included. The contracts have
+  changed since (2026-09-18: the hub's hard deadline, the vesting gate, the registry's second read,
+  the vault's upgrade rule), and a result is about the tree it ran on.
 - **Testnet rehearsal.** Run the full cycle on Robinhood testnet 46630: deploy, launch, bid from
   several accounts, end the auction, migrate, lock the position, settle the unsold supply — and
   then the access model: lock, request, attest with two auditors, dispute with three,
@@ -216,14 +219,16 @@ This is the honest weak point of V1 and it is worth stating plainly, because it 
 launch configuration rather than a risk about the design.
 
 At launch there are three signing keys, three secret stores and three identities in
-`KAY9AuditorRegistry`, but **not three independent platform operators**. Opening accounts on three
-genuinely independent commercial clouds requires a payment card this project does not have, so
-auditor A runs as an Azure Container Apps job in the owner's subscription, auditor B as a GitHub
-Actions workflow in a separate repository the owner also controls, and only auditor C is held by an
-independent operator. A two-of-three quorum protects against one dishonest or compromised auditor.
-It does not protect against a compromise of the owner's own accounts, because that is two of the
-three. `docs/AUDITOR_NETWORK.md` §4.3 and `docs/SECURITY.md` §2.6 say this in full, and the website
-says it too.
+`KAY9AuditorRegistry`, held by three people in three countries, but **not three independent
+operators: two of the three are the project.** One key is the developer's, one is the owner's, and
+the third is held by a person not otherwise involved. The platforms follow the same shape. Opening
+accounts on three genuinely independent commercial clouds requires a payment card this project does
+not have, so auditor A runs as an Azure Container Apps job in the owner's subscription and auditor B
+as a GitHub Actions workflow in a separate repository the project also controls. A two-of-three
+quorum protects against one dishonest or compromised auditor, and no single person holds a quorum.
+It does not protect against the project, or against a compromise of the project's accounts, because
+that is two of the three. `docs/AUDITOR_NETWORK.md` §4.3 and `docs/SECURITY.md` §2.6 say this in
+full, and the website says it too.
 
 The fix is a move, not a mechanism, and it has a precondition rather than a date:
 
@@ -292,12 +297,13 @@ promise: a slipped line moves the launch, not the gate.
 
 | By | What must be true | Gate |
 |---|---|---|
-| Fri 18 Sep 2026 | Testnet rehearsal complete end to end, including the renew and unlock steps that need a period to expire (the 7-day minimum period locked on 11 Sep expires 18 Sep) | 8 |
-| Fri 18 Sep 2026 | Model review of the launch path run (`KAY9Genesis`, `KAY9Token`, `KAY9TeamVesting`, `KAY9LiquidityLock`) by the first of two model families, at the commit to be deployed | 6 |
+| Fri 25 Sep 2026 (slipped from 18 Sep) | Model review of the launch path run (`KAY9Genesis`, `KAY9Token`, `KAY9TeamVesting`, `KAY9LiquidityLock`) by the first of two model families, at the commit to be deployed. A model review of the whole tree ran on 17 Sep; deciding its contract findings moved the commit on 18 Sep, so that review is input to this line, not the evidence gate 6 asks for | 6 |
+| Fri 2 Oct 2026 (slipped from 18 Sep) | Testnet rehearsal complete end to end **on a stack redeployed from the current tree**, including the renew and unlock steps, which need the 7-day minimum period to expire after the lock. The stacks rehearsed on in September predate the contract changes merged on 18 Sep (the hub's hard deadline, the vesting gate, the registry's second read, the vault's upgrade rule), so their transactions no longer show what will be deployed | 8 |
+| Fri 2 Oct 2026 | Both model families' reviews of the **watchdog stack** run at the commit to be deployed (`KAY9AuditorRegistry`, `KAY9ScanRegistry`, `KAY9Registry`, `KAY9AuditHub`, and the timelock wiring in `DeployWatchdog.s.sol`), every finding fixed or accepted in writing, Slither re-run. These contracts are as immutable as the token's and go to mainnet a month earlier: a finding after 9 Oct is not a patch, it is a redeploy and a new 30 days | 6, 7 |
 | Fri 25 Sep 2026 | Owner address, team beneficiary, creator-fee recipient and three auditor addresses exist; the auditor keys are held by three people in three countries and prove control | 10, 11 |
 | Fri 9 Oct 2026 | Watchdog live on mainnet: `DeployWatchdog.s.sol` broadcast, scanner authorised, `services/discovery-worker` committing batches unattended. This is the latest start that gives 30 days before launch | 1, 2 |
 | Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
-| Fri 16 Oct 2026 | Second model family's review run and both published in full, with every finding either fixed or accepted in writing | 6 |
+| Fri 16 Oct 2026 | Second model family's review of the launch path run and both published in full, with every finding either fixed or accepted in writing | 6 |
 | Fri 23 Oct 2026 | Every review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree | 6, 7 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |

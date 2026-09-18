@@ -188,16 +188,18 @@ Each row is a property the contract must have, the reason it must have it, and t
 
 ### 2.6 The limitation we will not bury
 
-At launch, **two of the three auditor identities run inside accounts the project owner controls.**
-`docs/AUDITOR_NETWORK.md` §4.3 gives the reason: opening accounts on three genuinely independent
-commercial clouds requires a payment card this project does not have, so auditor A runs as an Azure
-Container Apps job in the owner's subscription, auditor B as a GitHub Actions workflow in a separate
-repository the owner also controls, and only auditor C is held by an independent operator.
+At launch, **two of the three auditor keys are held inside the project**: one by the developer, one
+by the owner, and the third by a person not otherwise involved (`docs/AUDITOR_NETWORK.md` §4.3, as
+of 2026-09-16). The platforms follow the same shape, and that section gives the reason: opening
+accounts on three genuinely independent commercial clouds requires a payment card this project does
+not have, so auditor A runs as an Azure Container Apps job in the owner's subscription and auditor B
+as a GitHub Actions workflow in a separate repository the project also controls.
 
 There are three signing keys, three secret stores and three identities in `KAY9AuditorRegistry`, so
-the quorum genuinely protects against **one** dishonest or compromised auditor. It does **not**
-protect against a compromise of the owner's own accounts: an attacker holding both of the owner's
-platforms holds two of three votes and can commit a result nobody computed.
+the quorum genuinely protects against **one** dishonest or compromised auditor, and no single person
+holds a quorum. It does **not** protect against the project itself, or against a compromise of the
+project's accounts: whoever holds both of the project's keys holds two of three votes and can commit
+a result nobody computed.
 
 That is a real limitation of the launch configuration, not a theoretical one, and it is stated on
 the website in these terms rather than only here. What it cannot do even then is worth knowing: a
@@ -333,9 +335,10 @@ LBP strategy and continuous clearing auction, the genuine FeeSplitter and benefi
 genuine Permit2, rather than mocks. Nothing in the access path needs a stand-in, because nothing in
 it reads a price feed.
 
-The static analysis results in §5 were produced against the previous contracts and must be re-run
-before launch: `KAY9AccessVault` did not exist when they were taken, and `KAY9AuditHub` no longer
-contains the payment arithmetic several of the dispositions refer to.
+The static analysis results in §5 were produced on 2026-09-11 against the access-model contracts,
+`KAY9AccessVault` included. The contracts changed again on 2026-09-18, so the run is repeated against
+the final tree before launch (`docs/LAUNCH_READINESS.md` gate 7): a disposition is about the code it
+was written against.
 
 ---
 
@@ -347,7 +350,7 @@ Command:
 slither . --config-file slither.config.json
 ```
 
-The configuration excludes `lib/`, `test/` and `script/`, so only the eight KAY9 contracts and their
+The configuration excludes `lib/`, `test/` and `script/`, so only the nine KAY9 contracts and their
 libraries are analysed.
 
 `crytic-compile` 0.4.2 cannot read the `out/build-info` layout that Foundry 1.8.1 writes, so
@@ -362,24 +365,24 @@ slither src/KAY9AuditHub.sol --compile-force-framework solc --solc <path to solc
 
 Those two entry points reach every source file in `src/`.
 
-**Result (2026-09-11, all ten contracts as their own entry points): 68 distinct findings in 11
-detector classes, none of them a defect.** One is reported High by slither 0.11.6 (`weak-prng`) and
-is a false positive on a rounding modulo. The full list with a disposition for each is in
-[`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
+**Result (2026-09-11, all nine contracts as their own entry points, slither 0.11.6): 52 distinct
+findings in 10 detector classes, none of them a defect and nothing above Medium.** An earlier run the
+same day counted 68 with one High (`weak-prng`, a rounding modulo in the TWAP); those went with
+`KAY9Pricing` when the lock was redenominated in KAY9 that evening. The full list with a disposition
+for each is in [`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
 
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|
-| High | `weak-prng` | 1 | False positive: a modulo used to round the mean tick toward negative infinity |
-| Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status set before the call, immutable callees |
-| Medium | `incorrect-equality` | 8 | False positives: comparisons against zero, the current block, or a Merkle root |
+| Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status guards, immutable callees |
+| Medium | `incorrect-equality` | 6 | False positives: comparisons against zero or a Merkle root |
 | Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
-| Medium | `uninitialized-local` | 4 | False positives: accumulators that start at the zero default |
-| Medium | `unused-return` | 9 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` and `latestRoundData` |
+| Medium | `uninitialized-local` | 1 | False positive: an accumulator that starts at the zero default |
+| Medium | `unused-return` | 5 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
 | Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
-| Low | `timestamp` | 21 | Intentional: vesting, cooldowns, periods, service levels |
-| Informational | `unindexed-event-address` | 3 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
+| Low | `timestamp` | 16 | Intentional: vesting, cooldowns, periods, service levels |
+| Informational | `unindexed-event-address` | 2 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
 
 What static analysis cannot see, and a rehearsal did: `block.number` on this Orbit chain is the
 parent chain's height while the auction reads `ArbSys.arbBlockNumber()`. `docs/RESEARCH.md` has
@@ -488,9 +491,9 @@ every adjustment is public for 48 hours before it applies. The contract bounds t
 free or take more than 1 % of supply. Severity: low, accepted in exchange for having no oracle and
 no off-chain process to keep alive in the access path.
 
-**The launch auditor set is not three independent operators.** Two of the three auditor identities
-run inside accounts the project owner controls, so the two-of-three quorum protects against one
-dishonest auditor and not against a compromise of the owner's own accounts. §2.6 states this in
+**The launch auditor set is not three independent operators.** Two of the three auditor keys are
+held inside the project, the developer's and the owner's, so the two-of-three quorum protects against
+one dishonest auditor and not against the project or a compromise of its accounts. §2.6 states this in
 full, including what it does and does not make possible. Severity: real, disclosed, and mitigated by
 migration rather than by a mechanism.
 
