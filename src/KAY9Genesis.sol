@@ -24,7 +24,7 @@ import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol"
 
 import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
 import {KAY9Token} from "./KAY9Token.sol";
-import {KAY9TeamVesting} from "./KAY9TeamVesting.sol";
+import {KAY9TeamVesting, ILaunchSettlement} from "./KAY9TeamVesting.sol";
 import {KAY9LiquidityLock} from "./KAY9LiquidityLock.sol";
 import {TickRange} from "./libraries/TickRange.sol";
 import {AuctionPriceLib} from "./libraries/AuctionPriceLib.sol";
@@ -384,8 +384,10 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         auctionFactory = ILBPStrategy(lbpStrategy_).initializerFactory();
 
         KAY9Token token_ = new KAY9Token(address(this));
-        KAY9TeamVesting vesting =
-            new KAY9TeamVesting(IERC20(address(token_)), teamBeneficiary, tge, unlock6m, unlock12m);
+        // The vesting contract releases nothing until this launch has settled: see its notes.
+        KAY9TeamVesting vesting = new KAY9TeamVesting(
+            IERC20(address(token_)), teamBeneficiary, ILaunchSettlement(address(this)), tge, unlock6m, unlock12m
+        );
         KAY9LiquidityLock lock = new KAY9LiquidityLock(
             IPositionManager(positionManager_), feeSplitter, IBeneficiaryVault(beneficiaryVault), creatorFeeRecipient
         );
@@ -873,6 +875,19 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     ///      magnitude below the raise, so the half-way mark separates the two outcomes with room to
     ///      spare. A reverting read counts as not returned, which keeps a launch whose auction has
     ///      become unreadable out of the recovery path.
+    ///
+    ///      A balance is something anybody can add to, and this one is read knowing that. Whoever
+    ///      gives this contract half the raise, after a good migration and before `settle` has
+    ///      written the outcome down, makes that migration read as failed. `settle` then refuses
+    ///      and `recover` runs: the gift and the leftover supply go into the hookless pool and are
+    ///      locked, the official pool keeps the real raise, and `poolKey` names the recovery pool
+    ///      from then on. Nothing is stranded and nothing comes back to the giver, so the price of
+    ///      the confusion is half the raise, paid into KAY9 liquidity for good. It is accepted for
+    ///      what the alternative costs. Every other signal available here - that the official pool
+    ///      exists, that the lock holds a position on it - can be forged in the *other* direction,
+    ///      by a stranger's own distribution on the freed key, and reading a failed migration as a
+    ///      good one leaves the whole raise in this contract with no code path able to spend it.
+    ///      Calling `settle` in the transaction that migrates closes the window entirely.
     /// @param currentAuction The auction to measure against.
     /// @return True when this contract holds at least half of what the auction raised.
     function _raiseCameBack(address currentAuction) private view returns (bool) {

@@ -199,6 +199,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
     /// @notice Pausing stops new requests and nothing else.
     function test_pauseOnlyBlocksNewRequests() public {
+        _outliveGovernance();
         vm.prank(requester);
         uint256 jobId = hub.requestAudit(chainKey, assetId, TIER_DEEP, KIND_INDEPENDENT);
 
@@ -430,6 +431,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
     /// @notice An auditor removed from the set can no longer take a position.
     function test_aRemovedAuditorCannotAttest() public {
+        _outliveGovernance();
         uint256 jobId = _openJob();
         address[] memory signers = _signerSet(3);
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
@@ -672,6 +674,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     /// @notice An auditor removed after it attested cannot carry the job over the line on the vote
     ///         it cast before removal: the job stays open instead.
     function test_aRemovedAuditorCannotCarryAJobOverTheLine() public {
+        _outliveGovernance();
         uint256 jobId = _openJob();
         address[] memory signers = _signerSet(3);
         AuditResult memory result = _result();
@@ -699,6 +702,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     /// @notice A third, still active auditor finalises the same position, and the removed one is
     ///         absent from the permanent record.
     function test_aThirdActiveAuditorFinalisesWithoutTheRemovedOne() public {
+        _outliveGovernance();
         uint256 jobId = _openJob();
         address[] memory signers = _signerSet(3);
         AuditResult memory result = _result();
@@ -762,6 +766,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     ///      original auditor has not voted at all and could still match either live position.
     ///      A job in that state must stay open, not dispute.
     function test_rotationDoesNotDisputeAJobTheSurvivingAuditorCouldStillSettle() public {
+        _outliveGovernance();
         address[] memory signers = _signerSet(3);
         uint256 extraKey = 0xD00D;
         address extra = vm.addr(extraKey);
@@ -816,6 +821,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     ///         and no two agree. This must still dispute — the fix narrows a false dispute, it
     ///         does not stop disputing jobs that truly cannot reach quorum.
     function test_rotationStillDisputesWhenEveryActiveAuditorHasSpokenAndNoneAgree() public {
+        _outliveGovernance();
         address[] memory signers = _signerSet(3);
         uint256 extraKey = 0xD00D;
         address extra = vm.addr(extraKey);
@@ -854,6 +860,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     /// @notice Filtering a removed auditor out of the middle of a position keeps the signer array
     ///         in ascending address order, which is what the registry and every reader assume.
     function test_theFilteredSignerArrayStaysAscending() public {
+        _outliveGovernance();
         uint256 extraKey = 0xD00D;
         address extra = vm.addr(extraKey);
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (extra)));
@@ -891,6 +898,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     /// @dev This is the one state a third party's timing can leave a job in that the auditors did
     ///      not choose. It costs the requester nothing, which is what makes it acceptable.
     function test_aJobNobodyCanStillFinaliseWaitsForTheSlaRatherThanDisputing() public {
+        _outliveGovernance();
         uint256 jobId = _openJob();
         address[] memory signers = _signerSet(3);
 
@@ -916,7 +924,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         assertEq(reportRegistry.reportCount(), 0, "and nothing was recorded");
 
         // The service level is the only remaining exit, and it costs the requester nothing.
-        assertLt(hub.jobExpiresAt(jobId), uint64(vm.getBlockTimestamp()), "the service level has elapsed");
+        vm.warp(hub.jobExpiresAt(jobId));
         hub.markExpired(jobId);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Expired), "the job expired");
         assertEq(accessVault.deepRemaining(requester), 4, "and the quota unit came back");
@@ -1069,6 +1077,76 @@ contract KAY9AuditHubTest is Kay9TestBase {
     }
 
     /// @notice An expired job can no longer be settled.
+    /// @notice The deadline is hard: a result is accepted up to the last second before it and
+    ///         refused from the deadline on, which is exactly when `markExpired` opens.
+    /// @dev Before this the two overlapped from the deadline onwards, and whichever transaction
+    ///      landed first decided whether a late result spent the requester's unit or the missed
+    ///      deadline returned it.
+    function test_theDeadlineSplitsAttestAndMarkExpiredWithNoOverlap() public {
+        uint256 jobId = _openJob();
+        uint64 expiresAt = hub.jobExpiresAt(jobId);
+        AuditResult memory result = _result();
+        bytes[] memory signatures = _sign(jobId, result, 2);
+
+        // One second before: only a result is possible.
+        vm.warp(expiresAt - 1);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.NotExpired.selector, jobId, expiresAt));
+        hub.markExpired(jobId);
+        uint256 snapshot = vm.snapshotState();
+        vm.prank(auditorAddresses[0]);
+        hub.attest(jobId, result, signatures);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "accepted in the last second");
+        vm.revertToState(snapshot);
+
+        // At the deadline: only expiry is possible.
+        vm.warp(expiresAt);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.JobExpired.selector, jobId, expiresAt));
+        hub.attest(jobId, result, signatures);
+
+        // And after it.
+        vm.warp(expiresAt + 1);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.JobExpired.selector, jobId, expiresAt));
+        hub.attest(jobId, result, signatures);
+
+        hub.markExpired(jobId);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Expired), "the missed deadline expires the job");
+        assertEq(reportRegistry.reportCount(), 0, "and the late result was never recorded");
+    }
+
+    /// @notice A late result cannot spend the requester's unit: the unit always comes back.
+    function test_aLateResultNeverSpendsTheQuotaUnit() public {
+        vm.prank(requester);
+        uint256 jobId = hub.requestAudit(chainKey, assetId, TIER_FORENSIC, KIND_INDEPENDENT);
+        assertEq(accessVault.forensicRemaining(requester), 0, "spent on request");
+
+        vm.warp(hub.jobExpiresAt(jobId));
+        AuditResult memory result = _result();
+        bytes[] memory signatures = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert();
+        hub.attest(jobId, result, signatures);
+
+        hub.markExpired(jobId);
+        assertEq(accessVault.forensicRemaining(requester), 1, "returned, whatever order the two calls came in");
+    }
+
+    /// @notice The deadline a job is held to is the one it was promised, not the current SLA.
+    function test_theHardDeadlineIsTheJobsOwnNotTheCurrentSla() public {
+        uint256 jobId = _openJob();
+        uint64 promised = hub.jobExpiresAt(jobId);
+        _governanceCall(address(hub), abi.encodeCall(KAY9AuditHub.setSla, (30 days)));
+        assertEq(hub.jobExpiresAt(jobId), promised, "raising the SLA does not extend a pending job");
+
+        vm.warp(promised);
+        AuditResult memory result = _result();
+        bytes[] memory signatures = _sign(jobId, result, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.JobExpired.selector, jobId, promised));
+        hub.attest(jobId, result, signatures);
+    }
+
     function test_anExpiredJobCannotBeFulfilled() public {
         uint256 jobId = _openJob();
         vm.warp(vm.getBlockTimestamp() + hub.slaSeconds());
@@ -1381,12 +1459,8 @@ contract KAY9AuditHubTest is Kay9TestBase {
         vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.NotTheAuditHub.selector, address(hub)));
         hub.requestAudit(chainKey, assetId, TIER_DEEP, KIND_INDEPENDENT);
 
-        // But its pending jobs still reach their terminal states and hand their units back.
-        vm.warp(hub.jobExpiresAt(expiring));
-        hub.markExpired(expiring);
-        assertEq(uint8(hub.getJob(expiring).status), uint8(JobStatus.Expired));
-        assertEq(accessVault.deepRemaining(requester), 3, "the expired unit came back");
-
+        // But its pending jobs still reach their terminal states and hand their units back. The
+        // dispute first, while results are still accepted; the expiry once the deadline arrives.
         address[] memory signers = _signerSet(3);
         for (uint256 i = 0; i < 3; ++i) {
             AuditResult memory result = _result();
@@ -1394,12 +1468,28 @@ contract KAY9AuditHubTest is Kay9TestBase {
             _attestAlone(disputing, result, _keyOf(signers[i]), _hash(disputing, result));
         }
         assertEq(uint8(hub.getJob(disputing).status), uint8(JobStatus.Disputed));
-        assertEq(accessVault.deepRemaining(requester), 4, "the disputed unit came back too");
+        assertEq(accessVault.deepRemaining(requester), 3, "the disputed unit came back");
+
+        vm.warp(hub.jobExpiresAt(expiring));
+        hub.markExpired(expiring);
+        assertEq(uint8(hub.getJob(expiring).status), uint8(JobStatus.Expired));
+        assertEq(accessVault.deepRemaining(requester), 4, "the expired unit came back too");
     }
 
     // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------
+
+    /// @notice Gives every job opened after this a deadline that outlives a timelock round.
+    /// @dev Governance takes 48 hours, the default SLA is six, and a result is refused from the
+    ///      deadline on. A test about what a rotation does to a pending job therefore has to
+    ///      promise that job longer than a rotation takes, or the job is simply over by the time
+    ///      the rotation lands - which is the honest outcome under the default, and a different test.
+    function _outliveGovernance() internal {
+        // Seven days: longer than two timelock rounds, shorter than the requester's access period,
+        // so a unit handed back at the deadline still lands in a live period.
+        _governanceCall(address(hub), abi.encodeCall(KAY9AuditHub.setSla, (7 days)));
+    }
 
     /// @notice Opens a deep job against the requester's forensic period.
     /// @return jobId The new job id.

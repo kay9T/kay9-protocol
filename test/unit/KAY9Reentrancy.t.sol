@@ -6,7 +6,7 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {Kay9TestBase} from "../utils/Kay9TestBase.sol";
-import {KAY9TeamVesting} from "../../src/KAY9TeamVesting.sol";
+import {KAY9TeamVesting, ILaunchSettlement} from "../../src/KAY9TeamVesting.sol";
 import {KAY9AccessVault} from "../../src/KAY9AccessVault.sol";
 import {KAY9AuditHub} from "../../src/KAY9AuditHub.sol";
 import {KAY9Registry} from "../../src/KAY9Registry.sol";
@@ -174,8 +174,10 @@ contract KAY9ReentrancyTest is Kay9TestBase {
 
     /// @notice A hostile token cannot make the vesting contract release the same tranche twice.
     function test_vestingResistsReentrantToken() public {
-        KAY9TeamVesting hostileVesting =
-            new KAY9TeamVesting(IERC20(address(hostile)), teamBeneficiary, tge, unlock6m, unlock12m);
+        KAY9TeamVesting hostileVesting = new KAY9TeamVesting(
+            IERC20(address(hostile)), teamBeneficiary, ILaunchSettlement(address(genesis)), tge, unlock6m, unlock12m
+        );
+        vm.mockCall(address(genesis), abi.encodeWithSignature("settled()"), abi.encode(true));
         hostile.mint(address(hostileVesting), 90_000_000e18);
 
         hostile.arm(address(hostileVesting), abi.encodeCall(KAY9TeamVesting.release, ()));
