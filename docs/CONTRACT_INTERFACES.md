@@ -22,6 +22,7 @@ contract KAY9Token is ERC20, ERC20Permit, ERC20Burnable {
 contract KAY9TeamVesting {
     event Released(address indexed beneficiary, uint256 amount, uint256 totalReleased);
     event BeneficiaryTransferred(address indexed previousBeneficiary, address indexed newBeneficiary);
+    event BeneficiaryTransferProposed(address indexed beneficiary, address indexed proposed);
 
     IERC20  public immutable token;
     uint256 public constant TOTAL_ALLOCATION = 90_000_000e18;
@@ -31,17 +32,37 @@ contract KAY9TeamVesting {
     uint64  public immutable tgeTimestamp;
     uint64  public immutable unlock6mTimestamp;
     uint64  public immutable unlock12mTimestamp;
+    ILaunchSettlement public immutable launch;   // KAY9Genesis; only `settled()` is read
     address public beneficiary;
+    address public pendingBeneficiary;
     uint256 public released;
 
-    constructor(IERC20 token, address beneficiary, uint64 tge, uint64 unlock6m, uint64 unlock12m);
-    function unlocked() external view returns (uint256);       // cumulative unlocked at block.timestamp
-    function releasable() external view returns (uint256);     // unlocked() - released
-    function release() external;                               // permissionless, sends releasable() to beneficiary
-    function transferBeneficiary(address newBeneficiary) external;  // only beneficiary
+    constructor(IERC20 token, address beneficiary, ILaunchSettlement launch, uint64 tge, uint64 unlock6m, uint64 unlock12m);
+    function unlocked() external view returns (uint256);       // what the calendar has unlocked at block.timestamp
+    function releasable() external view returns (uint256);     // 0 until launch.settled(); then unlocked() - released
+    function release() external;                               // permissionless, sends releasable() to beneficiary; reverts LaunchNotSettled before the launch settles
+    function transferBeneficiary(address newBeneficiary) external;  // only beneficiary; names a successor (zero withdraws), changes nothing yet
+    function acceptBeneficiary() external;                          // only the named successor; this is what moves the role
     function schedule() external view returns (uint64[3] memory timestamps, uint256[3] memory amounts);
+
+    error LaunchNotSettled();
+    error NotPendingBeneficiary();
 }
 ```
+
+**The calendar is fixed at deployment, and the launch is not.** The three timestamps are burned in
+when the contracts are deployed, days before `launch()` is signed, and a launch can slip, or fail
+and be run again. On the calendar alone that would hand the team liquid KAY9 before the public had
+been able to buy any. So `release` reverts `LaunchNotSettled` until `KAY9Genesis.settled()` is true,
+which is the moment the launch's liquidity is placed and locked and no relaunch is possible. The
+gate can only delay: once the launch is settled the schedule is the calendar and nothing else, to
+the second, and `unlocked()` always reports the calendar alone. `settled()` is a stored flag set by
+the permissionless `settle` and `recover`, so nobody's cooperation is needed to open it and no read
+of an external contract can keep it shut.
+
+**The beneficiary role moves in two steps.** `transferBeneficiary` names a successor and changes
+nothing; the role moves when that address calls `acceptBeneficiary`. The role is worth the whole
+allocation, so an address nobody holds the key to can be named by mistake and costs nothing.
 
 ## KAY9Genesis (launch vault)
 
@@ -436,6 +457,7 @@ contract KAY9Registry {
     function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);
     function latestSummary(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSummaryForToken(bytes32 chainKey, address token) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
+    function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint64 analyzedAt, uint64 committedAt);
     function scoreHistory(bytes32 chainKey, bytes32 assetId, uint256 offset, uint256 limit) external view returns (uint64[] memory committedAt, uint8[] memory overallTrust);
 }
 ```
@@ -447,6 +469,15 @@ that consuming KAY9 risk data never requires an off-chain API or a KAY9-operated
 A report is **never** overwritten. A new audit of the same asset appends a new record, and
 `history` keeps every one of them in commitment order. `latest` therefore means "most recent
 snapshot", not "current truth", and every surface that renders it also renders `committedAt`.
+
+**`committedAt` is when a record was written, not when the asset was looked at.** A requested
+audit is pinned to the moment it was requested and may be committed hours later, and because the
+log is in commitment order, the latest record can describe an earlier moment than the one before
+it. `latestSnapshot` is `latestSummary` with both clocks and the kind of record: `analyzedAt`, the
+moment the analysis describes, and `tier` (0 an unsolicited watchdog report, 1 a requested deep
+audit, 2 a forensic one). A surface that presents a score as current must show `analyzedAt`.
+`latestSummary` keeps its shape so that nothing already reading it breaks; the registry on
+Robinhood testnet predates `latestSnapshot` and does not have it.
 
 Both paging functions clamp rather than revert. `offset` at or past the end returns an empty array, and `limit` is saturating: `type(uint256).max` means "to the end of the log" and never overflows. Callers may therefore treat a maximal limit as "everything from here" without first reading `reportCount`.
 
@@ -508,8 +539,8 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     uint256 public jobCount;
 
     function requestAudit(bytes32 chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind) external returns (uint256 jobId);
-    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands
-    function markExpired(uint256 jobId) external;                                    // permissionless once the SLA has elapsed; restores the quota unit
+    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands; reverts JobExpired at or after jobExpiresAt
+    function markExpired(uint256 jobId) external;                                    // permissionless at or after jobExpiresAt; restores the quota unit
     function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor
     function watchdogReportCommitted(bytes32 digest) external view returns (bool);
 
@@ -540,6 +571,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     error SignersNotSorted(address previous, address current);
     error QuorumNotMet(uint256 provided, uint256 required);
     error NotExpired(uint256 jobId, uint64 expiresAt);
+    error JobExpired(uint256 jobId, uint64 expiresAt);
     error InvalidSla();
     error DuplicateWatchdogReport(bytes32 digest);
 }
@@ -561,6 +593,20 @@ a live period of at least the requested tier with quota left. The website is nev
 cannot grant access; any wallet, script or contract calling the hub directly gets exactly the same
 answer. `declaredRequesterKind` is metadata the caller states about itself and the hub records it
 verbatim, which is why every surface labels it as declared.
+
+### The deadline is hard
+
+`jobExpiresAt(jobId)` is `requestedAt` plus the SLA that was in force when the job was requested,
+and it divides the job's life in two with nothing shared between the halves. Before it, `attest`
+is accepted and `markExpired` reverts `NotExpired`. At it and after it, `attest` reverts
+`JobExpired` and `markExpired` is the only thing that can happen to the job. A result that missed
+the deadline is never recorded against the requester's quota: the unit goes back, and they may
+ask again. Without this the two calls raced, and whichever transaction landed first decided
+whether a late result spent the unit or the missed deadline returned it.
+
+The vote counters (`Job.attestations`, `digestVotes`) are `uint8` and are incremented with checked
+arithmetic. The auditor set has no ceiling, so a job that outlived enough rotations could collect
+more than 255 votes; the 256th reverts rather than wrapping the agreement count to zero.
 
 ### Attestation and quorum
 
@@ -645,7 +691,21 @@ deployer, they set flag bit 18; a self-declaration alone is rendered as declared
 
 ## Cross-chain identity
 
-`chainKey = keccak256(bytes(caip2))`, e.g. `"eip155:4663"`, `"eip155:56"`, `"solana:mainnet"`. `assetId`: EVM `bytes32(uint256(uint160(addr)))`; Solana = the 32-byte mint public key.
+`chainKey = keccak256(bytes(key))`. `assetId`: EVM `bytes32(uint256(uint160(addr)))`; Solana = the 32-byte mint public key.
+
+| Chain | Key KAY9 hashes | CAIP-2 identifier |
+|---|---|---|
+| Robinhood Chain | `eip155:4663` | the same |
+| Robinhood Chain testnet | `eip155:46630` | the same |
+| BNB Smart Chain | `eip155:56` | the same |
+| Solana mainnet | `solana:mainnet` | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
+
+For every EVM chain the key *is* the CAIP-2 identifier. For Solana it is not: CAIP-2 names a Solana
+cluster by the first 32 characters of its genesis hash, and KAY9 has always filed Solana records
+under the alias `solana:mainnet`. The alias stays, because every Solana record and every archived
+snapshot is keyed on it and a registry never rewrites what it has recorded. An integrator working
+from CAIP-2 identifiers must translate that one key before hashing; `@kay9/chain` exports the
+mapping as `CAIP2_IDENTIFIERS`.
 
 ---
 

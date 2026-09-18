@@ -2,13 +2,20 @@
 pragma solidity 0.8.26;
 
 import {Kay9TestBase} from "../utils/Kay9TestBase.sol";
-import {KAY9TeamVesting} from "../../src/KAY9TeamVesting.sol";
+import {KAY9TeamVesting, ILaunchSettlement} from "../../src/KAY9TeamVesting.sol";
 import {CalendarMonths} from "../../src/libraries/CalendarMonths.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title KAY9TeamVestingTest
 /// @notice Proves the team schedule cannot be accelerated, changed or over-drawn.
 contract KAY9TeamVestingTest is Kay9TestBase {
+    /// @notice Makes the launch read as settled, which is what opens the schedule.
+    /// @dev Every test about the calendar runs against a settled launch, because that is the only
+    ///      state in which the calendar decides anything. What happens before it has its own tests.
+    function _settleTheLaunch() internal {
+        vm.mockCall(address(genesis), abi.encodeWithSignature("settled()"), abi.encode(true));
+    }
+
     /// @notice The contract holds exactly the team allocation and nothing else.
     function test_fundedWithExactAllocation() public view {
         assertEq(token.balanceOf(address(vesting)), vesting.TOTAL_ALLOCATION());
@@ -51,6 +58,7 @@ contract KAY9TeamVestingTest is Kay9TestBase {
 
     /// @notice release is permissionless and always pays the beneficiary.
     function test_releaseIsPermissionlessAndPaysBeneficiary() public {
+        _settleTheLaunch();
         vm.warp(tge);
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
@@ -62,6 +70,7 @@ contract KAY9TeamVestingTest is Kay9TestBase {
 
     /// @notice A second release in the same window pays nothing.
     function test_noDoubleRelease() public {
+        _settleTheLaunch();
         vm.warp(tge);
         vesting.release();
         vm.expectRevert(KAY9TeamVesting.NothingToRelease.selector);
@@ -71,6 +80,7 @@ contract KAY9TeamVestingTest is Kay9TestBase {
 
     /// @notice Nothing is releasable before the token generation event.
     function test_noEarlyUnlock() public {
+        _settleTheLaunch();
         vm.warp(tge - 1);
         vm.expectRevert(KAY9TeamVesting.NothingToRelease.selector);
         vesting.release();
@@ -93,20 +103,62 @@ contract KAY9TeamVestingTest is Kay9TestBase {
         assertEq(token.balanceOf(address(vesting)), 90_000_000e18);
     }
 
-    /// @notice Only the beneficiary can hand the role on, and the new one receives future releases.
-    function test_transferBeneficiary() public {
+    /// @notice Nothing can be released before the launch has settled, whatever the calendar says.
+    /// @dev The dates are fixed at deployment, days before the launch is signed. A launch that
+    ///      slipped past them used to leave the team holding liquid KAY9 before the public could
+    ///      buy any.
+    function test_nothingIsReleasedBeforeTheLaunchSettles() public {
+        vm.warp(unlock12m);
+        assertEq(vesting.unlocked(), 90_000_000e18, "the calendar has unlocked everything");
+        assertEq(vesting.releasable(), 0, "and none of it can be taken");
+
+        vm.expectRevert(KAY9TeamVesting.LaunchNotSettled.selector);
+        vesting.release();
+        assertEq(token.balanceOf(teamBeneficiary), 0);
+        assertEq(token.balanceOf(address(vesting)), 90_000_000e18);
+
+        _settleTheLaunch();
+        assertEq(vesting.releasable(), 90_000_000e18, "the moment it settles, the calendar decides");
+        vesting.release();
+        assertEq(token.balanceOf(teamBeneficiary), 90_000_000e18);
+    }
+
+    /// @notice Settling early opens nothing the calendar has not reached.
+    function test_settlementNeverBringsATrancheForward() public {
+        _settleTheLaunch();
+        vm.warp(tge - 1);
+        assertEq(vesting.releasable(), 0);
+        vm.warp(tge);
+        assertEq(vesting.releasable(), 10_000_000e18, "one percent at the token generation event, and no more");
+    }
+
+    /// @notice The gate is the real launch, not a flag somebody can set.
+    function test_theGateIsTheGenesisContract() public view {
+        assertEq(address(vesting.launch()), address(genesis));
+        assertFalse(genesis.settled(), "an unlaunched vault is not settled");
+    }
+
+    /// @notice The beneficiary role moves in two steps, and only the named address can take it.
+    function test_transferBeneficiaryNeedsTheSuccessorToAccept() public {
+        _settleTheLaunch();
         address next = makeAddr("nextBeneficiary");
 
         vm.expectRevert(KAY9TeamVesting.NotBeneficiary.selector);
         vesting.transferBeneficiary(next);
 
         vm.prank(teamBeneficiary);
-        vm.expectRevert(KAY9TeamVesting.ZeroAddress.selector);
-        vesting.transferBeneficiary(address(0));
-
-        vm.prank(teamBeneficiary);
         vesting.transferBeneficiary(next);
+        assertEq(vesting.beneficiary(), teamBeneficiary, "naming a successor changes nothing yet");
+        assertEq(vesting.pendingBeneficiary(), next);
+
+        vm.prank(makeAddr("somebodyElse"));
+        vm.expectRevert(KAY9TeamVesting.NotPendingBeneficiary.selector);
+        vesting.acceptBeneficiary();
+
+        vm.prank(next);
+        vesting.acceptBeneficiary();
         assertEq(vesting.beneficiary(), next);
+        assertEq(vesting.pendingBeneficiary(), address(0));
 
         vm.warp(unlock6m);
         vesting.release();
@@ -114,13 +166,34 @@ contract KAY9TeamVestingTest is Kay9TestBase {
         assertEq(token.balanceOf(teamBeneficiary), 0);
     }
 
+    /// @notice A mistyped successor costs nothing: it can never accept, and the proposal can be replaced.
+    function test_aMistypedSuccessorCanBeWithdrawn() public {
+        _settleTheLaunch();
+        address typo = address(0xdEaD);
+        address intended = makeAddr("intended");
+
+        vm.startPrank(teamBeneficiary);
+        vesting.transferBeneficiary(typo);
+        vesting.transferBeneficiary(address(0));
+        assertEq(vesting.pendingBeneficiary(), address(0), "withdrawn");
+        vesting.transferBeneficiary(intended);
+        vm.stopPrank();
+
+        vm.warp(tge);
+        vesting.release();
+        assertEq(token.balanceOf(teamBeneficiary), 10_000_000e18, "still paid to the current beneficiary meanwhile");
+    }
+
     /// @notice The constructor rejects an out-of-order schedule.
     function test_rejectsBadSchedule() public {
         vm.expectRevert(KAY9TeamVesting.UnlockOrder.selector);
-        new KAY9TeamVesting(IERC20(address(token)), teamBeneficiary, 200, 100, 300);
+        new KAY9TeamVesting(IERC20(address(token)), teamBeneficiary, ILaunchSettlement(address(genesis)), 200, 100, 300);
 
         vm.expectRevert(KAY9TeamVesting.ZeroAddress.selector);
-        new KAY9TeamVesting(IERC20(address(token)), address(0), 100, 200, 300);
+        new KAY9TeamVesting(IERC20(address(token)), address(0), ILaunchSettlement(address(genesis)), 100, 200, 300);
+
+        vm.expectRevert(KAY9TeamVesting.ZeroAddress.selector);
+        new KAY9TeamVesting(IERC20(address(token)), teamBeneficiary, ILaunchSettlement(address(0)), 100, 200, 300);
     }
 
     /// @notice The cumulative unlock is monotonic and never exceeds the allocation.
@@ -138,6 +211,7 @@ contract KAY9TeamVestingTest is Kay9TestBase {
     /// @notice Releasing at any point never exceeds what is unlocked at that point.
     /// @param timeOffset A time offset from the token generation event.
     function testFuzz_releaseNeverExceedsUnlocked(uint64 timeOffset) public {
+        _settleTheLaunch();
         timeOffset = uint64(bound(timeOffset, 0, 4000 days));
         vm.warp(uint256(tge) + timeOffset);
         uint256 unlockedNow = vesting.unlocked();

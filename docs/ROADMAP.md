@@ -4,7 +4,12 @@ Everything below is either built and waiting, or a named piece of work with a st
 precondition. Nothing here is a promise of a price, a return, or a reward.
 
 Dates are expressed relative to **TGE**, the moment `KAY9Genesis.launch()` is signed, because
-that is the one date the owner controls and every other date hangs off it. The owner has set a
+that is the one date the owner controls and every other date hangs off it. The team's unlock
+timestamps are the exception in how they are fixed, not in what they mean: they are computed from
+the target TGE and burned into `KAY9TeamVesting` when the contracts are deployed, a week earlier,
+and cannot move afterwards. If the launch slips past them, the calendar does not pay the team
+early: the vesting contract releases nothing until the launch has settled (`KAY9Genesis.settled()`),
+and from then on it follows those fixed dates to the second. The owner has set a
 **target TGE of Tuesday 10 November 2026** (§8), so the relative weeks below also read as the
 calendar in §8.1. It is a target, not a promise: `docs/LAUNCH_READINESS.md` is explicit that a
 marketing date never overrides an open gate, and if a gate is open on the date, the date moves.

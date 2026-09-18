@@ -214,6 +214,9 @@ contract Deploy is Script {
         cfg.unlock6m = _toUint64(vm.envUint("UNLOCK_6M_TIMESTAMP"), "UNLOCK_6M_TIMESTAMP");
         cfg.unlock12m = _toUint64(vm.envUint("UNLOCK_12M_TIMESTAMP"), "UNLOCK_12M_TIMESTAMP");
         if (!(cfg.tge < cfg.unlock6m && cfg.unlock6m < cfg.unlock12m)) revert BadSchedule();
+        // The schedule is computed from the *target* launch date and can never be changed, so a
+        // first date that has already passed is a stale or mistyped value, not a plan.
+        if (cfg.tge <= block.timestamp) revert BadSchedule();
         // The schedule is burned into the vesting contract, so a typo in either unlock would be
         // permanent. Both must be the exact calendar dates ComputeVesting prints, never an estimate.
         if (

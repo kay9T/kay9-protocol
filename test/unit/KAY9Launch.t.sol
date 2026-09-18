@@ -343,6 +343,82 @@ contract KAY9LaunchTest is Kay9TestBase {
         );
     }
 
+    /// @notice Giving the vault half the raise after a good migration buys a second pool and
+    ///         nothing else: no ETH or KAY9 is stranded, and none of it comes back to the giver.
+    /// @dev The vault tells a failed migration from a good one by whether the raise came back to it
+    ///      (`_raiseCameBack`), because that is the one signal that errs in the safe direction: it
+    ///      can never read a failed migration as a good one and strand the raise. The price of that
+    ///      is this case. Anyone willing to give the vault at least half of what the auction raised,
+    ///      before `settle` has recorded the outcome, makes a good migration read as failed. `settle`
+    ///      then refuses, `recover` runs, and the launch ends with two pools: the official one the
+    ///      migration built, holding the real raise, and a hookless one holding the giver's ETH and
+    ///      the leftover supply. The gift is locked as KAY9 liquidity for good. This test pins that
+    ///      the damage stops there.
+    function test_aGiftOfHalfTheRaiseBuysASecondPoolAndStrandsNothing() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        assertEq(genesis.launchState(), 3, "migrated");
+        uint256 migrationPosition = _latestPositionId();
+
+        uint256 raised = IContinuousClearingAuction(genesis.auction()).currencyRaised();
+        address giver = makeAddr("giver");
+        vm.deal(giver, raised);
+        vm.prank(giver);
+        (bool sent,) = address(genesis).call{value: raised / 2}("");
+        assertTrue(sent, "the vault accepts ETH, as it must for the strategy's own refunds");
+
+        assertEq(genesis.launchState(), 4, "the good migration now reads as failed");
+        vm.expectRevert(KAY9Genesis.PoolNotReady.selector);
+        genesis.settle();
+
+        genesis.recover();
+
+        // Nothing is stranded, and the launch is over.
+        assertTrue(genesis.settled(), "settled");
+        assertEq(genesis.launchState(), 3, "and reads as migrated again");
+        assertLt(address(genesis).balance, raised / 1000, "the gift went into the pool, not into the vault");
+        assertLt(token.balanceOf(address(genesis)), genesis.DUST_THRESHOLD(), "at most dust left");
+        assertEq(giver.balance, raised - raised / 2, "nothing came back to the giver");
+
+        // The pool the migration built is untouched and still holds the real raise.
+        (uint160 officialPrice,,,) = uni.poolManager.getSlot0(_officialKey().toId());
+        assertGt(officialPrice, 0, "the official pool is still there");
+        assertEq(
+            IERC721(address(uni.positionManager)).ownerOf(migrationPosition),
+            address(lock),
+            "and its position still belongs to the lock"
+        );
+
+        // Every position the recovery minted is locked at the fee splitter, like any other.
+        for (uint256 i = 0; i < lock.lockedCount(); ++i) {
+            uint256 tokenId = lock.lockedTokenIds(i);
+            assertTrue(lock.isLocked(tokenId), "locked");
+            assertEq(IERC721(address(uni.positionManager)).ownerOf(tokenId), address(uni.feeSplitter));
+        }
+
+        // The cost of the confusion: the canonical pool is now the hookless one.
+        assertEq(address(genesis.poolKey().hooks), address(0), "poolKey() now names the recovery pool");
+    }
+
+    /// @notice Once `settle` has recorded a good migration, no gift can reopen it.
+    function test_aGiftAfterSettlementChangesNothing() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        genesis.settle();
+
+        uint256 raised = IContinuousClearingAuction(genesis.auction()).currencyRaised();
+        vm.deal(address(this), raised);
+        (bool sent,) = address(genesis).call{value: raised}("");
+        assertTrue(sent);
+
+        assertEq(genesis.launchState(), 3, "still migrated");
+        assertEq(address(genesis.poolKey().hooks), address(uni.initializerHook), "still the official pool");
+        vm.expectRevert(KAY9Genesis.NothingToRecover.selector);
+        genesis.recover();
+    }
+
     /// @notice Settlement cannot run twice.
     function test_settleIsIdempotentGuarded() public {
         LaunchParams memory p = _runGraduatingAuction();

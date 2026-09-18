@@ -95,7 +95,14 @@ contract KAY9Registry is BlockNumberish {
     /// @notice CAIP-2 chain key for BNB Smart Chain.
     bytes32 public constant CHAIN_BNB = keccak256("eip155:56");
 
-    /// @notice CAIP-2 chain key for Solana mainnet.
+    /// @notice The chain key KAY9 files Solana mainnet under.
+    /// @dev A KAY9 alias, not the CAIP-2 reference. CAIP-2 identifies a Solana cluster by the first
+    ///      32 characters of its genesis hash, which makes mainnet
+    ///      `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`; every Solana record here is keyed on the
+    ///      string below instead, and always has been. An integrator that derives the key from the
+    ///      CAIP-2 reference finds nothing, so the mapping is published in
+    ///      docs/CONTRACT_INTERFACES.md and in the chain package. The EVM keys above are the CAIP-2
+    ///      identifiers themselves.
     bytes32 public constant CHAIN_SOLANA = keccak256("solana:mainnet");
 
     /// @notice Every report ever recorded, in commitment order.
@@ -246,7 +253,8 @@ contract KAY9Registry is BlockNumberish {
     /// @return overallTrust The headline trust score, 0 worst to 100 most trustworthy.
     /// @return flags The flag bitmask.
     /// @return engineVersion The engine that produced it.
-    /// @return committedAt When it was committed. A reader must always show this.
+    /// @return committedAt When it was committed. This is not when the asset was analysed: see
+    ///         `latestSnapshot`, which returns both.
     function latestSummary(bytes32 chainKey, bytes32 assetId)
         public
         view
@@ -270,6 +278,55 @@ contract KAY9Registry is BlockNumberish {
             record.result.overallTrust,
             record.result.flags,
             record.result.engineVersion,
+            record.committedAt
+        );
+    }
+
+    /// @notice The latest record's headline numbers together with both of its clocks.
+    /// @dev `latestSummary` returns when a record was *written*. That is not when the asset was
+    ///      *looked at*: a job pins its analysis to the moment it was requested and may be committed
+    ///      hours later, and records are kept in the order they were committed, so the latest record
+    ///      is not necessarily the most recent look. A reader that shows a score as current needs
+    ///      `analyzedAt`, and needs to know what kind of record it is: `tier` is 0 for an
+    ///      unsolicited watchdog report, 1 for a requested deep audit and 2 for a forensic one.
+    ///      Separate from `latestSummary` so that nothing already reading that tuple breaks.
+    /// @param chainKey The chain key hash.
+    /// @param assetId The asset identifier.
+    /// @return exists Whether any report exists.
+    /// @return reportId The index of the latest record.
+    /// @return overallTrust The headline trust score, 0 worst to 100 most trustworthy.
+    /// @return flags The flag bitmask.
+    /// @return engineVersion The engine that produced it.
+    /// @return tier 0 watchdog report, 1 deep audit, 2 forensic audit.
+    /// @return analyzedAt The moment the analysis describes. A reader must always show this.
+    /// @return committedAt When the record was written to this registry.
+    function latestSnapshot(bytes32 chainKey, bytes32 assetId)
+        external
+        view
+        returns (
+            bool exists,
+            uint256 reportId,
+            uint8 overallTrust,
+            uint64 flags,
+            uint32 engineVersion,
+            uint8 tier,
+            uint64 analyzedAt,
+            uint64 committedAt
+        )
+    {
+        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
+        uint256 total = ids.length;
+        if (total == 0) return (false, 0, 0, 0, 0, 0, 0, 0);
+        reportId = ids[total - 1];
+        ReportRecord storage record = _reports[reportId];
+        return (
+            true,
+            reportId,
+            record.result.overallTrust,
+            record.result.flags,
+            record.result.engineVersion,
+            record.tier,
+            record.result.analyzedAt,
             record.committedAt
         );
     }

@@ -206,6 +206,11 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @param expiresAt The timestamp the job expires at.
     error NotExpired(uint256 jobId, uint64 expiresAt);
 
+    /// @notice Thrown when a result arrives at or after the job's deadline.
+    /// @param jobId The job.
+    /// @param expiresAt The deadline it missed.
+    error JobExpired(uint256 jobId, uint64 expiresAt);
+
     /// @notice Thrown when the service level would be set outside its allowed range.
     error InvalidSla();
 
@@ -450,6 +455,12 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         Job storage job = _jobs[jobId];
         if (job.status == JobStatus.None) revert UnknownJob(jobId);
         if (job.status != JobStatus.Requested) revert WrongJobStatus(jobId, job.status);
+        // The deadline is hard. From `expiresAt` on, `markExpired` is the only thing that can
+        // happen to this job, and it returns the requester's quota unit. Without this the two raced:
+        // whichever transaction landed first decided whether a late result spent the unit or the
+        // missed deadline gave it back, and a requester could not tell which they would get.
+        uint64 expiresAt = job.requestedAt + job.slaSeconds;
+        if (block.timestamp >= expiresAt) revert JobExpired(jobId, expiresAt);
         if (result.chainKey != job.chainKey || result.assetId != job.assetId) revert ResultAssetMismatch();
 
         uint256 count = signatures.length;
@@ -465,10 +476,11 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
             attestationOf[jobId][signer] = digest;
             _insertSorted(_digestSigners[jobId][digest], signer);
-            unchecked {
-                votes += 1;
-                job.attestations += 1;
-            }
+            // Checked on purpose. Both counters are uint8 and the auditor set has no ceiling, so a
+            // job that outlived enough rotations could be attested more than 255 times; wrapping
+            // to zero would corrupt the agreement count, and refusing the 256th vote does not.
+            votes += 1;
+            job.attestations += 1;
             emit AuditAttested(jobId, signer, digest, votes);
         }
 

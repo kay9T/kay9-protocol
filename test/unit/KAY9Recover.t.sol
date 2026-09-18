@@ -12,6 +12,33 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
+import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {TickRange} from "../../src/libraries/TickRange.sol";
+
+/// @notice Repairs a squatted recovery pool's price and recovers in the same call, the way a
+///         keeper would, so nobody can move the price again in between.
+contract RepairAndRecover {
+    PoolSwapTest internal immutable ROUTER;
+    KAY9Genesis internal immutable GENESIS;
+
+    constructor(PoolSwapTest router, KAY9Genesis genesis_) {
+        ROUTER = router;
+        GENESIS = genesis_;
+    }
+
+    function run(PoolKey memory key, uint160 target) external {
+        ROUTER.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: target}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        GENESIS.recover();
+    }
+
+    receive() external payable {}
+}
 
 /// @title KAY9RecoverTest
 /// @notice Covers the path where the auction graduates but the strategy's migration reverts, so the
@@ -118,6 +145,103 @@ contract KAY9RecoverTest is Kay9TestBase {
         genesis.recover();
     }
 
+    /// @notice A squatter who initializes the recovery pool at the wrong price delays recovery by
+    ///         one swap, and no more.
+    /// @dev `recover` refuses any price but the auction's, which is what stops a stranger choosing
+    ///      the price the whole raise is minted at. The question that leaves is whether refusing can
+    ///      be made permanent. It cannot while the squatted pool is empty: a swap that fills nothing
+    ///      moves an empty pool's price to any limit it is given, so anyone can put it back.
+    function test_recoveryOutlastsAnEmptySquattedPool() public {
+        (, uint256 clearingPrice) = _graduateThenFailMigration();
+        uint160 target = AuctionPriceLib.toSqrtPriceX96(clearingPrice, true);
+        PoolKey memory key = _hooklessKey();
+
+        // The squatter gets there first, at a price of their choosing.
+        uint160 squatted = target * 2;
+        uni.poolManager.initialize(key, squatted);
+
+        vm.expectRevert(abi.encodeWithSelector(KAY9Genesis.RecoveryPoolPriceMismatch.selector, squatted, target));
+        genesis.recover();
+        assertGt(address(genesis).balance, 0, "the raise is still in the vault, untouched");
+
+        // Anyone walks the empty pool back. With no liquidity the swap trades nothing.
+        uint256 ethBefore = address(this).balance;
+        swapRouter.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: target}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        assertEq(address(this).balance, ethBefore, "moving an empty pool costs nothing but gas");
+        (uint160 repaired,,,) = uni.poolManager.getSlot0(key.toId());
+        assertEq(repaired, target, "the price is the auction's again");
+
+        genesis.recover();
+        assertTrue(genesis.settled(), "recovery went through");
+        assertLt(token.balanceOf(address(genesis)), genesis.DUST_THRESHOLD());
+    }
+
+    /// @notice A squatter who also funds the wrong-priced pool makes the repair cost money, and
+    ///         recovery still completes once somebody pays it.
+    /// @dev The repair trades against the squatter's own liquidity, so what it costs the repairer
+    ///      is bounded by what the squatter put in, and the squatter's position takes the other
+    ///      side of that trade at a price they chose wrongly. The exit is never closed.
+    function test_recoveryOutlastsAFundedSquattedPool() public {
+        (, uint256 clearingPrice) = _graduateThenFailMigration();
+        uint160 target = AuctionPriceLib.toSqrtPriceX96(clearingPrice, true);
+        PoolKey memory key = _hooklessKey();
+
+        // Twice the square-root price: KAY9 at a quarter of its auction price in ETH terms.
+        uni.poolManager.initialize(key, target * 2);
+        address squatter = makeAddr("squatter");
+        _fundKay9FromAuctionWinner(squatter, 1_000e18);
+        vm.deal(squatter, 1 ether);
+        vm.startPrank(squatter);
+        token.approve(address(liquidityRouter), type(uint256).max);
+        liquidityRouter.modifyLiquidity{value: 1 ether}(
+            key,
+            ModifyLiquidityParams({
+                tickLower: TickRange.minUsableTick(200),
+                tickUpper: TickRange.maxUsableTick(200),
+                liquidityDelta: 1e15,
+                salt: bytes32(0)
+            }),
+            ""
+        );
+        vm.stopPrank();
+
+        vm.expectRevert();
+        genesis.recover();
+
+        // The price has to fall back to the target, which means selling ETH into the pool.
+        vm.deal(address(this), address(this).balance + 10 ether);
+        swapRouter.swap{value: 10 ether}(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: target}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        (uint160 repaired,,,) = uni.poolManager.getSlot0(key.toId());
+        assertEq(repaired, target, "the swap stopped exactly at the auction's price");
+
+        genesis.recover();
+        assertTrue(genesis.settled(), "recovery went through");
+    }
+
+    /// @notice A front-runner who moves the price again between the repair and the recovery only
+    ///         makes that one transaction revert, which is why the two belong in one transaction.
+    function test_repairAndRecoveryInOneCallCannotBeSplit() public {
+        (, uint256 clearingPrice) = _graduateThenFailMigration();
+        uint160 target = AuctionPriceLib.toSqrtPriceX96(clearingPrice, true);
+        PoolKey memory key = _hooklessKey();
+        uni.poolManager.initialize(key, target * 2);
+
+        RepairAndRecover helper = new RepairAndRecover(swapRouter, genesis);
+        helper.run(key, target);
+
+        assertTrue(genesis.settled(), "one call repaired the price and recovered");
+    }
+
     /// @notice The owner has no way to take the recovered ETH out of the vault.
     function test_ownerCannotTouchRecoveredEth() public {
         _graduateThenFailMigration();
@@ -134,6 +258,13 @@ contract KAY9RecoverTest is Kay9TestBase {
             assertFalse(ok, signatures[i]);
         }
         assertEq(address(genesis).balance, balance);
+    }
+
+    /// @notice Gives an account KAY9 the way a real holder gets it after a failed migration: out of
+    ///         the vault's returned reserve, which is the only KAY9 in existence outside the auction.
+    function _fundKay9FromAuctionWinner(address to, uint256 amount) internal {
+        vm.prank(address(genesis));
+        token.transfer(to, amount);
     }
 
     /// @notice Runs a graduating auction and forces the strategy's migration to fail.

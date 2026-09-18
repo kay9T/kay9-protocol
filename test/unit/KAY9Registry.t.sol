@@ -472,6 +472,71 @@ contract KAY9RegistryTest is Test {
         assertEq(committedAt, record.committedAt, "same commitment point");
     }
 
+    /// @notice `latestSnapshot` carries the moment the analysis describes and the kind of record,
+    ///         next to everything `latestSummary` returns.
+    function test_latestSnapshotReturnsBothClocksAndTheTier() public {
+        _seed(ASSET_A, 2);
+        vm.warp(1_790_000_000);
+        AuditResult memory forensic = _result(ASSET_A, 77);
+        forensic.analyzedAt = 1_789_000_000;
+        vm.prank(hub);
+        registry.recordReport(
+            ReportMeta({jobId: 9, requester: requester, declaredRequesterKind: 1, tier: 2}), forensic, _signers()
+        );
+
+        (
+            bool exists,
+            uint256 reportId,
+            uint8 overallTrust,
+            uint64 flags,
+            uint32 engineVersion,
+            uint8 tier,
+            uint64 analyzedAt,
+            uint64 committedAt
+        ) = registry.latestSnapshot(CHAIN, ASSET_A);
+
+        assertTrue(exists);
+        assertEq(reportId, 2);
+        assertEq(overallTrust, 77);
+        assertEq(flags, forensic.flags);
+        assertEq(engineVersion, forensic.engineVersion);
+        assertEq(tier, 2, "a forensic audit");
+        assertEq(analyzedAt, 1_789_000_000, "when the asset was looked at");
+        assertEq(committedAt, 1_790_000_000, "which is not when the record was written");
+    }
+
+    /// @notice A record committed later can describe an earlier moment, and the read says so.
+    /// @dev Records are kept in commitment order. A job pinned to the moment it was requested can
+    ///      land after a watchdog report that looked at the asset more recently, and it then *is*
+    ///      the latest record. Nothing here reorders history; the point is that the age of the
+    ///      look is visible, so a reader cannot mistake a late commitment for a fresh one.
+    function test_latestSnapshotShowsAnOlderLookCommittedLater() public {
+        AuditResult memory recentLook = _result(ASSET_A, 20);
+        recentLook.analyzedAt = 1_789_500_000;
+        vm.warp(1_789_500_100);
+        vm.prank(hub);
+        registry.recordReport(_watchdogMeta(), recentLook, _signers());
+
+        AuditResult memory olderLook = _result(ASSET_A, 90);
+        olderLook.analyzedAt = 1_789_000_000;
+        vm.warp(1_789_600_000);
+        vm.prank(hub);
+        registry.recordReport(_meta(3), olderLook, _signers());
+
+        (,, uint8 overallTrust,,, uint8 tier, uint64 analyzedAt, uint64 committedAt) =
+            registry.latestSnapshot(CHAIN, ASSET_A);
+        assertEq(overallTrust, 90, "the latest record is the one committed last");
+        assertEq(tier, 1);
+        assertLt(analyzedAt, recentLook.analyzedAt, "and it says it describes an earlier moment");
+        assertGt(committedAt, analyzedAt);
+    }
+
+    /// @notice An asset nobody has reported reads as absent, never as a score of zero.
+    function test_latestSnapshotOfAnUnauditedAssetReportsNone() public view {
+        (bool exists,,,,,,,) = registry.latestSnapshot(CHAIN, ASSET_A);
+        assertFalse(exists);
+    }
+
     /// @notice The token-address overload is the assetId overload with the conversion done for you.
     function test_latestSummaryForTokenMatchesLatestSummary() public {
         address tokenAddress = 0x6CCe60df223EA78543D1AAa5dAa2e5ba91Feb0cB;

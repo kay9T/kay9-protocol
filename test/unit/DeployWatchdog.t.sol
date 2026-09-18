@@ -259,6 +259,23 @@ contract DeployWatchdogTest is Test {
         assertEq(cfg.existingAuditorRegistry, w.auditorRegistry, "and to the live auditor set");
     }
 
+    /// @notice A schedule whose first date has already passed is refused.
+    /// @dev The dates are computed from the target launch and can never be changed, so a first
+    ///      date in the past is a stale or mistyped value. Uses exactly the environment the test
+    ///      above writes, so the two cannot race on a process-wide variable.
+    function test_launchRefusesAScheduleThatHasAlreadyStarted() public {
+        // Only the variables every test here writes with the same values. The schedule is checked
+        // before the reuse addresses are read, so whatever another test has put in those is never
+        // reached.
+        _setWatchdogEnv();
+        _setLaunchEnv();
+        DeployHarness harness = new DeployHarness();
+
+        vm.warp(1_800_000_000);
+        vm.expectRevert(Deploy.BadSchedule.selector);
+        harness.config(RobinhoodAddresses.testnet(), address(0xD3), _auditorList());
+    }
+
     /// @notice The watchdog deployment brings up the audit protocol too, with no vault.
     /// @dev `KAY9Registry` binds to its hub immutably, so the hub has to be the final one from the
     ///      first deployment. Bringing both up now is what lets a quorum publish deep and forensic
