@@ -183,9 +183,8 @@ contract Testnet is Script {
         );
         (uint256 salt, address candidate) =
             _mineSalt(RobinhoodAddresses.testnet().create2Deployer, keccak256(creationCode));
-        LBPStrategy deployed = new LBPStrategy{salt: bytes32(salt)}(
-            positionManager, poolManager, IDistributorFactory(auctionFactory)
-        );
+        LBPStrategy deployed =
+            new LBPStrategy{salt: bytes32(salt)}(positionManager, poolManager, IDistributorFactory(auctionFactory));
         require(address(deployed) == candidate, "strategy salt mismatch");
         return deployed;
     }

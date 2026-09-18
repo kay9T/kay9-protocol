@@ -201,7 +201,7 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     function lock(uint8 tier, uint256 maxKay9) external;           // requires no live period; takes exactly requirementOf[tier]
     function lockWithPermit(uint8 tier, uint256 maxKay9, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
     function renew(uint8 tier, uint256 maxKay9) external;          // only at or after expiresAt; reads the current requirementOf[tier], tops up or returns the difference, resets quota
-    function upgrade(uint256 maxKay9) external;                    // deep to forensic inside a live period; tops up to the current requirementOf[2]; deepUsed is preserved
+    function upgrade(uint256 maxKay9) external;                    // deep to forensic inside a live period; tops up to the current requirementOf[2] and never returns principal; deepUsed is preserved
     function unlock() external;                                    // only at or after expiresAt; returns the whole principal
 
     function accessOf(address account) external view returns (Access memory);
@@ -263,6 +263,13 @@ Rules that the tests pin and that the rest of the system may rely on:
   the vault tops up or returns the difference against the current requirement.
 - **`upgrade` preserves `deepUsed`.** Deep quota is identical in both tiers, so upgrading buys the
   forensic slot and nothing else.
+- **`upgrade` only ever adds.** It leaves `max(lockedKay9, requirementOf[2])` locked: a top-up when
+  the forensic requirement is above what the period holds, and nothing at all when governance has
+  since lowered it below that. No principal leaves the vault before `expiresAt`, so a lowered
+  requirement takes effect at the next `renew` or after `unlock`, exactly as it does for a period
+  that is never upgraded. `maxKay9` is compared with the amount the call leaves locked, and
+  `AccessUpgraded.lockedKay9` reports that amount. `deepQuota` likewise becomes
+  `max(deepQuota, deepQuotaOf[2])`, so a `setQuota` after the period opened cannot shrink it.
 - **Every path out returns principal to the depositor.** `unlock` returns `lockedKay9` in full.
   There is no function, owner-only or otherwise, that sends a depositor's KAY9 anywhere else.
 - **`unlock` reads nothing but the record.** It returns exactly `lockedKay9`; no configuration

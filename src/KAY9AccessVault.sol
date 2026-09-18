@@ -353,6 +353,15 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
     /// @notice Raises a live deep period to forensic, topping up to the forensic requirement.
     /// @dev The expiry does not move and `deepUsed` is preserved, so the only thing gained is the
     ///      forensic allowance the larger lock pays for.
+    ///
+    ///      An upgrade only ever adds. A live period keeps what it locked with, so when governance
+    ///      has since lowered the forensic requirement below what this period already holds, the
+    ///      principal stays where it is and nothing is taken: the lower requirement applies from
+    ///      the next `renew`, or after `unlock`. Settling downwards here would hand principal back
+    ///      in the middle of a period, which is the one thing a lock promises not to do, and would
+    ///      make a requirement change reach back into periods opened before it. The deep allowance
+    ///      follows the same rule and keeps the larger of what the period was opened with and what
+    ///      a forensic period is given today, so a later `setQuota` cannot shrink it either.
     /// @param maxKay9 The most the caller is willing to have locked in total.
     function upgrade(uint256 maxKay9) external nonReentrant {
         Access storage a = _access[msg.sender];
@@ -361,24 +370,24 @@ contract KAY9AccessVault is Ownable2Step, ReentrancyGuard {
         if (a.tier != TIER_DEEP) revert NotAnUpgrade(a.tier);
 
         uint256 required = requirementOf[TIER_FORENSIC];
-        if (required > maxKay9) revert RequirementAboveMax(required, maxKay9);
-
         uint256 held = a.lockedKay9;
-        uint256 toppedUp = required > held ? required - held : 0;
-        uint256 returned = held > required ? held - required : 0;
+        uint256 locked = required > held ? required : held;
+        // Checked against what the call leaves locked, which is what the caller is agreeing to.
+        if (locked > maxKay9) revert RequirementAboveMax(locked, maxKay9);
+
+        uint256 toppedUp = locked - held;
         uint32 forensicQuota = forensicQuotaOf[TIER_FORENSIC];
         uint32 deepQuota = deepQuotaOf[TIER_FORENSIC];
 
         a.tier = TIER_FORENSIC;
-        a.deepQuota = deepQuota > a.deepUsed ? deepQuota : a.deepUsed;
+        if (deepQuota > a.deepQuota) a.deepQuota = deepQuota;
         a.forensicQuota = forensicQuota;
-        a.lockedKay9 = required;
-        totalLocked = totalLocked - held + required;
+        a.lockedKay9 = locked;
+        totalLocked += toppedUp;
 
-        emit AccessUpgraded(msg.sender, required, toppedUp, forensicQuota);
+        emit AccessUpgraded(msg.sender, locked, toppedUp, forensicQuota);
 
         if (toppedUp != 0) kay9.safeTransferFrom(msg.sender, address(this), toppedUp);
-        if (returned != 0) kay9.safeTransfer(msg.sender, returned);
     }
 
     /// @notice Returns the whole principal once the period has ended.

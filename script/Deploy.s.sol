@@ -85,12 +85,20 @@ contract Deploy is Script {
     error NotDeployed(string what);
 
     /// @notice Thrown when a supplied existing auditor registry is not the one this launch expects.
-    /// @param what Which part disagreed: threshold, count, member or owner.
+    /// @param what Which part disagreed: threshold, count, member, owner or duplicate.
     error AuditorSetMismatch(string what);
 
     /// @notice Thrown when a supplied existing registry and hub do not belong to each other.
     /// @param what Which part disagreed.
     error AuditProtocolMismatch(string what);
+
+    /// @notice Thrown when a reused component is not governed the way this launch expects.
+    /// @param what Which part disagreed.
+    error AuthorityMismatch(string what);
+
+    /// @notice Thrown when an environment integer does not fit the type it is stored in.
+    /// @param what The name of the offending variable.
+    error OutOfRange(string what);
 
     /// @notice Runs the deployment.
     /// @return d The deployed addresses.
@@ -199,9 +207,12 @@ contract Deploy is Script {
         cfg.teamBeneficiary = _requiredAddress("TEAM_BENEFICIARY", deployer);
         cfg.creatorFeeRecipient = _requiredAddress("CREATOR_FEE_RECIPIENT", deployer);
 
-        cfg.tge = uint64(vm.envUint("TGE_TIMESTAMP"));
-        cfg.unlock6m = uint64(vm.envUint("UNLOCK_6M_TIMESTAMP"));
-        cfg.unlock12m = uint64(vm.envUint("UNLOCK_12M_TIMESTAMP"));
+        // Narrowed only after the bound is checked. A bare cast wraps silently, so a threshold of
+        // 258 would arrive as 2 and a timestamp past 2^64 as some date in the past, and every check
+        // below would then be run against a number nobody typed.
+        cfg.tge = _toUint64(vm.envUint("TGE_TIMESTAMP"), "TGE_TIMESTAMP");
+        cfg.unlock6m = _toUint64(vm.envUint("UNLOCK_6M_TIMESTAMP"), "UNLOCK_6M_TIMESTAMP");
+        cfg.unlock12m = _toUint64(vm.envUint("UNLOCK_12M_TIMESTAMP"), "UNLOCK_12M_TIMESTAMP");
         if (!(cfg.tge < cfg.unlock6m && cfg.unlock6m < cfg.unlock12m)) revert BadSchedule();
         // The schedule is burned into the vesting contract, so a typo in either unlock would be
         // permanent. Both must be the exact calendar dates ComputeVesting prints, never an estimate.
@@ -210,8 +221,9 @@ contract Deploy is Script {
                 || cfg.unlock12m != CalendarMonths.addMonths(cfg.tge, 12)
         ) revert BadSchedule();
 
-        cfg.auditorThreshold = uint8(vm.envUint("AUDITOR_THRESHOLD"));
+        cfg.auditorThreshold = _toUint8(vm.envUint("AUDITOR_THRESHOLD"), "AUDITOR_THRESHOLD");
         cfg.auditorCount = auditorCount;
+        _requireDistinct(auditors);
 
         // The watchdog is expected to be live already, with its own timelock and auditor set. Both
         // are optional so a from-scratch deployment and a test still work, but if one is supplied
@@ -223,6 +235,7 @@ contract Deploy is Script {
         cfg.existingAuditHub = vm.envOr("EXISTING_AUDIT_HUB", address(0));
         _validateExistingWatchdog(cfg.existingTimelock, cfg.existingAuditorRegistry, cfg.auditorThreshold, auditors);
         _validateExistingAuditProtocol(cfg.existingReportRegistry, cfg.existingAuditHub);
+        _validateAuthorityGraph(cfg, deployer);
 
         // The official pool is keyed on Uniswap's canonical InitializerHook, whose authorized
         // initializer is the LBP strategy. KAY9Genesis re-validates it in its constructor.
@@ -283,6 +296,98 @@ contract Deploy is Script {
         }
     }
 
+    /// @notice Checks the reused components as one graph rather than one at a time.
+    /// @dev The two checks above each look at a pair. What they cannot see is a stack assembled
+    ///      from the right pieces of two different deployments, or from half of one: an auditor
+    ///      registry handed over without its timelock, which would be paired with a brand new
+    ///      timelock that does not own it; a hub whose own immutable `registry` or `auditors` is
+    ///      not the one supplied beside it; a timelock with some other delay, or one the owner
+    ///      cannot propose to. Every contract deployed after this point is bound to these addresses
+    ///      for good, so each of those is refused here, before anything is created.
+    /// @param cfg The configuration, with every `existing*` field already individually validated.
+    /// @param deployer The deploying key, which must hold no role on a reused timelock.
+    function _validateAuthorityGraph(DeployConfig memory cfg, address deployer) internal view {
+        bool hasTimelock = cfg.existingTimelock != address(0);
+        bool hasAuditors = cfg.existingAuditorRegistry != address(0);
+        bool hasProtocol = cfg.existingAuditHub != address(0);
+
+        // The shapes that mean something: nothing, the timelock alone, the watchdog's governance
+        // (timelock and auditor set), or the whole live stack. Anything else is half a deployment.
+        if (hasAuditors && !hasTimelock) revert MissingAddress("EXISTING_TIMELOCK");
+        if (hasProtocol && !hasTimelock) revert MissingAddress("EXISTING_TIMELOCK");
+        if (hasProtocol && !hasAuditors) revert MissingAddress("EXISTING_AUDITOR_REGISTRY");
+
+        if (hasTimelock) {
+            TimelockController timelock = TimelockController(payable(cfg.existingTimelock));
+            if (timelock.getMinDelay() != TIMELOCK_DELAY) revert AuthorityMismatch("timelock delay");
+            if (!timelock.hasRole(timelock.PROPOSER_ROLE(), cfg.ownerSafe)) {
+                revert AuthorityMismatch("owner is not a proposer");
+            }
+            if (
+                !timelock.hasRole(timelock.EXECUTOR_ROLE(), cfg.ownerSafe)
+                    && !timelock.hasRole(timelock.EXECUTOR_ROLE(), address(0))
+            ) revert AuthorityMismatch("owner is not an executor");
+            // The canceller role is checked with the rest, and is the one a half-done handover
+            // leaves behind: the timelock's constructor gives every proposer both roles, so a
+            // deployer that was a proposer during bootstrap and had only that revoked can still
+            // cancel anything the owner schedules - including the operation revoking it.
+            if (
+                timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), deployer)
+                    || timelock.hasRole(timelock.PROPOSER_ROLE(), deployer)
+                    || timelock.hasRole(timelock.CANCELLER_ROLE(), deployer)
+            ) revert AuthorityMismatch("deployer holds a timelock role");
+        }
+
+        if (hasAuditors) {
+            // A handover left half-done means somebody else can still take the registry.
+            if (KAY9AuditorRegistry(cfg.existingAuditorRegistry).pendingOwner() != address(0)) {
+                revert AuthorityMismatch("auditor registry handover pending");
+            }
+        }
+
+        if (hasProtocol) {
+            KAY9AuditHub hub = KAY9AuditHub(cfg.existingAuditHub);
+            // The reverse of the binding checked above: both are immutable, and both must agree.
+            if (address(hub.registry()) != cfg.existingReportRegistry) revert AuditProtocolMismatch("registry");
+            if (address(hub.auditors()) != cfg.existingAuditorRegistry) revert AuditProtocolMismatch("auditors");
+            if (hub.owner() != cfg.existingTimelock) revert AuthorityMismatch("hub owner");
+            if (hub.pendingOwner() != address(0)) revert AuthorityMismatch("hub handover pending");
+        }
+    }
+
+    /// @notice Refuses a list that names the same auditor twice.
+    /// @dev The reuse check compares the list's length with the registry's count and then asks
+    ///      whether each entry is a member. Three entries naming two members pass both, so without
+    ///      this the launch would believe it had confirmed a set it had not.
+    /// @param auditors The supplied auditors.
+    function _requireDistinct(address[] memory auditors) internal pure {
+        for (uint256 i = 0; i < auditors.length; ++i) {
+            for (uint256 j = i + 1; j < auditors.length; ++j) {
+                if (auditors[i] == auditors[j]) revert AuditorSetMismatch("duplicate");
+            }
+        }
+    }
+
+    /// @notice Narrows to uint8, refusing a value that would wrap.
+    /// @param value The value read from the environment.
+    /// @param what The variable it came from, for the error.
+    /// @return The same value.
+    function _toUint8(uint256 value, string memory what) internal pure returns (uint8) {
+        if (value > type(uint8).max) revert OutOfRange(what);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint8(value);
+    }
+
+    /// @notice Narrows to uint64, refusing a value that would wrap.
+    /// @param value The value read from the environment.
+    /// @param what The variable it came from, for the error.
+    /// @return The same value.
+    function _toUint64(uint256 value, string memory what) internal pure returns (uint64) {
+        if (value > type(uint64).max) revert OutOfRange(what);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(value);
+    }
+
     /// @notice Deploys a fresh timelock whose sole proposer and executor is the owner Safe.
     /// @dev Only reached when no live watchdog timelock was supplied, which in production means a
     ///      first deployment or a test. Kept as its own function so the reuse branch above reads as
@@ -330,7 +435,8 @@ contract Deploy is Script {
         console2.log("creator fee recipient  ", cfg.creatorFeeRecipient);
         console2.log("auditors               ", cfg.auditorCount);
         console2.log("quorum threshold       ", cfg.auditorThreshold);
-        console2.log("timelock delay seconds ", TIMELOCK_DELAY);
+        // Read from the timelock itself. A reused one is whatever it is, not what this file says.
+        console2.log("timelock delay seconds ", TimelockController(payable(d.timelock)).getMinDelay());
         console2.log("");
         console2.log("=== ACTION REQUIRED, the deployment is not finished ===");
         console2.log("KAY9AccessVault ownership is PROPOSED to the timelock, not held by it.");
