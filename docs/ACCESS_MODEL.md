@@ -105,6 +105,12 @@ requirement, leaves the expiry alone and, importantly, carries `deepUsed` across
 four in both tiers, so upgrading buys the forensic slot and nothing else. Without carrying the used
 counter, upgrading would be a way to reset the deep allowance.
 
+An upgrade only ever adds to the lock. If governance has lowered the forensic requirement below
+what a live deep period already holds, upgrading takes nothing and returns nothing: the period
+keeps what it locked with until it ends, and the lower requirement is what `renew` settles against
+afterwards. Settling downwards inside the period would hand principal back before the expiry the
+lock was opened with, and would let a requirement change reach into a period opened before it.
+
 ## 6. Quota is enforced on the chain
 
 `KAY9AuditHub.requestAudit` calls `accessVault.consume(msg.sender, tier)` and that call is what

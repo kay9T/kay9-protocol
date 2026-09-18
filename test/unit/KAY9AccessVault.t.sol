@@ -663,6 +663,105 @@ contract KAY9AccessVaultTest is Kay9TestBase {
         assertEq(accessVault.forensicRemaining(alice), 0, "the forensic slot is spent");
     }
 
+    /// @notice A live upgrade never hands principal back, however far the requirement has fallen.
+    /// @dev The sequence that used to refund mid-period: lock at 5,000, governance lowers deep to
+    ///      1,000 and forensic to 2,000 (a valid order, forensic stays above deep), then upgrade.
+    ///      3,000 KAY9 came back before the period had ended.
+    function test_liveUpgradeDoesNotRefundHistoricalPrincipal() public {
+        uint256 held = _grantAccess(alice, TIER_DEEP);
+        Access memory before = accessVault.accessOf(alice);
+
+        _setRequirement(TIER_DEEP, 1_000e18);
+        _setRequirement(TIER_FORENSIC, 2_000e18);
+        assertGt(held, accessVault.requirementOf(TIER_FORENSIC), "the period holds more than forensic now asks");
+
+        uint256 balanceBefore = token.balanceOf(alice);
+        vm.prank(alice);
+        accessVault.upgrade(held);
+
+        Access memory access = accessVault.accessOf(alice);
+        assertEq(token.balanceOf(alice), balanceBefore, "nothing came back mid-period, and nothing was taken");
+        assertEq(access.lockedKay9, held, "the period keeps what it locked with");
+        assertEq(accessVault.totalLocked(), held, "and the vault still counts all of it");
+        assertEq(token.balanceOf(address(accessVault)), held, "and still holds all of it");
+        assertEq(access.tier, TIER_FORENSIC, "the tier still rose");
+        assertEq(access.forensicQuota, 1, "and the forensic slot was still granted");
+        assertEq(access.expiresAt, before.expiresAt, "the expiry did not move");
+        assertEq(access.startedAt, before.startedAt, "and neither did the period identity");
+
+        // The whole recorded principal comes home at the end, exactly as `unlock` promises.
+        _warpPastExpiry(alice);
+        vm.prank(alice);
+        accessVault.unlock();
+        assertEq(token.balanceOf(alice), balanceBefore + held, "the entire principal returned at expiry");
+        assertEq(accessVault.totalLocked(), 0, "and the vault owes nothing");
+    }
+
+    /// @notice The lower requirement is reached at renewal, which is where a requirement change
+    ///         is meant to take effect.
+    function test_aLoweredRequirementAppliesAtRenewalNotAtUpgrade() public {
+        uint256 held = _grantAccess(alice, TIER_DEEP);
+        _setRequirement(TIER_DEEP, 1_000e18);
+        _setRequirement(TIER_FORENSIC, 2_000e18);
+
+        vm.prank(alice);
+        accessVault.upgrade(held);
+        _warpPastExpiry(alice);
+
+        uint256 balanceBefore = token.balanceOf(alice);
+        vm.prank(alice);
+        accessVault.renew(TIER_FORENSIC, held);
+
+        assertEq(accessVault.accessOf(alice).lockedKay9, 2_000e18, "the new period is at the new requirement");
+        assertEq(token.balanceOf(alice) - balanceBefore, held - 2_000e18, "and the difference came back then");
+    }
+
+    /// @notice The caller's maximum is compared with what the upgrade leaves locked.
+    function test_upgradeMaximumIsCheckedAgainstWhatStaysLocked() public {
+        uint256 held = _grantAccess(alice, TIER_DEEP);
+        _setRequirement(TIER_DEEP, 1_000e18);
+        _setRequirement(TIER_FORENSIC, 2_000e18);
+
+        // 2,000 is the current requirement, but the call leaves 5,000 locked, and that is the
+        // number a caller naming a maximum is asking about.
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AccessVault.RequirementAboveMax.selector, held, 2_000e18));
+        accessVault.upgrade(2_000e18);
+    }
+
+    /// @notice A quota cut after the period opened cannot take deep audits away through an upgrade.
+    function test_upgradeKeepsTheDeepAllowanceThePeriodWasOpenedWith() public {
+        uint256 deepLocked = _grantAccess(alice, TIER_DEEP);
+        vm.prank(alice);
+        hub.requestAudit(chainKey, bytes32(uint256(1)), TIER_DEEP, 1);
+
+        // Forensic periods opened from now on get two deep audits, not four.
+        vm.prank(address(timelock));
+        accessVault.setQuota(TIER_FORENSIC, 2, 1);
+
+        _fundKay9(alice, accessVault.requirementOf(TIER_FORENSIC) - deepLocked);
+        vm.prank(alice);
+        accessVault.upgrade(type(uint256).max);
+
+        Access memory access = accessVault.accessOf(alice);
+        assertEq(access.deepQuota, 4, "the allowance this period was opened with survives");
+        assertEq(access.deepUsed, 1, "and so does what was spent of it");
+        assertEq(accessVault.deepRemaining(alice), 3, "three deep audits remain, not one");
+    }
+
+    /// @notice A quota raised after the period opened is what an upgrade into that tier receives.
+    function test_upgradeTakesALargerForensicDeepAllowance() public {
+        uint256 deepLocked = _grantAccess(alice, TIER_DEEP);
+        vm.prank(address(timelock));
+        accessVault.setQuota(TIER_FORENSIC, 6, 1);
+
+        _fundKay9(alice, accessVault.requirementOf(TIER_FORENSIC) - deepLocked);
+        vm.prank(alice);
+        accessVault.upgrade(type(uint256).max);
+
+        assertEq(accessVault.accessOf(alice).deepQuota, 6, "a forensic period has six today, and this is one");
+    }
+
     /// @notice Upgrade is refused for anything that is not a live deep period.
     function test_upgradeOnlyAppliesToALiveDeepPeriod() public {
         _grantAccess(alice, TIER_FORENSIC);

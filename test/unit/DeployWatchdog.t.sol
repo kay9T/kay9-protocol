@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 import {DeployWatchdog, WatchdogConfig, WatchdogDeployment} from "../../script/DeployWatchdog.s.sol";
 import {Deploy, DeployConfig} from "../../script/Deploy.s.sol";
@@ -49,6 +50,22 @@ contract DeployHarness is Deploy {
         address[] memory auditors
     ) external view {
         _validateExistingWatchdog(timelock, auditorRegistry, threshold, auditors);
+    }
+
+    function validateAuthorityGraph(DeployConfig memory cfg, address deployer) external view {
+        _validateAuthorityGraph(cfg, deployer);
+    }
+
+    function requireDistinct(address[] memory auditors) external pure {
+        _requireDistinct(auditors);
+    }
+
+    function toUint8(uint256 value) external pure returns (uint8) {
+        return _toUint8(value, "AUDITOR_THRESHOLD");
+    }
+
+    function toUint64(uint256 value) external pure returns (uint64) {
+        return _toUint64(value, "TGE_TIMESTAMP");
     }
 }
 
@@ -326,5 +343,160 @@ contract DeployWatchdogTest is Test {
     function test_theLiveWatchdogPassesValidation() public {
         WatchdogDeployment memory w = _deployWatchdog();
         new DeployHarness().validateExistingWatchdog(w.timelock, w.auditorRegistry, 2, _auditorList());
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // The reused stack as one graph
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice The reuse fields of a launch config, pointed at one live watchdog.
+    function _reuse(WatchdogDeployment memory w) internal view returns (DeployConfig memory cfg) {
+        cfg.ownerSafe = ownerSafe;
+        cfg.existingTimelock = w.timelock;
+        cfg.existingAuditorRegistry = w.auditorRegistry;
+        cfg.existingReportRegistry = w.reportRegistry;
+        cfg.existingAuditHub = w.auditHub;
+    }
+
+    /// @notice The whole live stack, supplied whole, is accepted.
+    function test_theWholeLiveStackPassesTheGraphCheck() public {
+        DeployConfig memory cfg = _reuse(_deployWatchdog());
+        new DeployHarness().validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice An auditor registry without its timelock is refused.
+    /// @dev This used to go through: the launch then created a second timelock that did not own the
+    ///      registry it was about to bind every new contract to.
+    function test_launchRefusesAnAuditorRegistryWithoutItsTimelock() public {
+        DeployConfig memory cfg = _reuse(_deployWatchdog());
+        cfg.existingTimelock = address(0);
+        cfg.existingReportRegistry = address(0);
+        cfg.existingAuditHub = address(0);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.MissingAddress.selector, "EXISTING_TIMELOCK"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A hub and registry without the auditor registry the hub is bound to are refused.
+    function test_launchRefusesAnAuditProtocolWithoutItsAuditorRegistry() public {
+        DeployConfig memory cfg = _reuse(_deployWatchdog());
+        cfg.existingAuditorRegistry = address(0);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.MissingAddress.selector, "EXISTING_AUDITOR_REGISTRY"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A hub bound to some other auditor registry is refused.
+    /// @dev The cross-wire the pairwise checks cannot see: registry and hub belong to each other,
+    ///      the auditor registry and timelock belong to each other, and the two halves come from
+    ///      different deployments.
+    function test_launchRefusesAHubBoundToAnotherAuditorRegistry() public {
+        WatchdogDeployment memory a = _deployWatchdog();
+        WatchdogDeployment memory b = _deployWatchdog();
+        DeployConfig memory cfg = _reuse(a);
+        cfg.existingReportRegistry = b.reportRegistry;
+        cfg.existingAuditHub = b.auditHub;
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuditProtocolMismatch.selector, "auditors"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A hub that answers to some other timelock is refused.
+    function test_launchRefusesAHubOwnedByAnotherTimelock() public {
+        WatchdogDeployment memory w = _deployWatchdog();
+        DeployConfig memory cfg = _reuse(w);
+        vm.mockCall(w.auditHub, abi.encodeWithSignature("owner()"), abi.encode(address(0xBAD)));
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuthorityMismatch.selector, "hub owner"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A timelock with any delay but the promised 48 hours is refused.
+    function test_launchRefusesATimelockWithAnotherDelay() public {
+        address[] memory holders = new address[](1);
+        holders[0] = ownerSafe;
+        TimelockController quick = new TimelockController(1 hours, holders, holders, address(0));
+
+        DeployConfig memory cfg;
+        cfg.ownerSafe = ownerSafe;
+        cfg.existingTimelock = address(quick);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuthorityMismatch.selector, "timelock delay"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A timelock the owner cannot propose to is refused.
+    function test_launchRefusesATimelockTheOwnerCannotPropose() public {
+        address[] memory holders = new address[](1);
+        holders[0] = address(0x0DD);
+        TimelockController foreign = new TimelockController(48 hours, holders, holders, address(0));
+
+        DeployConfig memory cfg;
+        cfg.ownerSafe = ownerSafe;
+        cfg.existingTimelock = address(foreign);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuthorityMismatch.selector, "owner is not a proposer"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A timelock on which the deploying key holds a role is refused.
+    function test_launchRefusesATimelockTheDeployerStillControls() public {
+        address[] memory holders = new address[](1);
+        holders[0] = ownerSafe;
+        TimelockController held = new TimelockController(48 hours, holders, holders, address(0xD3));
+
+        DeployConfig memory cfg;
+        cfg.ownerSafe = ownerSafe;
+        cfg.existingTimelock = address(held);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuthorityMismatch.selector, "deployer holds a timelock role"));
+        harness.validateAuthorityGraph(cfg, address(0xD3));
+    }
+
+    /// @notice A deployer left holding only the canceller role is refused.
+    /// @dev The shape a half-done handover leaves: the constructor gives a proposer both roles, the
+    ///      proposer role was revoked, and the veto over everything the owner schedules was not.
+    function test_launchRefusesATimelockTheDeployerCanStillCancelOn() public {
+        address deployer = address(0xD3);
+        address[] memory holders = new address[](2);
+        holders[0] = ownerSafe;
+        holders[1] = deployer;
+        TimelockController half = new TimelockController(48 hours, holders, holders, address(this));
+        half.revokeRole(half.PROPOSER_ROLE(), deployer);
+        half.revokeRole(half.EXECUTOR_ROLE(), deployer);
+        half.renounceRole(half.DEFAULT_ADMIN_ROLE(), address(this));
+        assertTrue(half.hasRole(half.CANCELLER_ROLE(), deployer), "the veto is what was left behind");
+
+        DeployConfig memory cfg;
+        cfg.ownerSafe = ownerSafe;
+        cfg.existingTimelock = address(half);
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuthorityMismatch.selector, "deployer holds a timelock role"));
+        harness.validateAuthorityGraph(cfg, deployer);
+    }
+
+    /// @notice Naming one auditor twice is refused.
+    /// @dev Three entries naming two members pass both the count and the membership check, so the
+    ///      launch would believe it had confirmed a set it had not.
+    function test_launchRefusesADuplicatedAuditor() public {
+        address[] memory auditors = _auditorList();
+        auditors[2] = auditors[0];
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.AuditorSetMismatch.selector, "duplicate"));
+        harness.requireDistinct(auditors);
+    }
+
+    /// @notice A value that would wrap when narrowed is refused rather than silently reduced.
+    function test_launchRefusesAValueThatWouldWrap() public {
+        DeployHarness harness = new DeployHarness();
+        assertEq(harness.toUint8(2), 2, "an ordinary threshold passes through");
+        assertEq(harness.toUint8(255), 255, "as does the largest that fits");
+
+        // 258 narrows to 2, which is exactly the threshold everybody expects to see.
+        vm.expectRevert(abi.encodeWithSelector(Deploy.OutOfRange.selector, "AUDITOR_THRESHOLD"));
+        harness.toUint8(258);
+
+        vm.expectRevert(abi.encodeWithSelector(Deploy.OutOfRange.selector, "TGE_TIMESTAMP"));
+        harness.toUint64(uint256(type(uint64).max) + 1);
     }
 }
