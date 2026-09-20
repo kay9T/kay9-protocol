@@ -675,12 +675,12 @@ deployer, they set flag bit 18; a self-declaration alone is rendered as declared
 | 4 | PROXY | upgradeable proxy |
 | 5 | OWNER_PRIVILEGES | owner has non-standard powers |
 | 6 | LOW_LIQUIDITY | liquidity below thresholds |
-| 7 | UNLOCKED_LIQUIDITY | LP not locked / withdrawable |
+| 7 | UNLOCKED_LIQUIDITY | LP supply is not held at a burn address (a third-party time lock is not visible to this check) |
 | 8 | HOLDER_CONCENTRATION | top holders exceed thresholds |
 | 9 | LINKED_WALLETS | clustered wallets share funding |
-| 10 | CREATOR_HISTORY | creator linked to failed/rugged launches |
-| 11 | SNIPERS | early-block buyers dominate |
-| 12 | BUNDLED_BUYS | bundled insider buys detected |
+| 10 | CREATOR_HISTORY | the deployer created other contracts in the sampled history (their outcomes are not checked) |
+| 11 | SNIPERS | a few addresses took most of the early distribution |
+| 12 | BUNDLED_BUYS | transactions delivered tokens to three or more addresses at once |
 | 13 | WASH_TRADING | wash-like volume pattern |
 | 14 | HONEYPOT_SIGNALS | sell restrictions suspected |
 | 15 | HIDDEN_TRANSFER_RESTRICTION | non-standard transfer logic |
