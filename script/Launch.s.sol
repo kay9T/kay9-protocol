@@ -49,8 +49,24 @@ contract Launch is Script {
     /// @notice The divisor that turns a floor price into the auction's price-tick granularity.
     uint256 internal constant AUCTION_TICK_DIVISOR = 100;
 
+    /// @notice The decimals the derived arithmetic below assumes the ETH/USD answer carries.
+    uint8 internal constant FEED_DECIMALS = 8;
+
+    /// @notice The oldest ETH/USD answer the launch parameters may be derived from, in seconds.
+    /// @dev The same bound the website applies to the same feed, so the two cannot disagree about
+    ///      whether one reading is usable.
+    uint256 internal constant MAX_FEED_AGE_SECONDS = 90_000;
+
     /// @notice Thrown when the Chainlink answer cannot be trusted.
     error BadFeed();
+
+    /// @notice Thrown when the feed does not report its answers with `FEED_DECIMALS` decimals.
+    error BadFeedDecimals();
+
+    /// @notice Thrown when the answer is older than `MAX_FEED_AGE_SECONDS`, or is in the future.
+    /// @param updatedAt When the feed says the answer was written.
+    /// @param nowTimestamp The block timestamp it was compared against.
+    error BadFeedAge(uint256 updatedAt, uint256 nowTimestamp);
 
     /// @notice Thrown when the derived parameters fall outside what the vault accepts.
     /// @param reason A short description.
@@ -139,14 +155,38 @@ contract Launch is Script {
         if (totalBlocks != endBlock - startBlock) revert BadParameters("emission schedule does not span the window");
     }
 
-    /// @notice Reads and validates the Chainlink answer.
-    /// @param feedAddress The aggregator.
-    /// @return The answer scaled by 1e8.
+    /**
+     * @notice Reads and validates the Chainlink answer.
+     *
+     * @dev Every check here is load bearing, and the ones added last are the ones the printed
+     *      output cannot compensate for.
+     *
+     *      **The scale is not assumed.** `latestRoundData` returns an answer scaled by the feed's
+     *      own `decimals()`, and everything downstream treats it as 1e8. Pointed at an otherwise
+     *      valid 18-decimal aggregator, the derived floor and graduation raise come out 1e10 wrong
+     *      — and the script's own "implied floor FDV usd" and "implied raise usd" lines divide by
+     *      the same answer they were multiplied by, so they round-trip back to the operator's own
+     *      inputs whatever the scale was. The human review this script is built around therefore
+     *      cannot see that particular mistake at all. The only defence is to refuse the feed.
+     *
+     *      **The answer is not allowed to be stale.** `updatedAt != 0` says a round exists, not
+     *      that it is recent. The launch economics are permanent once signed, so an answer from
+     *      before a large move would set a floor and a graduation threshold nobody agreed to. The
+     *      bound matches what the website already enforces on the same feed
+     *      (`MAX_ORACLE_AGE_SECONDS` in `apps/web/src/hooks/useLaunch.ts`), so the two cannot
+     *      disagree about whether the same reading is usable.
+     *
+     * @param feedAddress The aggregator.
+     * @return The answer scaled by 1e8.
+     */
     function _ethUsd(address feedAddress) internal view returns (uint256) {
         if (feedAddress == address(0)) revert BadFeed();
+        if (AggregatorV3Interface(feedAddress).decimals() != FEED_DECIMALS) revert BadFeedDecimals();
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
             AggregatorV3Interface(feedAddress).latestRoundData();
         if (answer <= 0 || updatedAt == 0 || answeredInRound < roundId) revert BadFeed();
+        if (updatedAt > block.timestamp) revert BadFeedAge(updatedAt, block.timestamp);
+        if (block.timestamp - updatedAt > MAX_FEED_AGE_SECONDS) revert BadFeedAge(updatedAt, block.timestamp);
         return uint256(answer);
     }
 

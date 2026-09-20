@@ -26,6 +26,11 @@ contract WatchdogHarness is DeployWatchdog {
     function deploy(WatchdogConfig memory cfg, address deployer) external returns (WatchdogDeployment memory) {
         return _deploy(cfg, deployer);
     }
+
+    /// @notice This script's own narrowing, which is the one a threshold actually passes through.
+    function toUint8(uint256 value) external pure returns (uint8) {
+        return _toUint8(value, "AUDITOR_THRESHOLD");
+    }
 }
 
 /// @notice Exposes `Deploy`'s internal configuration reader, which is where the launch decides
@@ -515,5 +520,26 @@ contract DeployWatchdogTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Deploy.OutOfRange.selector, "TGE_TIMESTAMP"));
         harness.toUint64(uint256(type(uint64).max) + 1);
+    }
+
+    /// @notice The **watchdog** script refuses a threshold that would wrap.
+    /// @dev The test above it proves `Deploy._toUint8` is safe, and lives in this file, which is
+    ///      how a raw `uint8(vm.envUint("AUDITOR_THRESHOLD"))` survived in `DeployWatchdog._config`
+    ///      for as long as it did: the correct helper existed, was tested, and the sibling site
+    ///      that needed it bypassed it. This asserts the narrowing on the script whose name is on
+    ///      the file, and pairs it with the range check so the two cannot pass separately while a
+    ///      wrapped value walks between them.
+    function test_watchdogRefusesAThresholdThatWouldWrap() public {
+        WatchdogHarness harness = new WatchdogHarness();
+        assertEq(harness.toUint8(2), 2, "an ordinary threshold passes through");
+        assertEq(harness.toUint8(255), 255, "as does the largest that fits");
+
+        // 258 wraps to 2, which is exactly the quorum a three-auditor launch expects to see, so
+        // `_validate` would have accepted it without anyone noticing.
+        vm.expectRevert(abi.encodeWithSelector(DeployWatchdog.OutOfRange.selector, "AUDITOR_THRESHOLD"));
+        harness.toUint8(258);
+
+        vm.expectRevert(abi.encodeWithSelector(DeployWatchdog.OutOfRange.selector, "AUDITOR_THRESHOLD"));
+        harness.toUint8(256);
     }
 }

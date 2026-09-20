@@ -69,6 +69,10 @@ contract DeployWatchdog is Script {
     /// @notice Thrown when the quorum threshold is zero or larger than the auditor set.
     error BadThreshold();
 
+    /// @notice Thrown when an environment integer does not fit the type it is stored in.
+    /// @param what The name of the offending variable.
+    error OutOfRange(string what);
+
     /// @notice Runs the deployment.
     /// @dev Split into reading the environment, checking what it said, and deploying, so that each
     ///      part can be tested on its own. The checks in particular must not be reachable only
@@ -94,7 +98,10 @@ contract DeployWatchdog is Script {
     function _config() internal view returns (WatchdogConfig memory cfg) {
         cfg.ownerSafe = vm.envAddress("OWNER_SAFE");
         cfg.auditors = vm.envAddress("AUDITORS", ",");
-        cfg.threshold = uint8(vm.envUint("AUDITOR_THRESHOLD"));
+        // Narrowed only after the bound is checked, exactly as Deploy.s.sol does it. A bare cast
+        // wraps silently, so a threshold of 258 would arrive as 2 — a number nobody typed, which
+        // `_validate` below would then happily accept because 2 is a plausible quorum.
+        cfg.threshold = _toUint8(vm.envUint("AUDITOR_THRESHOLD"), "AUDITOR_THRESHOLD");
         // Optional. The auditors may always commit scan batches, so a deployment with no separate
         // scanner is a working deployment; a dedicated scanner key is an operational convenience.
         cfg.scanners = vm.envOr("SCANNERS", ",", new address[](0));
@@ -108,6 +115,16 @@ contract DeployWatchdog is Script {
         if (cfg.ownerSafe == deployer) revert MustNotBeDeployer("OWNER_SAFE");
         if (cfg.auditors.length == 0) revert NoAuditors();
         if (cfg.threshold == 0 || cfg.threshold > cfg.auditors.length) revert BadThreshold();
+    }
+
+    /// @notice Narrows to uint8, refusing a value that would wrap.
+    /// @param value The value read from the environment.
+    /// @param what The variable it came from, for the error.
+    /// @return The same value.
+    function _toUint8(uint256 value, string memory what) internal pure returns (uint8) {
+        if (value > type(uint8).max) revert OutOfRange(what);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint8(value);
     }
 
     /// @notice Whether the mainnet confirmation phrase is the exact one required.
