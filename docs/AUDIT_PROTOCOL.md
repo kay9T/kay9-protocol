@@ -391,12 +391,15 @@ unavailable, and it is the single most important flag on the list, because it te
 the absence of other flags proves nothing. A report with `flags = 131072` and high scores has not
 found an asset to be safe; it has found nothing at all.
 
-**Bits 18 and 19 score zero, and it matters that they do.** Bit 18 is context about who asked, and
-letting it move a number in either direction would be exactly the failure the access model exists to
+**Bit 19 scores zero, and it matters that it does.** It is context about *when*, telling a reader
+that this snapshot replaced an earlier one — useful for reading a history, irrelevant to the risk of
+the asset at the block that was analysed.
+
+There is no flag for *who asked*, and bit 18 is retired rather than reassigned (§2.4). Letting who
+asked move a number in either direction would be exactly the failure the access model exists to
 prevent: a creator-requested audit must not score worse for being creator-requested, and it must
-certainly not score better. Bit 19 is context about *when*, telling a reader that this snapshot
-replaced an earlier one — useful for reading a history, irrelevant to the risk of the asset at the
-block that was analysed.
+certainly not score better. The protocol's answer is not a flag that scores zero; it is that
+requester identity never reaches the scoring path at all.
 
 ---
 
@@ -497,7 +500,7 @@ hashes are not reproducible and must not be compared against later schemas. Sche
 | `analyzedAtBlock` | number | block height every chain read was pinned to; absent on chain families without block numbers |
 | `chain` | object | `caip2`, `chainKeyHash`, `family`, `name`, `chainId?` |
 | `target` | object | `chain`, `address`, `assetId`, and `name` / `symbol` / `decimals` / `totalSupply` / `standard` when readable |
-| `requester` | object | `jobId`, `address`, `declaredKind`, `declaredKindVerified`. Absent for unsolicited watchdog reports, which have no requester |
+| `requester` | object | `jobId`, `address`, `declaredKind`. Always rendered as declared and unchecked; there is no verified counterpart. Absent for unsolicited watchdog reports, which have no requester |
 | `scores` | object | the eight risk numbers |
 | `confidence` | number | 0..1 |
 | `flags` | array | `{code, bit, title, severity, confidence, evidence[], signals[]}` per raised flag, ordered by bit |
@@ -515,12 +518,13 @@ state what the observation can and cannot imply.
 
 `requester.declaredKind` is the value the requester passed to `requestAudit`, reproduced from the
 chain rather than from anything the requester told an auditor off-chain.
-`requester.declaredKindVerified` is true only when the auditors established on-chain that the
-requesting address is the asset's deployer, which is the same condition that sets flag bit 18.
+Nothing checks it. There is no field saying the declaration was verified and no flag that records
+one, because establishing it would mean an auditor reading requester identity in order to publish a
+statement about it — see §2.4, and the bit that was withdrawn rather than built.
 
 So a creator-commissioned report says, in its own body and on its own face, that the creator
-commissioned it, and says whether that claim was checked. It does not say that this changed
-anything, because it did not: the requester never reaches the scoring function (§7).
+commissioned it, and says that the claim is the requester's own and unchecked. It does not say that
+this changed anything, because it did not: the requester never reaches the scoring function (§7).
 
 ### 8.2 Canonical JSON and `reportHash`
 

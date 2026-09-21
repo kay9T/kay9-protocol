@@ -664,9 +664,11 @@ once.
 ### Requester neutrality
 
 Nothing in the request path reaches the scoring path. The hub records who asked and what they
-declared themselves to be, and passes only `chainKey`, `assetId` and `tier` to the auditors through
-the `AuditRequested` event. There is no field an auditor could read that says the creator paid,
-because nobody pays. A declaration is stored and rendered as declared and unverified, and the
+declared themselves to be, and `AuditRequested` carries both — it has to, since the record is public
+and a reader is entitled to it. What no auditor reads it *into* is the analysis:
+`PinnedAnalysisRequest` carries a chain, an asset, a tier and a pinned block, and no requester field
+at all, so there is no path by which `declaredRequesterKind` could reach a signal. There is also no
+field an auditor could read that says the creator paid, because nobody pays. A declaration is stored and rendered as declared and unverified, and the
 protocol never converts it into a finding of its own: there is no flag for who asked. An earlier
 draft of this document reserved bit 18 for an auditor that had established the requester really was
 the deployer, and no auditor ever implemented it. It is withdrawn rather than built, because
