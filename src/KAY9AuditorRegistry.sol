@@ -140,12 +140,17 @@ contract KAY9AuditorRegistry is Ownable2Step {
         }
     }
 
-    /// @notice Whether the registry is in the halted state: no auditors, so no quorum can form.
-    /// @dev Distinct from "the threshold happens to be low". Nothing can be signed in this state
-    ///      and recovery takes `addAuditor` and then `setThreshold`.
-    /// @return True when there are no auditors.
+    /// @notice Whether no quorum can form: nothing can be attested or published right now.
+    /// @dev Reads the threshold, not the member count. An empty set is the way the state is
+    ///      reached, but it is not the state: adding one auditor back leaves the threshold at zero
+    ///      — deliberately, since the only value this contract could pick on the owner's behalf is
+    ///      a one-signature quorum — and `KAY9AuditHub` still refuses every signature while it is.
+    ///      Reporting that half-recovered registry as running would have been the same class of
+    ///      mistake this function exists to correct: a caveat in one place and a clean answer in
+    ///      another. Recovery ends when `setThreshold` names a quorum.
+    /// @return True while the threshold is zero.
     function isHalted() external view returns (bool) {
-        return _auditors.length == 0;
+        return threshold == 0;
     }
 
     /// @notice Sets the quorum threshold.

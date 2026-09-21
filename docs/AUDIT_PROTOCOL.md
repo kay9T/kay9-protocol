@@ -370,12 +370,12 @@ constants, `@kay9/chain`, and the engine.
 | 4 | 16 | `PROXY` | Upgradeable proxy |
 | 5 | 32 | `OWNER_PRIVILEGES` | Owner holds non-standard powers |
 | 6 | 64 | `LOW_LIQUIDITY` | Liquidity below thresholds |
-| 7 | 128 | `UNLOCKED_LIQUIDITY` | Provider position not locked or burned |
+| 7 | 128 | `UNLOCKED_LIQUIDITY` | LP supply is not held at a burn address; a third-party time lock is not visible to this check |
 | 8 | 256 | `HOLDER_CONCENTRATION` | Top holders exceed concentration thresholds |
 | 9 | 512 | `LINKED_WALLETS` | Clustered wallets share a funding source |
-| 10 | 1024 | `CREATOR_HISTORY` | Creator linked to prior launches |
-| 11 | 2048 | `SNIPERS` | Early-block buyers dominate the float |
-| 12 | 4096 | `BUNDLED_BUYS` | Bundled insider buys detected |
+| 10 | 1024 | `CREATOR_HISTORY` | The deployer created other contracts in the sampled history; their outcomes are not checked |
+| 11 | 2048 | `SNIPERS` | A few addresses took most of the tokens sold out of the pool in the first blocks |
+| 12 | 4096 | `BUNDLED_BUYS` | Transactions delivered tokens to three or more addresses at once |
 | 13 | 8192 | `WASH_TRADING` | Wash-like volume pattern |
 | 14 | 16384 | `HONEYPOT_SIGNALS` | Sell restrictions suspected |
 | 15 | 32768 | `HIDDEN_TRANSFER_RESTRICTION` | Non-standard transfer logic |

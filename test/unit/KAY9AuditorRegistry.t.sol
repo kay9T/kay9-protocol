@@ -78,10 +78,14 @@ contract KAY9AuditorRegistryTest is Kay9TestBase {
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (fresh)));
         assertEq(auditorRegistry.auditorCount(), 1);
         assertEq(auditorRegistry.threshold(), 0, "adding a key did not decide the quorum");
-        assertFalse(auditorRegistry.isHalted(), "the set is no longer empty");
+        // Still halted: a member without a quorum signs nothing. The hub refuses every signature
+        // while the threshold is zero, so reporting this half-recovered registry as running would
+        // be the same shape of mistake the halt state exists to remove.
+        assertTrue(auditorRegistry.isHalted(), "one auditor and no quorum is still a halt");
 
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (1)));
         assertEq(auditorRegistry.threshold(), 1, "the owner chose it");
+        assertFalse(auditorRegistry.isHalted(), "recovery ends when a quorum is named, not when a key is added");
     }
 
     /// @notice A threshold larger than the set is refused, whichever way it is reached.
