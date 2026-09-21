@@ -690,7 +690,7 @@ boundary requester neutrality exists to hold. Bit 18 stays unassigned; do not re
 | 8 | HOLDER_CONCENTRATION | top holders exceed thresholds |
 | 9 | LINKED_WALLETS | clustered wallets share funding |
 | 10 | CREATOR_HISTORY | the deployer created other contracts in the sampled history (their outcomes are not checked) |
-| 11 | SNIPERS | a few addresses took most of the early distribution |
+| 11 | SNIPERS | a few addresses took most of the tokens sold out of the pool in the first blocks (mints and direct transfers are not in that denominator) |
 | 12 | BUNDLED_BUYS | transactions delivered tokens to three or more addresses at once |
 | 13 | WASH_TRADING | wash-like volume pattern |
 | 14 | HONEYPOT_SIGNALS | sell restrictions suspected |
