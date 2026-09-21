@@ -145,12 +145,22 @@ contract Rehearse is Script {
         }
     }
 
-    /// @notice Three bids from the depositor, each willing to pay four times the current clearing
-    ///         price and each committing the whole graduation threshold, as in the fork suite.
+    /// @notice Bids from the depositor, each willing to pay four times the current clearing price
+    ///         and each committing slightly more than the whole graduation threshold.
+    /// @dev The margin is the fix for a real failure, not caution. On the 2026-09-21 rehearsal a
+    ///      single bid of exactly `requiredCurrencyRaised` left `currencyRaised` at
+    ///      1819999999999998 against a threshold of 1819999999999999 — one wei short — so the
+    ///      auction ended un-graduated and the launch failed. What a bid contributes is credited
+    ///      through the clearing price and the conversion rounds down, so exactly the threshold can
+    ///      never reach the threshold. The default of three bids had always hidden it by committing
+    ///      three times the requirement; `BID_COUNT=1` is what exposed it. A launch that has failed
+    ///      cannot be relaunched for `RELAUNCH_DELAY` (48 hours), so this off-by-one costs two days
+    ///      of rehearsal time, which is why the margin is here rather than in the caller's head.
     function bid() external {
         IContinuousClearingAuction auction = _auction();
         LaunchParams memory p = _genesis().launchParams();
-        uint128 each = uint128(uint256(p.requiredCurrencyRaised));
+        uint256 threshold = uint256(p.requiredCurrencyRaised);
+        uint128 each = uint128(threshold + threshold / 1000 + 1);
         uint256 count = vm.envOr("BID_COUNT", uint256(3));
         address depositor = vm.addr(_userKey());
 
