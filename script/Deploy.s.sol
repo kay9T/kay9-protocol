@@ -64,8 +64,6 @@ contract Deploy is Script {
     /// @notice The minimum governance delay, matching the published admin surface.
     uint256 internal constant TIMELOCK_DELAY = 48 hours;
 
-    /// @notice The deep audit target, ten US dollars scaled by 1e8.
-
     /// @notice Thrown when the mainnet confirmation is missing.
     error MainnetNotConfirmed();
 

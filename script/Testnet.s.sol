@@ -49,8 +49,6 @@ contract Testnet is Script {
     /// @notice The minimum liquidity increase the mainnet compounding recipient enforces.
     uint128 internal constant MIN_LIQUIDITY_INCREASE = 1e20;
 
-    /// @notice The deep audit target, ten US dollars scaled by 1e8.
-
     /// @notice Thrown when the script is pointed at anything other than Robinhood Chain testnet.
     /// @param chainId The offending chain.
     error NotTestnet(uint256 chainId);
@@ -62,7 +60,6 @@ contract Testnet is Script {
 
         address deployer = msg.sender;
         address ownerSafe = vm.envOr("OWNER_SAFE", deployer);
-        address treasury = vm.envOr("TREASURY", deployer);
         address teamBeneficiary = vm.envOr("TEAM_BENEFICIARY", deployer);
         address creatorFeeRecipient = vm.envOr("CREATOR_FEE_RECIPIENT", deployer);
 
