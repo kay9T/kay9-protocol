@@ -289,6 +289,13 @@ contract KAY9Registry is BlockNumberish {
     ///      is not necessarily the most recent look. A reader that shows a score as current needs
     ///      `analyzedAt`, and needs to know what kind of record it is: `tier` is 0 for an
     ///      unsolicited watchdog report, 1 for a requested deep audit and 2 for a forensic one.
+    ///      It also needs `declaredRequesterKind`, because who commissioned a report is context a
+    ///      reader is entitled to and a one-line summary is where most readers stop. The value is
+    ///      what the requester *said*, never something this contract checked: 2 means the requester
+    ///      declared itself the asset's creator, and a surface rendering it must say declared and
+    ///      unverified. It reaches no scoring path — the hub passes only `chainKey`, `assetId` and
+    ///      `tier` to the auditors — so publishing it here changes what a reader knows, not what
+    ///      any score was.
     ///      Separate from `latestSummary` so that nothing already reading that tuple breaks.
     /// @param chainKey The chain key hash.
     /// @param assetId The asset identifier.
@@ -298,6 +305,8 @@ contract KAY9Registry is BlockNumberish {
     /// @return flags The flag bitmask.
     /// @return engineVersion The engine that produced it.
     /// @return tier 0 watchdog report, 1 deep audit, 2 forensic audit.
+    /// @return declaredRequesterKind What the requester said it was, unverified: 0 nothing, 1
+    ///         independent, 2 the asset's creator, 3 an integration. 0 for a watchdog report.
     /// @return analyzedAt The moment the analysis describes. A reader must always show this.
     /// @return committedAt When the record was written to this registry.
     function latestSnapshot(bytes32 chainKey, bytes32 assetId)
@@ -310,13 +319,14 @@ contract KAY9Registry is BlockNumberish {
             uint64 flags,
             uint32 engineVersion,
             uint8 tier,
+            uint8 declaredRequesterKind,
             uint64 analyzedAt,
             uint64 committedAt
         )
     {
         uint256[] storage ids = _history[assetKey(chainKey, assetId)];
         uint256 total = ids.length;
-        if (total == 0) return (false, 0, 0, 0, 0, 0, 0, 0);
+        if (total == 0) return (false, 0, 0, 0, 0, 0, 0, 0, 0);
         reportId = ids[total - 1];
         ReportRecord storage record = _reports[reportId];
         return (
@@ -326,6 +336,7 @@ contract KAY9Registry is BlockNumberish {
             record.result.flags,
             record.result.engineVersion,
             record.tier,
+            record.declaredRequesterKind,
             record.result.analyzedAt,
             record.committedAt
         );

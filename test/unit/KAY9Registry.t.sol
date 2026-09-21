@@ -472,8 +472,8 @@ contract KAY9RegistryTest is Test {
         assertEq(committedAt, record.committedAt, "same commitment point");
     }
 
-    /// @notice `latestSnapshot` carries the moment the analysis describes and the kind of record,
-    ///         next to everything `latestSummary` returns.
+    /// @notice `latestSnapshot` carries the moment the analysis describes, the kind of record and
+    ///         its provenance, next to everything `latestSummary` returns.
     function test_latestSnapshotReturnsBothClocksAndTheTier() public {
         _seed(ASSET_A, 2);
         vm.warp(1_790_000_000);
@@ -491,6 +491,7 @@ contract KAY9RegistryTest is Test {
             uint64 flags,
             uint32 engineVersion,
             uint8 tier,
+            uint8 declaredRequesterKind,
             uint64 analyzedAt,
             uint64 committedAt
         ) = registry.latestSnapshot(CHAIN, ASSET_A);
@@ -501,8 +502,31 @@ contract KAY9RegistryTest is Test {
         assertEq(flags, forensic.flags);
         assertEq(engineVersion, forensic.engineVersion);
         assertEq(tier, 2, "a forensic audit");
+        assertEq(declaredRequesterKind, 1, "requested by someone declaring itself independent");
         assertEq(analyzedAt, 1_789_000_000, "when the asset was looked at");
         assertEq(committedAt, 1_790_000_000, "which is not when the record was written");
+    }
+
+    /// @notice A score commissioned by the asset's own declared creator says so in the one-line read.
+    /// @dev This is the read a badge, a wallet or a listing makes, and for most readers it is the
+    ///      only one they will ever make. The declaration is stored unverified and reaches no
+    ///      scoring path; the point of publishing it here is that a surface showing the number
+    ///      cannot show it without also being handed who asked for it.
+    function test_latestSnapshotCarriesACreatorDeclaration() public {
+        AuditResult memory result = _result(ASSET_A, 88);
+        vm.prank(hub);
+        registry.recordReport(
+            ReportMeta({jobId: 11, requester: requester, declaredRequesterKind: 2, tier: 1}), result, _signers()
+        );
+
+        (,,,,,, uint8 declaredRequesterKind,,) = registry.latestSnapshot(CHAIN, ASSET_A);
+        assertEq(declaredRequesterKind, 2, "the requester declared itself the creator");
+
+        vm.prank(hub);
+        registry.recordReport(_watchdogMeta(), _result(ASSET_A, 40), _signers());
+        (,,,,, uint8 tier, uint8 watchdogKind,,) = registry.latestSnapshot(CHAIN, ASSET_A);
+        assertEq(tier, 0, "an unsolicited report");
+        assertEq(watchdogKind, 0, "which nobody requested and nobody declared anything about");
     }
 
     /// @notice A record committed later can describe an earlier moment, and the read says so.
@@ -523,7 +547,7 @@ contract KAY9RegistryTest is Test {
         vm.prank(hub);
         registry.recordReport(_meta(3), olderLook, _signers());
 
-        (,, uint8 overallTrust,,, uint8 tier, uint64 analyzedAt, uint64 committedAt) =
+        (,, uint8 overallTrust,,, uint8 tier,, uint64 analyzedAt, uint64 committedAt) =
             registry.latestSnapshot(CHAIN, ASSET_A);
         assertEq(overallTrust, 90, "the latest record is the one committed last");
         assertEq(tier, 1);
@@ -533,7 +557,7 @@ contract KAY9RegistryTest is Test {
 
     /// @notice An asset nobody has reported reads as absent, never as a score of zero.
     function test_latestSnapshotOfAnUnauditedAssetReportsNone() public view {
-        (bool exists,,,,,,,) = registry.latestSnapshot(CHAIN, ASSET_A);
+        (bool exists,,,,,,,,) = registry.latestSnapshot(CHAIN, ASSET_A);
         assertFalse(exists);
     }
 

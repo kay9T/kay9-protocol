@@ -457,7 +457,7 @@ contract KAY9Registry {
     function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);
     function latestSummary(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSummaryForToken(bytes32 chainKey, address token) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
-    function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint64 analyzedAt, uint64 committedAt);
+    function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint8 declaredRequesterKind, uint64 analyzedAt, uint64 committedAt);
     function scoreHistory(bytes32 chainKey, bytes32 assetId, uint256 offset, uint256 limit) external view returns (uint64[] memory committedAt, uint8[] memory overallTrust);
 }
 ```
@@ -473,9 +473,14 @@ snapshot", not "current truth", and every surface that renders it also renders `
 **`committedAt` is when a record was written, not when the asset was looked at.** A requested
 audit is pinned to the moment it was requested and may be committed hours later, and because the
 log is in commitment order, the latest record can describe an earlier moment than the one before
-it. `latestSnapshot` is `latestSummary` with both clocks and the kind of record: `analyzedAt`, the
-moment the analysis describes, and `tier` (0 an unsolicited watchdog report, 1 a requested deep
-audit, 2 a forensic one). A surface that presents a score as current must show `analyzedAt`.
+it. `latestSnapshot` is `latestSummary` with both clocks, the kind of record and its provenance:
+`analyzedAt`, the moment the analysis describes; `tier` (0 an unsolicited watchdog report, 1 a
+requested deep audit, 2 a forensic one); and `declaredRequesterKind`, what the requester said it
+was (0 nothing, 1 independent, 2 the asset's creator, 3 an integration). A surface that presents a
+score as current must show `analyzedAt`, must not call a tier-0 record an audit, and must not
+render a score commissioned by the asset's own declared creator without saying so. The declaration
+is unverified by construction — see *Requester neutrality* — so a surface renders it as declared,
+never as established.
 `latestSummary` keeps its shape so that nothing already reading it breaks; the registry on
 Robinhood testnet predates `latestSnapshot` and does not have it.
 
@@ -661,8 +666,12 @@ once.
 Nothing in the request path reaches the scoring path. The hub records who asked and what they
 declared themselves to be, and passes only `chainKey`, `assetId` and `tier` to the auditors through
 the `AuditRequested` event. There is no field an auditor could read that says the creator paid,
-because nobody pays. When the auditors establish on-chain that the requester is the asset's
-deployer, they set flag bit 18; a self-declaration alone is rendered as declared and unverified.
+because nobody pays. A declaration is stored and rendered as declared and unverified, and the
+protocol never converts it into a finding of its own: there is no flag for who asked. An earlier
+draft of this document reserved bit 18 for an auditor that had established the requester really was
+the deployer, and no auditor ever implemented it. It is withdrawn rather than built, because
+building it would put requester identity inside the analysis the score is computed from — the one
+boundary requester neutrality exists to hold. Bit 18 stays unassigned; do not reuse it.
 
 ## Flags bitmask (uint64)
 
@@ -686,7 +695,6 @@ deployer, they set flag bit 18; a self-declaration alone is rendered as declared
 | 15 | HIDDEN_TRANSFER_RESTRICTION | non-standard transfer logic |
 | 16 | UNVERIFIED_SOURCE | source not verified on explorer (informational; scores zero) |
 | 17 | INSUFFICIENT_DATA | analysis partial |
-| 18 | REQUESTER_IS_DEPLOYER | the requesting address was verified on-chain as the asset's deployer (informational; scores zero) |
 | 19 | MONITORING_UPDATE | this report supersedes an earlier one for the same asset (informational; scores zero) |
 
 ## Cross-chain identity

@@ -110,10 +110,13 @@ for it: if the depositor has renewed in the meantime, the restore is a silent no
 ### 2.4 The declaration is recorded, never believed
 
 `declaredRequesterKind = 2` means the requester said it is the token's creator. The registry stores
-that, and every surface renders it as **declared and unverified**. The only statement the protocol
-will make about it is flag bit 18, `REQUESTER_IS_DEPLOYER`, which the auditors set when they have
-established on-chain that the requesting address really is the asset's deployer. A self-declaration
-alone never sets it.
+that, and every surface renders it as **declared and unverified**. The protocol makes no statement
+of its own about it — there is no flag for who asked, and a reader is never told the claim was
+checked. An earlier draft reserved bit 18, `REQUESTER_IS_DEPLOYER`, for an auditor that had
+established on-chain that the requesting address really was the deployer. No auditor implemented
+it, and it is withdrawn rather than built: an auditor that reads requester identity in order to say
+something about it has requester identity inside the analysis, which is the thing this section
+exists to prevent. Bit 18 stays unassigned.
 
 Both facts are recorded for the reader's benefit, not the requester's. Knowing that a report was
 commissioned by the token's own creator is genuinely useful context. It changes nothing about the
@@ -381,7 +384,6 @@ constants, `@kay9/chain`, and the engine.
 | 15 | 32768 | `HIDDEN_TRANSFER_RESTRICTION` | Non-standard transfer logic |
 | 16 | 65536 | `UNVERIFIED_SOURCE` | Source not verified on the explorer. Informational: scores zero, and is only present when an explorer is configured |
 | 17 | 131072 | `INSUFFICIENT_DATA` | Analysis partial |
-| 18 | 262144 | `REQUESTER_IS_DEPLOYER` | The requesting address was established on-chain as the asset's deployer. Informational: scores zero |
 | 19 | 524288 | `MONITORING_UPDATE` | This report supersedes an earlier one for the same asset. Informational: scores zero |
 
 `INSUFFICIENT_DATA` deserves emphasis. It is set whenever any data source the engine wanted was
