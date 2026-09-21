@@ -1,11 +1,14 @@
 # Slither results
 
-Static analysis of the nine KAY9 contracts and their libraries, run on 2026-09-11 against the
-current tree — after the access-lock model, after `KAY9AccessVault` existed, after the changes
-made earlier the same day (auditor-only `attest`/`publishWatchdogReport`, retired-hub
-`restore`, the `BlockNumberish` clock), and after the same evening's redenomination of the lock
-to a fixed amount of KAY9, which removed `KAY9Pricing` and with it every finding it carried
-(the one High, `weak-prng`, among them). Dependencies, tests and scripts are excluded.
+Static analysis of the nine KAY9 contracts and their libraries, re-run on **2026-09-22** against
+the current tree — after the September re-review's remediation: the hub's hard deadline, the
+team-vesting launch gate, `KAY9Registry.latestSnapshot` with `declaredRequesterKind`,
+`KAY9AccessVault.upgrade`, `KAY9AuditorRegistry.isHalted()` and the two-step beneficiary transfer.
+Dependencies, tests and scripts are excluded.
+
+The previous run was 2026-09-11, after the lock was redenominated in KAY9, which removed
+`KAY9Pricing` and with it every finding it carried — the one High, `weak-prng`, among them. No run
+since has reported anything above Medium.
 
 Every earlier revision of this file described contracts that no longer exist (the payment split,
 `submitResult`, `TreasuryUpdated`). Nothing below is carried over unread.
@@ -33,23 +36,36 @@ another. The runs overlap on shared libraries; findings are counted once below.
 
 ## Summary
 
-**52 distinct findings in 10 detector classes. None is a defect, and nothing is reported above
-Medium.** The earlier run's single High (`weak-prng`, a rounding modulo in the TWAP) went with the
-contract that held it. Every finding is listed with its disposition. Per contract: Genesis 29,
-AuditHub 20, AccessVault 9, LiquidityLock 6, Registry 4, ScanRegistry 3, TeamVesting 1,
-AuditorRegistry 0, Token 0 (overlapping library hits counted once in the totals).
+**51 distinct findings in 11 detector classes. None is a defect, and nothing is reported above
+Medium.** Every finding is listed with its disposition. Per contract: Genesis 31, AuditHub 21,
+AccessVault 9, LiquidityLock 6, Registry 4, ScanRegistry 3, TeamVesting 2, AuditorRegistry 0,
+Token 0 (overlapping library hits counted once in the totals).
+
+**What moved since 2026-09-11**, when the count was 52 in 10 classes:
+
+| Change | Why |
+|---|---|
+| `missing-zero-check` 0 to 1, a new class | `KAY9TeamVesting.transferBeneficiary` is new code. False positive — see below |
+| `timestamp` 16 to 17 | `KAY9AccessVault.upgrade` and `KAY9AuditHub.markExpired`, both September additions, compare times deliberately |
+| `unused-return` 5 to 6 | one more destructured tuple in `KAY9Genesis.launch` |
+| `incorrect-equality` 6 to 3 | fewer zero comparisons after the September edits |
+| `divide-before-multiply` 4 to 3 | one arithmetic site removed |
+
+Nothing new is a defect, and no class that mattered appeared. The detectors that found nothing
+still find nothing — the list is at the end of this file and is the part worth reading first.
 
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|
 | Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status guards, immutable callees |
-| Medium | `incorrect-equality` | 6 | False positives: comparisons against zero or a Merkle root |
-| Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
+| Medium | `incorrect-equality` | 3 | False positives: comparisons against zero or a Merkle root |
+| Medium | `divide-before-multiply` | 3 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
 | Medium | `uninitialized-local` | 1 | False positive: an accumulator that starts at the zero default |
-| Medium | `unused-return` | 5 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
+| Medium | `unused-return` | 6 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
 | Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
-| Low | `timestamp` | 16 | Intentional: vesting, cooldowns, periods, service levels |
+| Low | `timestamp` | 17 | Intentional: vesting, cooldowns, periods, service levels |
+| Low | `missing-zero-check` | 1 | False positive: zero is the documented way to withdraw a proposal |
 | Informational | `unindexed-event-address` | 2 | Event shapes fixed by `docs/CONTRACT_INTERFACES.md` |
 
 ---
@@ -169,6 +185,22 @@ array bounds arithmetic.
 ---
 
 ## Informational
+
+### `missing-zero-check`
+
+`KAY9TeamVesting.transferBeneficiary(address newBeneficiary)` assigns `pendingBeneficiary` without
+checking the argument against zero.
+
+Zero is not an oversight here, it is the feature. The role is transferred in two steps and the
+function's own documentation says so: *"or zero to withdraw a proposal"*. Naming zero is how the
+current beneficiary cancels a proposal it no longer wants. Nothing changes on that call either way
+— the role moves only when `acceptBeneficiary()` succeeds, and that requires
+`msg.sender == pendingBeneficiary`, which `address(0)` can never satisfy because nobody holds its
+key. Rejecting zero would remove the cancel path and protect nothing.
+
+**Action: documented, no change.**
+
+---
 
 ### `unindexed-event-address`
 

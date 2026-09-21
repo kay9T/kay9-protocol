@@ -365,9 +365,12 @@ slither src/KAY9AuditHub.sol --compile-force-framework solc --solc <path to solc
 
 Those two entry points reach every source file in `src/`.
 
-**Result (2026-09-11, all nine contracts as their own entry points, slither 0.11.6): 52 distinct
-findings in 10 detector classes, none of them a defect and nothing above Medium.** An earlier run the
-same day counted 68 with one High (`weak-prng`, a rounding modulo in the TWAP); those went with
+**Result (2026-09-22, all nine contracts as their own entry points, slither 0.11.6): 51 distinct
+findings in 11 detector classes, none of them a defect and nothing above Medium.** Re-run after the
+September re-review's remediation; the previous run on 2026-09-11 counted 52 in 10 classes. The one
+new class is `missing-zero-check` on `KAY9TeamVesting.transferBeneficiary`, where naming zero is the
+documented way to withdraw a pending proposal rather than a missing guard. An earlier run on
+2026-09-11 counted 68 with one High (`weak-prng`, a rounding modulo in the TWAP); those went with
 `KAY9Pricing` when the lock was redenominated in KAY9 that evening. The full list with a disposition
 for each is in [`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
 
