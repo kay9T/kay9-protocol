@@ -18,10 +18,20 @@ the first (see gate 6 of the launch readiness checklist).
 
 | Date | Model | Family | Commit | Findings | Status |
 |---|---|---|---|---|---|
-| 2026-09-23 | GPT-5.6 Sol, reasoning effort high | OpenAI | `launch-review-1` (`db65339b`), verified at `launch-review-2` (`a327a830`) | 2 medium, 1 low | two closed, one narrowed to one wei of rounding; final verification at `launch-review-4` raised R-01, fixed at `launch-review-5`; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md) |
-| 2026-09-23 | Claude Fable 5.1 | Anthropic | `launch-review-3` (`8dde1aa0`) | 2 medium, 4 low, 6 informational | nine fixed at `launch-review-4`, two accepted, one rejected with a measurement; verified at `launch-review-4` by Claude Opus 5.5 (Fable had reached its usage limit): six closed, three narrowed and accepted in writing; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-anthropic-claude-fable-5.1.md) |
+| 2026-09-23 | GPT-5.6 Sol, reasoning effort high | OpenAI | `launch-review-1` (`db65339b`), verified at `launch-review-2` (`a327a830`) | 2 medium, 1 low | two closed, one narrowed to one wei of rounding; final verification at `launch-review-4` raised R-01, fixed at `launch-review-5` and confirmed closed there; [the whole review thread, hosted by ChatGPT](https://chatgpt.com/share/6ab3eea8-69f8-83ec-8be5-17daaf127312); [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md) |
+| 2026-09-23 | Claude Fable 5.1 | Anthropic | `launch-review-3` (`8dde1aa0`) | 2 medium, 4 low, 6 informational | nine fixed at `launch-review-4`, two accepted, one rejected with a measurement; verified at `launch-review-4` by Claude Opus 5.5 (Fable had reached its usage limit): six closed, three narrowed and accepted in writing; the final change confirmed at `launch-review-5`; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-anthropic-claude-fable-5.1.md) |
 
 The prompt: [LAUNCH_PATH_REVIEW_PROMPT.md](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/LAUNCH_PATH_REVIEW_PROMPT.md).
 
 A fix that changes a contract moves the commit under review, and every review then runs again at
 the new commit. That is why the table names the tag each review was run at.
+
+## Where gate 6 stands
+
+Both reviews ran on the launch path, both were verified on the fixes, and both confirmed the final
+commit, **`launch-review-5`** (`41e30ecd552a52c2086d7cee055e3a4a030762ea`), which is the commit to
+deploy. Every finding is fixed or accepted in writing, with the reason. What is accepted, in short:
+an actor who calls Uniswap's strategy directly and gives the vault half the raise can still send a
+good launch into the recovery path, at the cost of that half, locked into KAY9 liquidity for good,
+and for no return; the vault can keep at most one wei of rounding; and the claim that nobody can
+profit from forcing recovery is argued, not proved.
