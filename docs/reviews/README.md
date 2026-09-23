@@ -35,3 +35,16 @@ an actor who calls Uniswap's strategy directly and gives the vault half the rais
 good launch into the recovery path, at the cost of that half, locked into KAY9 liquidity for good,
 and for no return; the vault can keep at most one wei of rounding; and the claim that nobody can
 profit from forcing recovery is argued, not proved.
+
+## Independent copies
+
+Each review file was captured by the Internet Archive's Wayback Machine at the commit that carries
+its final confirmation, so its text can be checked against a copy nobody on the project controls:
+
+- [OpenAI GPT-5.6 Sol review](https://web.archive.org/web/20260923170031/https://github.com/kay9T/kay9-protocol/blob/8f91c30f1d8a9f53f7985998d687de7cbdd31ef9/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md)
+- [Anthropic Claude Fable 5.1 review](https://web.archive.org/web/20260923170226/https://github.com/kay9T/kay9-protocol/blob/8f91c30f1d8a9f53f7985998d687de7cbdd31ef9/docs/reviews/2026-09-23-anthropic-claude-fable-5.1.md)
+- [This index](https://web.archive.org/web/20260923170433/https://github.com/kay9T/kay9-protocol/blob/8f91c30f1d8a9f53f7985998d687de7cbdd31ef9/docs/reviews/README.md)
+- [The prompt](https://web.archive.org/web/20260923164313/https://github.com/kay9T/kay9-protocol/blob/41e30ecd552a52c2086d7cee055e3a4a030762ea/docs/reviews/LAUNCH_PATH_REVIEW_PROMPT.md)
+
+The ChatGPT share link is hosted by OpenAI. The Wayback Machine cannot render it (the page is built
+in the browser), so it has no archived copy yet.
