@@ -239,7 +239,8 @@ This table is the requirement side of the suite: what has to be true, and the te
 
 As of 2026-09-23 the offline suite is green — 321 tests across 24 suites, default and `ci` fuzz
 profiles — and the three fork tests pass against live Robinhood mainnet state on the post-remediation
-tree (block 70,346,959; the previous run was 2026-09-11 at block 59,996,178). `docs/STATUS.md` §3
+tree, the non-graduation case now relaunching through the canonical stack (block 70,397,407; the
+previous run was 2026-09-11 at block 59,996,178). `docs/STATUS.md` §3
 carries the run. A green suite is evidence for the rows below, not a launch
 sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (model review of the launch path) is still open. A
 human external review was sought and not funded; the gate now asks for reviews by two model families,
