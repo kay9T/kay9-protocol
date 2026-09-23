@@ -237,9 +237,10 @@ Enforced by construction and checked by the stateful invariant suite in `test/in
 
 This table is the requirement side of the suite: what has to be true, and the test that pins it.
 
-As of 2026-09-11 the offline suite is green — 290 tests across 24 suites, default and `ci` fuzz
-profiles — and the three fork tests pass against live Robinhood mainnet state (block 59,996,178).
-`docs/STATUS.md` §3 carries the run. A green suite is evidence for the rows below, not a launch
+As of 2026-09-23 the offline suite is green — 319 tests across 24 suites, default and `ci` fuzz
+profiles — and the three fork tests pass against live Robinhood mainnet state on the post-remediation
+tree (block 70,346,959; the previous run was 2026-09-11 at block 59,996,178). `docs/STATUS.md` §3
+carries the run. A green suite is evidence for the rows below, not a launch
 sign-off: gate 6 of `docs/LAUNCH_READINESS.md` (model review of the launch path) is still open. A
 human external review was sought and not funded; the gate now asks for reviews by two model families,
 published in full, and says plainly that this is not a professional audit.
