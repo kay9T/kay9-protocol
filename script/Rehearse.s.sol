@@ -404,6 +404,16 @@ contract Rehearse is Script {
             vm.stopBroadcast();
             console2.log("attested by / status     ", vm.addr(key), uint8(_hub().getJob(jobId).status));
         }
+        // The hub disputes a job only once no position can still reach the threshold, and every
+        // active auditor that has not voted counts as a vote that could still arrive. Three
+        // dissents therefore dispute a job only when A, B and C are the whole set. A registry that
+        // still lists the deployer, or auditors whose keys were thrown away after an earlier run,
+        // leaves the job Requested until the SLA expires, and this stage would report that as if
+        // the path had been exercised. Failing here fails the simulation, so nothing is broadcast.
+        require(
+            _hub().getJob(jobId).status == JobStatus.Disputed,
+            "dispute: job not disputed; the auditor set must be exactly A, B and C (remove the deployer and stale keys)"
+        );
         _printAccess(vm.addr(_userKey()));
     }
 
