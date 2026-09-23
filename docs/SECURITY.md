@@ -237,7 +237,7 @@ Enforced by construction and checked by the stateful invariant suite in `test/in
 
 This table is the requirement side of the suite: what has to be true, and the test that pins it.
 
-As of 2026-09-23 the offline suite is green — 319 tests across 24 suites, default and `ci` fuzz
+As of 2026-09-23 the offline suite is green — 321 tests across 24 suites, default and `ci` fuzz
 profiles — and the three fork tests pass against live Robinhood mainnet state on the post-remediation
 tree (block 70,346,959; the previous run was 2026-09-11 at block 59,996,178). `docs/STATUS.md` §3
 carries the run. A green suite is evidence for the rows below, not a launch
@@ -336,10 +336,10 @@ LBP strategy and continuous clearing auction, the genuine FeeSplitter and benefi
 genuine Permit2, rather than mocks. Nothing in the access path needs a stand-in, because nothing in
 it reads a price feed.
 
-The static analysis results in §5 were produced on 2026-09-11 against the access-model contracts,
-`KAY9AccessVault` included. The contracts changed again on 2026-09-18, so the run is repeated against
-the final tree before launch (`docs/LAUNCH_READINESS.md` gate 7): a disposition is about the code it
-was written against.
+The static analysis results in §5 were produced on 2026-09-22 against the post-remediation tree and
+repeated on 2026-09-23, when the per-detector counts were corrected from the JSON output. The run is
+repeated once more against the final tree before launch (`docs/LAUNCH_READINESS.md` gate 7): a
+disposition is about the code it was written against.
 
 ---
 
@@ -366,9 +366,12 @@ slither src/KAY9AuditHub.sol --compile-force-framework solc --solc <path to solc
 
 Those two entry points reach every source file in `src/`.
 
-**Result (2026-09-22, all nine contracts as their own entry points, slither 0.11.6): 51 distinct
-findings in 11 detector classes, none of them a defect and nothing above Medium.** Re-run after the
-September re-review's remediation; the previous run on 2026-09-11 counted 52 in 10 classes. The one
+**Result (2026-09-22, repeated 2026-09-23, all nine contracts as their own entry points, slither
+0.11.6): 55 distinct findings in 11 detector classes, none of them a defect and nothing above
+Medium.** Re-run after the September re-review's remediation; the previous run on 2026-09-11 counted
+52 in 10 classes, and the three additions are the new `missing-zero-check`, one `timestamp` and one
+`unused-return`. The 2026-09-22 write-up said 51 because two classes were recorded as having shrunk
+when they had not. The one
 new class is `missing-zero-check` on `KAY9TeamVesting.transferBeneficiary`, where naming zero is the
 documented way to withdraw a pending proposal rather than a missing guard. An earlier run on
 2026-09-11 counted 68 with one High (`weak-prng`, a rounding modulo in the TWAP); those went with
@@ -381,11 +384,12 @@ for each is in [`../packages/contracts/SLITHER.md`](../SLITHER.md). Summary:
 | Medium | `incorrect-equality` | 6 | False positives: comparisons against zero or a Merkle root |
 | Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
 | Medium | `uninitialized-local` | 1 | False positive: an accumulator that starts at the zero default |
-| Medium | `unused-return` | 5 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
+| Medium | `unused-return` | 6 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
 | Low | `reentrancy-events` | 2 | Event ordering only |
 | Low | `calls-loop` | 9 | Loops bounded by the auditor set or the position list |
-| Low | `timestamp` | 16 | Intentional: vesting, cooldowns, periods, service levels |
+| Low | `timestamp` | 17 | Intentional: vesting, cooldowns, periods, service levels |
+| Low | `missing-zero-check` | 1 | False positive: zero is the documented way to withdraw a proposal |
 | Informational | `unindexed-event-address` | 2 | Event shapes are fixed by `CONTRACT_INTERFACES.md` |
 
 What static analysis cannot see, and a rehearsal did: `block.number` on this Orbit chain is the

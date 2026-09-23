@@ -277,6 +277,24 @@ contract RobinhoodForkTest is Test {
         genesis.markFailed();
         assertGt(genesis.earliestRelaunchTimestamp(), 0);
         assertEq(token.balanceOf(address(genesis)), genesis.LIQUIDITY_RESERVE(), "reserve returned");
+
+        // The relaunch itself, on the canonical stack, with the owner-facing salt unchanged: what
+        // the testnet relaunch of 2026-09-23 does. The strategy salts the auction with the
+        // migration parameters as well, so a later window is a new address; the recovery branch
+        // above freed the pool id; and `launch()` sweeps the failed auction before it checks the
+        // balance, so the whole 910 M is back in the vault when the second distribution starts.
+        vm.warp(genesis.earliestRelaunchTimestamp());
+        LaunchParams memory p2 = _params();
+        assertEq(p2.salt, p.salt, "same owner-facing salt");
+        vm.prank(owner);
+        genesis.launch(p2);
+
+        assertEq(genesis.launchCount(), 2, "relaunched");
+        assertEq(genesis.launchState(), 1, "the new auction is live");
+        assertTrue(genesis.auction() != address(auction), "a new auction");
+        assertEq(token.balanceOf(address(genesis)), 0, "the whole allocation moved again");
+        assertEq(token.balanceOf(address(auction)), 0, "the failed auction was swept");
+        assertEq(token.balanceOf(book.lbpStrategy), genesis.LIQUIDITY_RESERVE(), "one reserve, not two");
     }
 
     /// @notice A graduated auction whose migration reverts is rebuilt by the vault itself.

@@ -515,6 +515,35 @@ contract KAY9LaunchTest is Kay9TestBase {
         assertEq(token.balanceOf(address(uni.lbpStrategy)), genesis.LIQUIDITY_RESERVE(), "one reserve, not two");
     }
 
+    /// @notice A relaunch with the owner-facing salt unchanged, which is how the testnet relaunch
+    ///         runs (`LAUNCH_SALT` defaults to 1 both times). The strategy salts the auction with
+    ///         the migration parameters as well, so a later window is a new auction address, and
+    ///         the failed auction is swept inside `launch()`.
+    function test_relaunchKeepsTheOwnerFacingSalt() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        vm.prank(owner);
+        genesis.launch(p);
+        address first = genesis.auction();
+
+        vm.roll(p.endBlock + 1);
+        IContinuousClearingAuction(first).checkpoint();
+        genesis.markFailed();
+        vm.roll(p.migrationBlock);
+        vm.warp(genesis.earliestRelaunchTimestamp());
+
+        LaunchParams memory p2 = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        assertEq(p2.salt, p.salt, "same owner-facing salt");
+        vm.prank(owner);
+        genesis.launch(p2);
+
+        assertEq(genesis.launchCount(), 2);
+        assertTrue(genesis.auction() != first, "a new auction address");
+        assertEq(genesis.launchState(), 1, "the new auction is live");
+        assertEq(token.balanceOf(address(genesis)), 0, "the whole allocation moved again");
+        assertEq(token.balanceOf(first), 0, "the failed auction was swept");
+        assertEq(token.balanceOf(address(uni.lbpStrategy)), genesis.LIQUIDITY_RESERVE(), "one reserve, not two");
+    }
+
     /// @notice Pushing the price down right before `settle` cannot pull the leftover ladder below
     ///         the auction's clearing price. Anchored at spot alone, the ladder moved with the dump
     ///         and the manipulator could buy the leftover back below what every bidder paid.

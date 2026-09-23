@@ -118,6 +118,12 @@ contract Launch is Script {
     ) public view returns (LaunchParams memory p) {
         if (graduationFdvUsd < floorFdvUsd) revert BadParameters("graduation below floor");
 
+        // The narrowing casts below would truncate an oversized environment value in silence, and a
+        // truncated duration can come out as a perfectly valid window. The inputs are bounded first:
+        // the vault allows at most a 24-hour window, and a start more than 30 days out is a typo.
+        if (durationHours == 0 || durationHours > 24) revert BadParameters("duration hours out of range");
+        if (startDelayMinutes > 30 days / 1 minutes) revert BadParameters("start delay out of range");
+
         uint64 blocksPerHour = uint64((3600 * 1000) / BLOCK_TIME_MS);
         // The vault validates `startBlock` on the auction's clock, so it is derived from the same.
         uint64 startBlock = uint64(genesis.chainBlockNumber() + (startDelayMinutes * 60 * 1000) / BLOCK_TIME_MS);
@@ -132,8 +138,11 @@ contract Launch is Script {
         if (tickSpacing < 2) revert BadParameters("floor price too small for a tick grid");
         uint256 floorPrice = rawFloor - (rawFloor % tickSpacing);
 
-        // The graduation threshold is the ETH needed to clear the whole auction supply at the
-        // graduation valuation, which is what the site displays as the raise target.
+        // The graduation threshold is the ETH the auction must credit to clear the whole auction
+        // supply at the graduation valuation. Credited, not committed: the auction credits a bid
+        // through the clearing price and rounds down, so gross bids adding up to exactly this figure
+        // can land a wei short, which the 2026-09-21 rehearsal did. The site shows it as the total
+        // the auction must reach, never as a bid size that guarantees graduation.
         uint256 graduationPrice = AuctionPriceLib.fdvWeiToPriceQ96(graduationFdvWei, genesis.token().TOTAL_SUPPLY());
         uint256 required = (graduationPrice * genesis.AUCTION_ALLOCATION()) >> 96;
         if (required == 0 || required > type(uint128).max) revert BadParameters("graduation raise out of range");

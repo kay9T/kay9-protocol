@@ -36,8 +36,10 @@ another. The runs overlap on shared libraries; findings are counted once below.
 
 ## Summary
 
-**51 distinct findings in 11 detector classes. None is a defect, and nothing is reported above
-Medium.** Every finding is listed with its disposition. Per contract: Genesis 31, AuditHub 21,
+**55 distinct findings in 11 detector classes. None is a defect, and nothing is reported above
+Medium.** The count was first written as 51 on 2026-09-22 and corrected to 55 on 2026-09-23, when
+the run was repeated on the same tree and the per-detector counts were taken from the JSON output
+rather than by hand: the two classes recorded below as having shrunk had not moved at all. Every finding is listed with its disposition. Per contract: Genesis 31, AuditHub 21,
 AccessVault 9, LiquidityLock 6, Registry 4, ScanRegistry 3, TeamVesting 2, AuditorRegistry 0,
 Token 0 (overlapping library hits counted once in the totals).
 
@@ -48,8 +50,10 @@ Token 0 (overlapping library hits counted once in the totals).
 | `missing-zero-check` 0 to 1, a new class | `KAY9TeamVesting.transferBeneficiary` is new code. False positive — see below |
 | `timestamp` 16 to 17 | `KAY9AccessVault.upgrade` and `KAY9AuditHub.markExpired`, both September additions, compare times deliberately |
 | `unused-return` 5 to 6 | one more destructured tuple in `KAY9Genesis.launch` |
-| `incorrect-equality` 6 to 3 | fewer zero comparisons after the September edits |
-| `divide-before-multiply` 4 to 3 | one arithmetic site removed |
+| `incorrect-equality` 6, unchanged | the 2026-09-22 revision of this file said 3; the JSON says 6 |
+| `divide-before-multiply` 4, unchanged | the 2026-09-22 revision said 3; the JSON says 4 |
+
+52 plus the three additions is 55.
 
 Nothing new is a defect, and no class that mattered appeared. The detectors that found nothing
 still find nothing — the list is at the end of this file and is the part worth reading first.
@@ -57,8 +61,8 @@ still find nothing — the list is at the end of this file and is the part worth
 | Severity | Detector | Count | Disposition |
 |---|---|---|---|
 | Medium | `reentrancy-no-eth` | 3 | Not exploitable: `nonReentrant`, status guards, immutable callees |
-| Medium | `incorrect-equality` | 3 | False positives: comparisons against zero or a Merkle root |
-| Medium | `divide-before-multiply` | 3 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
+| Medium | `incorrect-equality` | 6 | False positives: comparisons against zero or a Merkle root |
+| Medium | `divide-before-multiply` | 4 | Intentional snap-to-spacing arithmetic, identical to v4-core's |
 | Medium | `uninitialized-local` | 1 | False positive: an accumulator that starts at the zero default |
 | Medium | `unused-return` | 6 | Intentional tuple destructuring of `getSlot0`, `initialize`, `multicall` |
 | Low | `reentrancy-benign` | 4 | Bookkeeping after guarded calls |
@@ -129,7 +133,7 @@ Solidity zero default and is read as zero on purpose when nothing is burned.
 
 ### `unused-return`
 
-Five reports of one shape: `getSlot0` returns four values and the caller destructures the one or
+Six reports of one shape: `getSlot0` returns four values and the caller destructures the one or
 two it needs (`KAY9Genesis.recover`, `_settleRemainder`, `_migrationOutcome`);
 `poolManager.initialize` returns the tick, which the vault does not need; `launcher.multicall`
 returns per-call return data, which the vault does not need.
@@ -173,7 +177,7 @@ owns and ids already locked, and every caller can fall back to the single-item `
 
 ### `timestamp`
 
-Sixteen reports across `KAY9Genesis`, `KAY9TeamVesting`, `KAY9AccessVault`, `KAY9AuditHub`
+Seventeen reports across `KAY9Genesis`, `KAY9TeamVesting`, `KAY9AccessVault`, `KAY9AuditHub`
 and `KAY9Registry`. Time-based logic is the point in all of them: the vesting schedule, the
 48-hour relaunch cooldown, the access period and its expiry, and the audit service level. Every tolerance is orders of magnitude larger than any plausible sequencer
 clock drift, and Robinhood Chain is a single-sequencer Orbit chain where drift is not an adversarial

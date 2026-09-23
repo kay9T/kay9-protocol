@@ -212,6 +212,19 @@ contract LaunchScriptTest is Kay9TestBase {
         script.derive(genesis, 0, 10_000, 4, 30, bytes32(uint256(1)), 2500e8);
     }
 
+    /// @notice Inputs the narrowing casts would have truncated in silence are refused first.
+    function test_rejectsOversizedDurationAndDelay() public {
+        // 2^64 + 4 hours would have truncated to a valid four-hour window.
+        vm.expectPartialRevert(Launch.BadParameters.selector);
+        script.derive(genesis, 1_000, 10_000, uint256(type(uint64).max) + 5, 30, bytes32(uint256(1)), 2500e8);
+        vm.expectPartialRevert(Launch.BadParameters.selector);
+        script.derive(genesis, 1_000, 10_000, 25, 30, bytes32(uint256(1)), 2500e8);
+        vm.expectPartialRevert(Launch.BadParameters.selector);
+        script.derive(genesis, 1_000, 10_000, 0, 30, bytes32(uint256(1)), 2500e8);
+        vm.expectPartialRevert(Launch.BadParameters.selector);
+        script.derive(genesis, 1_000, 10_000, 4, 30 * 24 * 60 + 1, bytes32(uint256(1)), 2500e8);
+    }
+
     /// @notice Every duration the vault allows produces an acceptable schedule.
     /// @param durationHours The auction length in hours.
     function testFuzz_anyAllowedDurationIsAccepted(uint8 durationHours) public {
