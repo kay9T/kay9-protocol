@@ -315,7 +315,11 @@ contract RobinhoodForkTest is Test {
         );
         (bool ok,) = book.lbpStrategy.call(abi.encodeWithSignature("migrate(address)", address(auction)));
         assertTrue(ok);
+        // clearMockedCalls also drops the ArbSys clock mock, and without it the auction reads a clock
+        // that is not past its end, so its sweep reverts AuctionIsNotOver. Before UnsoldNotSwept the
+        // vault swallowed that and recovered without sweeping, which this test never noticed.
         vm.clearMockedCalls();
+        _setBlock(p.migrationBlock);
 
         uint256 ethBefore = address(genesis).balance;
         assertGt(ethBefore, 0, "the raise landed in the vault");
@@ -326,8 +330,11 @@ contract RobinhoodForkTest is Test {
         assertEq(address(key.hooks), address(0), "recovery rebuilds the hookless pool");
         (uint160 sqrtPriceX96,,,) = IPoolManager(book.poolManager).getSlot0(key.toId());
         assertEq(sqrtPriceX96, AuctionPriceLib.toSqrtPriceX96(clearingPrice, true), "priced at the clearing price");
-        assertLt(address(genesis).balance, ethBefore / 1000, "essentially all ETH went into the pool");
+        assertLe(address(genesis).balance, 1, "at most one wei of rounding stays behind");
         assertTrue(genesis.settled());
+        // What stays in the auction is what bidders bought and have not claimed yet; the unsold part
+        // has been swept.
+        assertGt(auction.sweepUnsoldTokensBlock(), 0, "the unsold supply was swept");
     }
 
     // -------------------------------------------------------------------------------------------

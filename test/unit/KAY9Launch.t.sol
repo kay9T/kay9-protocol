@@ -402,6 +402,25 @@ contract KAY9LaunchTest is Kay9TestBase {
         assertEq(genesis.launchState(), 3, "still migrated");
     }
 
+    /// @notice Half the raise given to the vault before the migration no longer turns a good
+    ///         migration into the recovery path when it runs through migrateAndSettle (R-01).
+    function test_migrateAndSettleIgnoresAGiftSentBeforehand() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        uint256 raised = IContinuousClearingAuction(genesis.auction()).currencyRaised();
+        vm.roll(p.migrationBlock);
+        vm.deal(address(genesis), raised);
+
+        genesis.migrateAndSettle();
+
+        assertEq(genesis.launchState(), 3, "migrated, not failed");
+        assertTrue(genesis.migrationSucceeded(), "recorded as a good migration");
+        assertTrue(genesis.settled(), "settled");
+        assertFalse(genesis.recovered(), "no second pool");
+        assertLe(address(genesis).balance, 1, "the gift went into locked liquidity");
+        vm.expectRevert(KAY9Genesis.NothingToRecover.selector);
+        genesis.recover();
+    }
+
     /// @notice Renouncing ownership would strand the allocation, so it is refused (F-10).
     function test_ownershipCannotBeRenounced() public {
         vm.prank(owner);

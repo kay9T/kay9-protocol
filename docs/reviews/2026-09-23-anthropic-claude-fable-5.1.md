@@ -33,6 +33,175 @@ and `KAY9LiquidityLock`, so the commit under review moves to `launch-review-4`.
 | F-11 — `Launch.s.sol` accepts any ETH/USD feed on mainnet | Yes (the open V6 item of the September review) | **Fixed.** On chain 4663 the feed must be the address book's. This also closes V6 |
 | F-12 — `lockAll` iterates a list anyone can grow | Yes | **Accepted.** `lock(tokenId)`, which the vault and `migrateAndSettle` use, is unaffected; `lockAll` is a convenience |
 
+## Verification at `launch-review-4`
+
+Fable reached its usage limit before its own verification round, so the round was run by a fresh
+Claude Opus 5.5 session (model id `claude-opus-5-5` as the API reported it), with no context from
+the project's working session, reading only `launch-review-4` and this file. Its result: F-1, F-2,
+F-4, F-5, F-10, F-11 **closed**; F-8's rejection, F-9 and F-12 **agreed**; F-3, F-6, F-7
+**narrowed**; nothing above Low introduced.
+
+What remains, and why it is accepted:
+
+- **F-3 / F-6, and 2.1.** `LBPStrategy.migrate` is permissionless in Uniswap's own contract, so
+  somebody can still migrate directly and give the vault half the raise in the same transaction.
+  `migrateAndSettle` closes the window for everyone who uses it; nothing in `KAY9Genesis` can stop a
+  call made straight to the strategy. The cost to the actor is half the raise, locked into KAY9
+  liquidity for good, and the payoff is nothing. The migration positions left unlocked in that case
+  cannot be withdrawn and are locked by the permissionless `track` and `lock`.
+- **F-7.** The cap bounds the rate per block, not how concentrated a whole schedule is. The
+  script's largest step is at most 30.8 % in its final block for every duration it can produce, at
+  least 9.2 points under the cap (measured by the verifier), and the site shows the schedule before
+  anyone bids.
+- **2.2.** If the auction's own accounting ever left it a few wei short of its unsold supply, the
+  sweep would revert and `settle` and `recover` would wait; anyone can send the auction the missing
+  KAY9 dust and retry. This is in the runbook.
+- **2.3.** If somebody migrates directly, `migrateAndSettle` reverts and the path is `settle()`
+  plus `track`/`lock` of the migration positions; the site offers `settle()` once the pool exists.
+
+### The verification, verbatim
+
+# KAY9 launch path: verification of the Claude Fable 5.1 findings at `launch-review-4`
+
+**Tree reviewed:** `kay9-protocol` at commit `5464d26e8810019d1f0e535327de692798637a6f` (tag `launch-review-4`). I read it only through `git show <commit>:<path>` and `git grep <commit>`, never from the working tree. I diffed it against `8dde1aa0…` for `src` and `script`. The only file I read under `docs/reviews` was `2026-09-23-anthropic-claude-fable-5.1.md`. Line numbers below are 1-based in the file at `5464d26e`.
+
+This is a model review, not a professional audit. I executed no Solidity. The only thing I ran was a Python copy of `AuctionSteps.convexSchedule` that uses the same integer arithmetic, to check the new emission cap.
+
+---
+
+## 1. Status of F-1 … F-12
+
+| Finding | Status | Where | Reasoning |
+|---|---|---|---|
+| **F-1** No upper bound on the timing fields | **Closed** | `src/KAY9Genesis.sol:765–769`, constants `:310` | `startBlock` may be at most `MAX_START_DELAY_BLOCKS` (25,920,000, about 30 days at 0.1 s) ahead on the ArbSys clock. `claimBlock` and `migrationBlock` must be within `MAX_DURATION_BLOCKS` (864,000, about 24 h) after `endBlock`. The worst case is now at most 24 h during which bought tokens cannot be claimed, and the same 24 h before migration or a relaunch can start. The `uint64` sums cannot overflow, because `endBlock` is already bounded through `startBlock`. |
+| **F-2** Dependencies not pinned | **Closed** | `lib/` (271 tracked files; 185 were added since `8dde1aa`), `setup.sh` | v4-core, v4-periphery, permit2, solady, OpenZeppelin, uerc20-factory, blocknumberish and forge-std are now committed. `install()` in `setup.sh` skips any directory that already exists, so the commit alone decides what is compiled. Two leftovers: `.gitignore` still says `lib/*` "is reinstalled rather than committed" and still ignores it, so a new dependency file added later would be left out silently (a clean build would then fail, which is the safe direction). No codehash or explorer-verification step was added. |
+| **F-3** Giving the vault half the raise turns a good migration into recovery | **Narrowed. Not closed against a deliberate actor** | `src/KAY9Genesis.sol:651–655`, `:986–993` | `migrateAndSettle` closes the window only when it is the call that migrates. `LBPStrategy.migrate` is still permissionless (`LBPStrategy.sol:212`). An attacker contract can call `migrate` directly and then send R/2 to the vault in the same transaction, which is exactly the original attack. Or it can front-run `migrateAndSettle` with the gift, and then line 655 returns quietly. The cost (R/2 locked into liquidity for good) and the zero payoff are unchanged. So the finding is still Low, but "Fixed" overstates it. |
+| **F-4** A failed sweep is swallowed and the launch still finalises | **Closed** | `:674–675`, `:681–683`, `:716–717` | Both `settle` and `recover` now revert with `UnsoldNotSwept` unless `sweepUnsoldTokensBlock() != 0`. That value is always non-zero after a sweep, because `AuctionStorage._sweepUnsoldTokens` writes the current ArbSys block. This also closes a trigger the earlier review did not name: running the `try` call out of gas on purpose. Whether this can brick anything is covered in §2. |
+| **F-5** FeeSplitter wiring not checked | **Closed** (small residual) | `src/KAY9LiquidityLock.sol:96–102` | The constructor requires `feeSplitter.positionManager() == positionManager` and that some split's recipient is the beneficiary vault. `FeeSplitter._validateAndStoreSplits` already refuses a split with 0/0 bps, so the vault gets a non-zero share. The lock is deployed inside the `KAY9Genesis` constructor, so a mis-wiring fails the deployment. Residual: nothing checks the vault's own PositionManager. And if the splitter deployed on chain predates the `positionManager()` getter, deployment reverts, which is the safe outcome. |
+| **F-6** Migration positions need a manual `track`/`lock` | **Narrowed** | `:652–663` | Positions minted inside `migrateAndSettle` are locked there, and the id range `[firstId, endId)` holds only mints made by this call. Positions are still left unlocked in two cases: (a) anyone migrates directly through the strategy (then `migrateAndSettle` reverts with `InitializerNotRegistered`, and `settle()` does not lock them), and (b) a good migration is misread as failed (the silent return at `:655`). They cannot be withdrawn in either case. |
+| **F-7** Emission shape is free | **Narrowed** | `:778–782`, `MAX_STEP_MPS` `:315` | The cap applies to each step's per-block rate, not to how much of the supply ends up concentrated. A schedule of 4e6 + 4e6 + 2e6 mps over three consecutive one-block steps, which sells 100 % in about 0.3 s, still passes. Steps with 0 mps are still allowed. It does stop selling more than 40 % in a single block. |
+| **F-8** "At most one wei" is not what the code guarantees | **Rejection accepted** | `:1133–1155` | My arithmetic is below. The earlier review inverted the ratio: one wei of ETH buys about 6.4e4 units of liquidity, so what is left after the mint is under one wei plus the rounding of the X96 steps. On the fee point: the factory's `PROTOCOL_FEE_CONTROLLER` is `immutable` (`ContinuousClearingAuctionFactory.sol:18`), and `ProtocolFeeLib.getProtocolFeeAmount` returns 0 for a zero controller (`:27`). If the chain value is zero as the project says, the fee is zero for good. I did not check the chain. |
+| **F-9** Vesting is anchored to the planned TGE | **Acceptance agreed** | `src/KAY9TeamVesting.sol:145–154` | This is by design, and the design makes it public. The code is unchanged. |
+| **F-10** `renounceOwnership` strands the allocation | **Closed** | `:687–689` | The override reverts with `OwnershipCannotBeRenounced`. `Ownable2Step.transferOwnership(address(0))` only sets a pending owner, and nobody can accept that, so there is no other way to renounce. |
+| **F-11** Launch script accepts any feed on mainnet | **Closed** (for the script) | `script/Launch.s.sol:97–99` | On chain 4663 the feed must be `book.ethUsdFeed`, and `RobinhoodAddresses.sol:63` sets that to a non-zero address. The contract itself still accepts whatever the Safe signs, which is how the design is meant to work. |
+| **F-12** `lockAll` iterates a list anyone can grow | **Acceptance agreed** | `src/KAY9LiquidityLock.sol:162–170` | The launch path uses only `lock(tokenId)`, now also through `migrateAndSettle`. |
+
+### F-8 arithmetic
+
+- ETH is currency0 and KAY9 is currency1.
+- The price is P ≈ 4e9 raw KAY9 wei per ETH wei, so √P ≈ 63,246 and the tick is about ln(4e9)/ln(1.0001) ≈ 221,100.
+- `tickLower` is the anchor floored to spacing plus 200, so √Pa ≈ 63,246 · 1.0001^100 ≈ 6.39e4.
+- `tickUpper` = 887,200, so √Pb ≈ 1.0001^443,600 ≈ 1.8e19.
+- For a currency0-only range, L = amount0 · √Pa·√Pb / (√Pb − √Pa) ≈ amount0 · √Pa ≈ **6.4e4 liquidity per wei**.
+- So the smallest amount of ETH that makes one unit of liquidity is about 1.6e-5 wei. The earlier figure "2⁹⁶/sqrtPriceX96 ≈ 6e4 wei" is this value inverted.
+- `getLiquidityForAmount0` rounds L down, and the PositionManager rounds amount0 up from L. So ETH used = ⌈⌊a·k⌋/k⌉ ≤ a, and what remains is 0, or at most 1 wei from the floor on the intermediate X96 value.
+- The cap `maxLiquidityPerTick` (about 3.8e34) is far above what any real raise produces (about 6e22 per ETH).
+
+---
+
+## 2. Defects in the changes, most severe first
+
+No High or Medium defect was introduced. The items below are Low or Informational.
+
+### 2.1 Low: `migrateAndSettle` can still be forced into "failed", and then returns quietly with the official-pool positions unlocked
+
+**Where:** `src/KAY9Genesis.sol:651–655`
+
+**Scenario:**
+1. The auction graduates with raise R.
+2. Before or in the same transaction as the migration, an attacker sends ≥ ⌈R/2⌉ wei to the vault.
+3. Either the attacker calls `LBPStrategy.migrate` itself, or an honest user calls `migrateAndSettle`.
+4. `_migrationOutcome` reads `_raiseCameBack == true` and so returns `succeeded = false`. `migrateAndSettle` returns without an event and without locking anything.
+5. `recover()` then builds the hookless pool from the gift and the unsold supply.
+6. The official pool's migration position(s) stay in the lock, untracked and unlocked, until someone calls `track` and `lock`. The creator fee is unregistered until then.
+7. `poolKey()` now names the recovery pool.
+
+Nothing is stolen and the attacker loses R/2. This is F-3 and F-6 surviving, not a new loss. The quiet return is new behaviour, and a caller (the website) cannot tell it apart from a true failure except by reading `launchState()` afterwards.
+
+### 2.2 Low: `UnsoldNotSwept` turns an auction-side token shortfall from "settled with tokens stuck" into "settle and recover revert"
+
+**Where:** `:675`, `:717`
+
+`sweepUnsoldTokens` moves `remainingSupply()` (rounded down) out of the auction's KAY9 balance. If the per-bid `tokensFilled` amounts that bidders have already claimed (`claimBlock == endBlock`, so claims can come before migration) ever add up to more than `TOTAL_SUPPLY − remainingSupply` by even one wei, the sweep's transfer reverts. The old code finalised anyway. The new code refuses `settle`, `migrateAndSettle` and `recover`, and team vesting stays closed.
+
+It is **not permanent**: anyone can send the missing KAY9 dust to the auction and retry. Per-bid fills are rounded down (`CheckpointAccountingLib`), which makes such a shortfall unlikely, but I did not prove the CCA stays solvent. The out-of-gas case is only transient, because `checkpoint()` is public and settlement runs after the end block is already checkpointed.
+
+**Suggested step:** put "if `UnsoldNotSwept`, top the auction up with KAY9 dust" in the runbook.
+
+### 2.3 Informational: a direct `LBPStrategy.migrate` makes `migrateAndSettle` revert
+
+**Where:** `:653`
+
+Whoever migrates first through the strategy (a bot, or an attacker as in 2.1) makes the website's only migration button revert with `InitializerNotRegistered`. Recovery is manual: `settle()` plus `track`/`lock` for each migration position. The website should detect "already migrated" and offer those calls.
+
+### 2.4 Informational: `MAX_STEP_MPS` bounds the rate per block, not concentration
+
+**Where:** `:779–781`
+
+See F-7. It **does not refuse any launch built by `script/Launch.s.sol`**. I replicated `AuctionSteps.convexSchedule` with the same integer arithmetic for every duration the script can produce (1–24 h = 36,000–864,000 blocks):
+- The largest step is always the final block.
+- It ranges from 2,928,581 mps (17 h) to 3,080,651 mps (16 h).
+- Headroom below 4e6 is at least 9.2 percentage points.
+- No ramp step is anywhere near the cap.
+
+### 2.5 Informational: the timing bounds do not refuse a script launch
+
+**Where:** `:765–769`
+
+The script caps `startDelayMinutes` at 43,200. That gives `startBlock = chainBlockNumber_at_script + 25,920,000`, exactly `MAX_START_DELAY_BLOCKS`. Because the Safe executes later on the same clock, `startBlock ≤ now + MAX` holds. The script also sets `claimBlock = endBlock` and `migrationBlock = endBlock + 1`, both inside the bounds.
+
+The existing opposite risk is unchanged: a small `START_DELAY_MINUTES` plus slow Safe signing reverts with `StartBlockInPast`.
+
+### 2.6 Informational: lock constructor check scope
+
+**Where:** `src/KAY9LiquidityLock.sol:96–102`
+
+The check depends on the splitter deployed on chain exposing `positionManager()`. The vendored `FeeSplitter.sol:38` does. If the deployed one does not, construction reverts, which is fail-safe. The vault's PositionManager is not checked.
+
+### Things I checked that were fine
+
+- **Reentrancy through the strategy or the PositionManager:**
+  - The strategy is transient-nonReentrant.
+  - Its ETH goes to the empty `receive()`.
+  - The PositionManager mints with `_mint`, which makes no callback.
+  - The official pool's hook has only `beforeInitialize`, and only the strategy can call it.
+  - The later `lock()` calls reach only the canonical vault and splitter.
+  - `migrateAndSettle` is itself `nonReentrant`, and it shares the guard with `settle` and `recover`.
+- **The `nextTokenId` range:** it holds only mints made inside this call. All definitions use `overridePositionRecipient = 0`, so every id in the range belongs to the lock. The `isLocked` / `ownerOf` guard is redundant but harmless.
+- **On a genuinely failed migration,** the quiet return is correct: the raise is in the vault, and `recover` is the next step.
+- **On a non-graduated auction,** `migrateAndSettle` just releases the reserve early. After that, `launchState()` is `Failed`, and the relaunch branch skips `_releaseStrategyReserve`.
+- **Running settle in the same transaction** also removes the chance to move the price between migration and `_settleRemainder` / `_placeLeftoverEth`.
+- **`renounceOwnership` override:** narrowing `nonpayable` to `view` is a legal override.
+
+---
+
+## 3. The nine properties at `5464d26e`
+
+1. **Supply fixed at 1,000,000,000, shrinks only by a holder burning their own — holds.** `KAY9Token` has not changed since the last review.
+2. **Exact 455 M / 455 M / 90 M split — holds.** The constants are at `:262–268`, and the vesting is funded at `:436`. Nothing in this area changed.
+3. **The owner supplies pricing and timing only — holds.** The timing is now bounded (F-1), the per-block emission rate is capped (F-7, narrowed), and ownership cannot be renounced (F-10). There is still no withdraw function, and every trust-relevant field is still built in `_buildParams`.
+4. **Every wei of the raise ends in locked liquidity except at most one wei; unsold tokens never reach the team — holds.** The "one wei" bound is correct (F-8). A donated gift also ends up in locked liquidity. The protocol fee is zero only if the chain's controller is `address(0)`, which I did not check on chain.
+5. **A non-graduating auction refunds every bidder; relaunch only after failure is marked and 48 h pass — holds.** The relaunch wait can now be at most about 24 h plus 48 h after the end.
+6. **A failed migration is rebuilt by `recover()` at the clearing price, and nobody profits from forcing it — holds.** The only way to force it on a healthy launch is still the R/2 gift (2.1), which pays the actor nothing.
+7. **The team receives nothing before the launch has settled, then exactly the calendar — holds.** The new `UnsoldNotSwept` gate can delay settlement (2.2), but anyone can clear that by sending KAY9 dust to the auction.
+8. **A locked LP position can never be withdrawn — holds.** Positions parked in the lock or in the FeeSplitter still have no exit.
+9. **Every block number is read on the chain's clock — holds.** `BlockNumberish` is now in the tree. It picks ArbSys when address `0x64` has code and answers `arbBlockNumber()` at construction, and otherwise falls back to `block.number`. Nothing in scope derives a value from `block.number`; `Launch.s.sol` only prints it. This depends on `0x64` answering on chain 4663, which I did not check.
+
+---
+
+## 4. What I did not cover
+
+- I built nothing and ran no tests, fuzzing, Slither or fork tests. The regression tests named in the dispositions were not read.
+- I did not check any chain state: the factory's protocol-fee controller, whether the deployed FeeSplitter has `positionManager()`, the vault wiring, or ArbSys at `0x64` on 4663.
+- I did not prove the CCA's token accounting is solvent (the question behind 2.2), and I did not work through its tick-iteration gas.
+- I did not check the committed dependency files byte for byte against the upstream commits that `setup.sh` names.
+- I did not re-read `KAY9TeamVesting`, `KAY9Token` or `Deploy.s.sol`, which are unchanged since `8dde1aa`, beyond spot checks.
+- Out of scope: the audit contracts, the website and the services.
+
+## 5. Model
+
+Claude Opus 5.5 (model id `claude-opus-5-5[1m]`), Anthropic.
+
 ## The review, verbatim
 
 # KAY9 launch path — independent model review

@@ -650,9 +650,20 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     ///      the raise is then in the vault and `recover` is the next step.
     function migrateAndSettle() external nonReentrant {
         uint256 firstId = positionManager.nextTokenId();
+        PoolId officialId = _officialKey().toId();
+        (uint160 priceBefore,,,) = poolManager.getSlot0(officialId);
         lbpStrategy.migrate(ILBPInitializer(auction));
-        (, bool succeeded,) = _migrationOutcome();
-        if (!succeeded) return;
+        (uint160 priceAfter,,,) = poolManager.getSlot0(officialId);
+
+        // Inside this call the outcome is not read from the vault's balance. `migrate` reverts unless
+        // the official key is registered to this launch's auction, only the strategy can initialize
+        // that key, and both contracts are non-reentrant, so an official pool that did not exist
+        // before the call and exists after it was built by this launch's migration. Reading the
+        // balance instead let anyone who gave the vault half the raise beforehand make this good
+        // migration read as failed (gate-6 verification, GPT-5.6 Sol R-01 and Claude Opus 5.5 2.1).
+        // A migration that reverted leaves the pool uninitialized; `recover` is then the next step.
+        if (priceBefore != 0 || priceAfter == 0) return;
+        _recordOutcome(true);
 
         uint256 endId = positionManager.nextTokenId();
         for (uint256 id = firstId; id < endId; ++id) {
