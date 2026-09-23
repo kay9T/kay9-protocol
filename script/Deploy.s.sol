@@ -75,6 +75,10 @@ contract Deploy is Script {
     /// @param what The name of the offending variable.
     error MissingAddress(string what);
 
+    /// @notice Thrown when a mainnet deployment is given an address other than the canonical one.
+    /// @param what Which input.
+    error NotCanonical(string what);
+
     /// @notice Thrown when the vesting schedule is not strictly increasing.
     error BadSchedule();
 
@@ -240,8 +244,17 @@ contract Deploy is Script {
 
         // The official pool is keyed on Uniswap's canonical InitializerHook, whose authorized
         // initializer is the LBP strategy. KAY9Genesis re-validates it in its constructor.
+        //
+        // On mainnet the address book is the only source. KAY9Genesis checks the hook's interface,
+        // its `authorized()` answer and its permission bits, which a lookalike contract mined to the
+        // right address can all satisfy while letting anyone initialize the pool; what it cannot
+        // check is that the code is Uniswap's. An override is kept for testnet, where the rehearsal
+        // deploys its own copy (gate-6 review, 2026-09-23, M-01).
         cfg.initializerHook = vm.envOr("INITIALIZER_HOOK", book.initializerHook);
         if (cfg.initializerHook == address(0)) revert MissingAddress("INITIALIZER_HOOK");
+        if (block.chainid == RobinhoodAddresses.MAINNET_CHAIN_ID && cfg.initializerHook != book.initializerHook) {
+            revert NotCanonical("INITIALIZER_HOOK");
+        }
     }
 
     /// @notice Checks that a supplied live watchdog really is the one this launch expects.

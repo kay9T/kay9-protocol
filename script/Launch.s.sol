@@ -57,6 +57,11 @@ contract Launch is Script {
     ///      whether one reading is usable.
     uint256 internal constant MAX_FEED_AGE_SECONDS = 90_000;
 
+    /// @notice The smallest graduation threshold the script will produce: 0.001 ETH.
+    /// @dev Far above any migration's rounding dust, far below any real launch (the testnet rehearsal
+    ///      raises about 0.0018 ETH; the reference mainnet parameters about 1.8 ETH).
+    uint256 internal constant MIN_REQUIRED_RAISE_WEI = 1e15;
+
     /// @notice Thrown when the Chainlink answer cannot be trusted.
     error BadFeed();
 
@@ -145,7 +150,13 @@ contract Launch is Script {
         // the auction must reach, never as a bid size that guarantees graduation.
         uint256 graduationPrice = AuctionPriceLib.fdvWeiToPriceQ96(graduationFdvWei, genesis.token().TOTAL_SUPPLY());
         uint256 required = (graduationPrice * genesis.AUCTION_ALLOCATION()) >> 96;
-        if (required == 0 || required > type(uint128).max) revert BadParameters("graduation raise out of range");
+        if (required > type(uint128).max) revert BadParameters("graduation raise out of range");
+        // KAY9Genesis tells a failed migration from a successful one by whether it holds half the raise
+        // or more, and a successful migration returns rounding dust of a few wei. That test needs a
+        // raise many orders of magnitude above the dust; at 1 wei, `raised / 2` is zero and a good
+        // migration reads as failed. The contract accepts any non-zero threshold, so the launch
+        // parameters are held to this floor here (gate-6 review, 2026-09-23, M-02).
+        if (required < MIN_REQUIRED_RAISE_WEI) revert BadParameters("graduation raise below the minimum");
 
         p = LaunchParams({
             startBlock: startBlock,

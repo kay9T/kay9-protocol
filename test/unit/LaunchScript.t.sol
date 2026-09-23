@@ -225,6 +225,13 @@ contract LaunchScriptTest is Kay9TestBase {
         script.derive(genesis, 1_000, 10_000, 4, 30 * 24 * 60 + 1, bytes32(uint256(1)), 2500e8);
     }
 
+    /// @notice A graduation threshold too small for the vault's migration-outcome test is refused.
+    function test_rejectsAGraduationRaiseBelowTheMinimum() public {
+        // $1 FDV at $2,500 ETH needs about 0.00018 ETH to graduate, under the 0.001 ETH floor.
+        vm.expectPartialRevert(Launch.BadParameters.selector);
+        script.derive(genesis, 1, 1, 4, 30, bytes32(uint256(1)), 2500e8);
+    }
+
     /// @notice Every duration the vault allows produces an acceptable schedule.
     /// @param durationHours The auction length in hours.
     function testFuzz_anyAllowedDurationIsAccepted(uint8 durationHours) public {
