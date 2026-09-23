@@ -90,6 +90,13 @@ contract Launch is Script {
         bytes32 salt = bytes32(vm.envOr("LAUNCH_SALT", uint256(1)));
 
         address feedAddress = vm.envOr("ETH_USD_FEED", book.ethUsdFeed);
+        // On mainnet the address book is the only source. The checks in `_ethUsd` prove a feed is
+        // fresh and scaled right, not that it prices ETH: any other 8-decimal feed passes them, and
+        // the floor and the graduation threshold it produces are permanent once signed (gate-6
+        // review, Claude Fable 5.1, F-11; the V6 item of the September review).
+        if (block.chainid == RobinhoodAddresses.MAINNET_CHAIN_ID && feedAddress != book.ethUsdFeed) {
+            revert BadParameters("ETH_USD_FEED must be the canonical feed on mainnet");
+        }
         uint256 ethUsdE8 = _ethUsd(feedAddress);
 
         p = derive(genesis, floorFdvUsd, graduationFdvUsd, durationHours, startDelayMinutes, salt, ethUsdE8);

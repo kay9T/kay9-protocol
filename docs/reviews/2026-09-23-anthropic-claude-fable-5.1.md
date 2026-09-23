@@ -9,8 +9,29 @@
 | Scope | as the prompt states |
 | Prompt | [`LAUNCH_PATH_REVIEW_PROMPT.md`](LAUNCH_PATH_REVIEW_PROMPT.md), verbatim |
 
-This is a model review, not a professional audit. The text below was committed unedited before
-any of its findings was acted on; the dispositions are added in a later commit.
+This is a model review, not a professional audit. The review text was committed unedited before
+any of its findings was acted on (commit `eba174a` of the main project); the dispositions below were
+added afterwards.
+
+## Dispositions
+
+Each finding was checked against the source before it was decided. The fixes change `KAY9Genesis`
+and `KAY9LiquidityLock`, so the commit under review moves to `launch-review-4`.
+
+| Finding | Held? | Disposition |
+|---|---|---|
+| F-1 — no upper bound on `startBlock`, `claimBlock`, `migrationBlock` | Yes | **Fixed.** `launch()` refuses a start more than `MAX_START_DELAY_BLOCKS` (about 30 days) ahead, and a claim or migration block more than `MAX_DURATION_BLOCKS` (about 24 h) after the end. Regression `test_launchRejectsFarFutureTiming` |
+| F-2 — the dependencies the bytecode is built from were not pinned | Yes, and confirmed: a fresh install today fetched a `v4-periphery` whose `Actions.sol` differs from the one the tests ran against (the constants the vault uses are the same in both) | **Fixed.** The 237 dependency files the compiler reads are now committed with the repository, with their licences, so the commit alone decides what is compiled. `setup.sh` names the exact upstream commit of each dependency for anyone installing the rest. A build of a tree holding only the committed files passes the whole suite |
+| F-3 — half the raise given to the vault before `settle()` turns a good migration into the recovery path | Yes; documented in the code as an accepted cost | **Fixed** as the reviewer suggested: `migrateAndSettle()` runs the migration and settles in the same transaction, so the outcome is written down before any other transaction can move the balance. The website's migration button now calls it. `settle()` stays for a migration somebody runs directly on the strategy. Regression `test_migrateAndSettleLocksAndSettlesAtOnce` |
+| F-4 — a swallowed `sweepUnsoldTokens` failure still finalises the launch | Held as a shape; no trigger was found by the reviewer or here | **Fixed.** `settle()` and `recover()` refuse to finalise (`UnsoldNotSwept`) while the auction still reports its supply unswept |
+| F-5 — the FeeSplitter's wiring is not checked | Yes | **Fixed.** `KAY9LiquidityLock`'s constructor requires the splitter's PositionManager to be the lock's and the splitter to pay the beneficiary vault (`FeeSplitterMisWired`); a mis-wired address book fails the deployment. Regression `test_refusesAMisWiredFeeSplitter` |
+| F-6 — the migration's LP positions wait for somebody to `track` and `lock` them | Yes | **Fixed** by `migrateAndSettle()`, which locks every position the migration minted to the lock, identified by the PositionManager's `nextTokenId` before and after the call. A migration run directly on the strategy still needs `track`/`lock`, which stay permissionless |
+| F-7 — the emission shape is free | Yes | **Fixed.** No step may release more than `MAX_STEP_MPS` (40 %) of the supply per block; the script's convex schedule releases about 30 % in its final block. Regression `test_launchRejectsAConcentratedSchedule` |
+| F-8 — "at most one wei" is not what the code guarantees | **No.** The review inverts the ratio: one wei of ETH at a price of about 4e9 KAY9 per ETH makes roughly 6e4 units of liquidity, not the reverse, so the amount that cannot form one unit is under one wei. The tests measure at most one wei left after `settle()` and after `recover()`. The protocol-fee assumption it names was checked on chain: the canonical CCA factory's `protocolFeeController()` returns the zero address | **Rejected**, with the measurement. The fee check is recorded |
+| F-9 — the vesting calendar is anchored to the planned TGE | Yes, and by design | **Accepted** and stated in public material: a launch that slips past a tranche date releases that tranche at settlement |
+| F-10 — `renounceOwnership` before a launch strands the allocation | Yes | **Fixed.** `renounceOwnership` reverts `OwnershipCannotBeRenounced`. Regression `test_ownershipCannotBeRenounced` |
+| F-11 — `Launch.s.sol` accepts any ETH/USD feed on mainnet | Yes (the open V6 item of the September review) | **Fixed.** On chain 4663 the feed must be the address book's. This also closes V6 |
+| F-12 — `lockAll` iterates a list anyone can grow | Yes | **Accepted.** `lock(tokenId)`, which the vault and `migrateAndSettle` use, is unaffected; `lockAll` is a convenience |
 
 ## The review, verbatim
 

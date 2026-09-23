@@ -344,6 +344,72 @@ contract KAY9LaunchTest is Kay9TestBase {
         assertEq(IERC721(address(uni.positionManager)).ownerOf(last), address(uni.feeSplitter), "ETH position locked");
     }
 
+    /// @notice Timing fields that would lock the raise or the bids up for years are refused (F-1).
+    function test_launchRejectsFarFutureTiming() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        uint64 maxLag = genesis.MAX_DURATION_BLOCKS();
+
+        LaunchParams memory q = p;
+        q.migrationBlock = p.endBlock + maxLag + 1;
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.InvalidMigrationBlock.selector);
+        genesis.launch(q);
+
+        q = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        q.claimBlock = p.endBlock + maxLag + 1;
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.InvalidClaimBlock.selector);
+        genesis.launch(q);
+
+        uint64 far = uint64(genesis.chainBlockNumber()) + genesis.MAX_START_DELAY_BLOCKS() + 1;
+        q = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        q.startBlock = far;
+        q.endBlock = far + FOUR_HOURS_BLOCKS;
+        q.claimBlock = q.endBlock;
+        q.migrationBlock = q.endBlock + 1;
+        q.auctionStepsData = AuctionSteps.convexSchedule(q.startBlock, q.endBlock);
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.StartBlockTooFar.selector);
+        genesis.launch(q);
+    }
+
+    /// @notice A schedule that releases most of the supply in one block is refused (F-7).
+    function test_launchRejectsAConcentratedSchedule() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        // 60 % in the final block.
+        p.auctionStepsData = AuctionSteps.convexSchedule(p.startBlock, p.endBlock, 12, 6e6);
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.InvalidAuctionSteps.selector);
+        genesis.launch(p);
+    }
+
+    /// @notice migrateAndSettle migrates, locks the migration positions and settles in one call (F-3, F-6).
+    function test_migrateAndSettleLocksAndSettlesAtOnce() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uint256 firstId = uni.positionManager.nextTokenId();
+
+        genesis.migrateAndSettle();
+
+        assertEq(genesis.launchState(), 3, "migrated");
+        assertTrue(genesis.settled(), "settled in the same transaction");
+        assertTrue(genesis.outcomeRecorded(), "the outcome is written down before anyone else can move the balance");
+        assertTrue(lock.isLocked(firstId), "the migration position is locked");
+        assertEq(IERC721(address(uni.positionManager)).ownerOf(firstId), address(uni.feeSplitter));
+        assertLe(address(genesis).balance, 1, "no raise left in the vault");
+        // A gift of half the raise after settlement changes nothing any more.
+        vm.deal(address(genesis), 10 ether);
+        assertEq(genesis.launchState(), 3, "still migrated");
+    }
+
+    /// @notice Renouncing ownership would strand the allocation, so it is refused (F-10).
+    function test_ownershipCannotBeRenounced() public {
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.OwnershipCannotBeRenounced.selector);
+        genesis.renounceOwnership();
+        assertEq(genesis.owner(), owner);
+    }
+
     /// @notice A graduation threshold too small for the migration-outcome test is refused.
     function test_launchRejectsATinyGraduationRaise() public {
         LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);

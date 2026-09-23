@@ -31,6 +31,8 @@ import {AuctionPriceLib} from "./libraries/AuctionPriceLib.sol";
 import {ILiquidityLauncher} from "./interfaces/uniswap/ILiquidityLauncher.sol";
 import {ILBPStrategy} from "./interfaces/uniswap/ILBPStrategy.sol";
 import {ILBPInitializer} from "./interfaces/uniswap/ILBPInitializer.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {AuctionSteps} from "./libraries/AuctionSteps.sol";
 import {IDistributorFactory} from "./interfaces/uniswap/IDistributorFactory.sol";
 import {IContinuousClearingAuction} from "./interfaces/uniswap/IContinuousClearingAuction.sol";
 import {IBeneficiaryVault} from "./interfaces/uniswap/IBeneficiaryVault.sol";
@@ -157,6 +159,17 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
     /// @notice Thrown when the auction start block is not in the future.
     error StartBlockInPast();
+
+    /// @notice Thrown when the start block is further ahead than `MAX_START_DELAY_BLOCKS`.
+    error StartBlockTooFar();
+
+    /// @notice Thrown when the auction's unsold supply could not be swept before the launch settles.
+    /// @dev Settling is one-way and the vault is the auction's only tokens recipient, so a sweep that
+    ///      failed and was swallowed would leave the unsold supply in the auction with no caller left.
+    error UnsoldNotSwept();
+
+    /// @notice Thrown by `renounceOwnership`, which would strand the launch allocation.
+    error OwnershipCannotBeRenounced();
 
     /// @notice Thrown when the claim block precedes the end block.
     error InvalidClaimBlock();
@@ -289,6 +302,17 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @notice The longest auction window, in blocks. About twenty-four hours, 86,400 s / 0.1 s.
     /// @dev See MIN_DURATION_BLOCKS for which clock this counts.
     uint64 public constant MAX_DURATION_BLOCKS = 864_000;
+
+    /// @notice The furthest ahead a launch may schedule its start: 30 days on the chain's clock.
+    /// @dev Upper bounds on the timing fields exist because a far-future block is not a price, it is
+    ///      a lock-up: a migration block a year away would hold the raise, the reserve and every
+    ///      bidder's tokens for that year with no path out (gate-6 review, Claude Fable 5.1, F-1).
+    uint64 public constant MAX_START_DELAY_BLOCKS = 25_920_000;
+
+    /// @notice The largest share of the auction supply a single emission step may release per block.
+    /// @dev 40 %. The convex schedule the launch script builds releases about 30 % in its final block;
+    ///      this refuses a schedule that sells most of the supply in one block (F-7).
+    uint256 public constant MAX_STEP_MPS = 4e6;
 
     /// @notice The smallest graduation threshold a launch may use: 0.001 ETH.
     /// @dev `_raiseCameBack` tells a failed migration from a good one by whether the vault holds half
@@ -610,14 +634,58 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     ///      never offered below the clearing price and moving the price down before calling this
     ///      gains nothing. Amounts below the dust threshold are burned rather than placed.
     function settle() external nonReentrant {
+        _settle();
+    }
+
+    /// @notice Runs the strategy's migration and, when it builds the official pool, locks the
+    ///         positions it minted and settles, all in one transaction. Permissionless.
+    /// @dev The entry the runbook and the website use. Two gaps close by doing it at once. Between a
+    ///      good migration and `settle` the outcome is read from the vault's balance, and anyone who
+    ///      gave the vault half the raise in that window could make a good migration read as failed
+    ///      (gate-6 review, Claude Fable 5.1, F-3); settling in the same transaction writes the outcome
+    ///      down before any other transaction can run. And the migration's LP positions arrive in the
+    ///      lock without a callback, so they waited for someone to `track` and `lock` them (F-6); the
+    ///      ids minted by this call are exactly the ones between the two `nextTokenId` reads.
+    ///      A migration that fails takes the strategy's recovery branch and nothing else happens here:
+    ///      the raise is then in the vault and `recover` is the next step.
+    function migrateAndSettle() external nonReentrant {
+        uint256 firstId = positionManager.nextTokenId();
+        lbpStrategy.migrate(ILBPInitializer(auction));
+        (, bool succeeded,) = _migrationOutcome();
+        if (!succeeded) return;
+
+        uint256 endId = positionManager.nextTokenId();
+        for (uint256 id = firstId; id < endId; ++id) {
+            if (IERC721(address(positionManager)).ownerOf(id) == address(liquidityLock) && !liquidityLock.isLocked(id))
+            {
+                liquidityLock.lock(id);
+            }
+        }
+        _settle();
+    }
+
+    /// @notice The body of `settle`, shared with `migrateAndSettle`.
+    function _settle() private {
         if (settled) revert AlreadySettled();
         (bool attempted, bool succeeded, PoolKey memory key) = _migrationOutcome();
         if (!attempted || !succeeded) revert PoolNotReady();
 
         _recordOutcome(true);
         _sweepUnsoldTokens();
+        _requireSwept();
         _settleRemainder(key);
         _placeLeftoverEth(key);
+    }
+
+    /// @notice Refuses to settle while the auction still holds its unsold supply (F-4).
+    function _requireSwept() private view {
+        if (IContinuousClearingAuction(auction).sweepUnsoldTokensBlock() == 0) revert UnsoldNotSwept();
+    }
+
+    /// @notice Disabled. Only the owner can launch, so renouncing before a launch would leave the
+    ///         910,000,000 KAY9 allocation with no path out (F-10).
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipCannotBeRenounced();
     }
 
     /// @notice Rebuilds the pool from a graduated auction whose migration failed. Permissionless.
@@ -646,6 +714,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         // `_settleRemainder` below marks the launch settled. Sweeping here is therefore the last
         // chance those tokens get: without it they would stay in the auction with no caller left.
         _sweepUnsoldTokens();
+        _requireSwept();
 
         PoolKey memory key = _recoveryKey();
         uint160 sqrtPriceX96 =
@@ -693,8 +762,11 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
         uint64 duration = p.endBlock - p.startBlock;
         if (duration < MIN_DURATION_BLOCKS || duration > MAX_DURATION_BLOCKS) revert InvalidDuration(duration);
-        if (p.claimBlock < p.endBlock) revert InvalidClaimBlock();
-        if (p.migrationBlock <= p.endBlock) revert InvalidMigrationBlock();
+        if (p.startBlock > _getBlockNumberish() + MAX_START_DELAY_BLOCKS) revert StartBlockTooFar();
+        if (p.claimBlock < p.endBlock || p.claimBlock > p.endBlock + MAX_DURATION_BLOCKS) revert InvalidClaimBlock();
+        if (p.migrationBlock <= p.endBlock || p.migrationBlock > p.endBlock + MAX_DURATION_BLOCKS) {
+            revert InvalidMigrationBlock();
+        }
 
         if (p.auctionTickSpacingQ96 < MIN_AUCTION_TICK_SPACING) revert InvalidAuctionTickSpacing();
         if (p.floorPriceQ96 < MIN_AUCTION_FLOOR_PRICE) revert InvalidFloorPrice();
@@ -703,6 +775,11 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
 
         uint256 stepsLength = p.auctionStepsData.length;
         if (stepsLength == 0 || stepsLength % 8 != 0) revert InvalidAuctionSteps();
+        bytes memory steps = p.auctionStepsData;
+        for (uint256 i = 0; i < stepsLength / 8; ++i) {
+            (uint24 mps,) = AuctionSteps.stepAt(steps, i);
+            if (mps > MAX_STEP_MPS) revert InvalidAuctionSteps();
+        }
     }
 
     /// @notice Builds the migration and auction parameters from the owner's inputs.

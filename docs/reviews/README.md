@@ -19,7 +19,7 @@ the first (see gate 6 of the launch readiness checklist).
 | Date | Model | Family | Commit | Findings | Status |
 |---|---|---|---|---|---|
 | 2026-09-23 | GPT-5.6 Sol, reasoning effort high | OpenAI | `launch-review-1` (`db65339b`), verified at `launch-review-2` (`a327a830`) | 2 medium, 1 low | two closed, one narrowed to one wei of rounding and fixed at `launch-review-3`; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md) |
-| 2026-09-23 | Claude Fable 5.1 | Anthropic | `launch-review-3` (`8dde1aa0`) | | running |
+| 2026-09-23 | Claude Fable 5.1 | Anthropic | `launch-review-3` (`8dde1aa0`) | 2 medium, 4 low, 6 informational | nine fixed at `launch-review-4`, two accepted, one rejected with a measurement; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-anthropic-claude-fable-5.1.md) |
 
 The prompt: [LAUNCH_PATH_REVIEW_PROMPT.md](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/LAUNCH_PATH_REVIEW_PROMPT.md).
 

@@ -130,4 +130,22 @@ contract KAY9LiquidityLockTest is Kay9TestBase {
 
         return uni.positionManager.nextTokenId() - 1;
     }
+
+    /// @notice A splitter that does not pay the beneficiary vault, or answers to another
+    ///         PositionManager, is refused at construction (F-5).
+    function test_refusesAMisWiredFeeSplitter() public {
+        vm.expectRevert(KAY9LiquidityLock.FeeSplitterMisWired.selector);
+        new KAY9LiquidityLock(
+            uni.positionManager, address(uni.feeSplitter), IBeneficiaryVault(address(0xBEEF)), creatorFeeRecipient
+        );
+
+        vm.mockCall(address(uni.feeSplitter), abi.encodeWithSignature("positionManager()"), abi.encode(address(0xCAFE)));
+        vm.expectRevert(KAY9LiquidityLock.FeeSplitterMisWired.selector);
+        new KAY9LiquidityLock(
+            uni.positionManager,
+            address(uni.feeSplitter),
+            IBeneficiaryVault(address(uni.beneficiaryVault)),
+            creatorFeeRecipient
+        );
+    }
 }

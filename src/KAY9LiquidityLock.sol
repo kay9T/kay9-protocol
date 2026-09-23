@@ -5,6 +5,7 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IBeneficiaryVault} from "./interfaces/uniswap/IBeneficiaryVault.sol";
+import {IFeeSplitter, FeeSplit} from "./interfaces/uniswap/IFeeSplitter.sol";
 
 /// @title KAY9LiquidityLock
 /// @notice The one-way door the KAY9 liquidity positions pass through. The lock receives the LP
@@ -32,6 +33,9 @@ contract KAY9LiquidityLock is IERC721Receiver {
 
     /// @notice Thrown when the creator-fee recipient is an address the vault refuses to register.
     error InvalidCreatorFeeRecipient();
+
+    /// @notice Thrown when the fee splitter is not wired to this lock's PositionManager and vault.
+    error FeeSplitterMisWired();
 
     /// @notice Thrown when an ERC721 other than a canonical v4 position is sent to the lock.
     /// @param sender The rejected caller of onERC721Received.
@@ -84,6 +88,18 @@ contract KAY9LiquidityLock is IERC721Receiver {
         // The vault rejects itself as a beneficiary. A lock deployed with that recipient would
         // revert inside every lock() call, which would in turn brick settle() and recover().
         if (creatorFeeRecipient_ == address(beneficiaryVault_)) revert InvalidCreatorFeeRecipient();
+        // Every lock() ends in a transfer to the splitter, which accepts NFTs only from its own
+        // PositionManager, and the creator fee reaches the beneficiary vault only if the splitter pays
+        // it. A splitter wired to anything else would make every lock() revert, and with it settle()
+        // and recover(), or would register a fee stream that never arrives, so both are checked here,
+        // where the mistake is still a failed deployment (gate-6 review, Claude Fable 5.1, F-5).
+        if (IFeeSplitter(feeSplitter_).positionManager() != address(positionManager_)) revert FeeSplitterMisWired();
+        FeeSplit[] memory splits = IFeeSplitter(feeSplitter_).getSplits();
+        bool paysVault;
+        for (uint256 i = 0; i < splits.length; ++i) {
+            if (splits[i].recipient == address(beneficiaryVault_)) paysVault = true;
+        }
+        if (!paysVault) revert FeeSplitterMisWired();
         positionManager = positionManager_;
         feeSplitter = feeSplitter_;
         beneficiaryVault = beneficiaryVault_;

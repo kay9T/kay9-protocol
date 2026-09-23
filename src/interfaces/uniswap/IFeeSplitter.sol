@@ -32,4 +32,6 @@ interface IFeeSplitter {
     /// @notice The immutable split configuration.
     /// @return The configured splits.
     function getSplits() external view returns (FeeSplit[] memory);
+
+    function positionManager() external view returns (address);
 }

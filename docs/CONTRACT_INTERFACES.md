@@ -105,7 +105,9 @@ contract KAY9Genesis is Ownable2Step {
     uint24  public constant POOL_FEE            = 10_000;   // 1 %
     int24   public constant POOL_TICK_SPACING   = 200;
     uint64  public constant MIN_DURATION_BLOCKS = 36_000;   // ~1 h at 0.1 s, on the auction's clock (ArbSys)
-    uint64  public constant MAX_DURATION_BLOCKS = 864_000;  // ~24 h
+    uint64  public constant MAX_DURATION_BLOCKS = 864_000;  // ~24 h; also the furthest claimBlock and migrationBlock may sit after endBlock
+    uint64  public constant MAX_START_DELAY_BLOCKS = 25_920_000; // ~30 days: the furthest ahead startBlock may be
+    uint256 public constant MAX_STEP_MPS        = 4e6;      // no emission step releases more than 40 % of the supply per block
     function chainBlockNumber() external view returns (uint256);  // the clock launch windows are validated on: ArbSys.arbBlockNumber() here, block.number elsewhere
     uint256 public constant DUST_THRESHOLD      = 1_000e18;
     uint256 public constant RELAUNCH_DELAY      = 48 hours;
@@ -128,6 +130,7 @@ contract KAY9Genesis is Ownable2Step {
     function outcomeRecorded() external view returns (bool);    // true once settle() or recover() wrote the migration outcome down
     function migrationSucceeded() external view returns (bool); // the recorded outcome: this launch's own migration built the official pool
     function settle() external;                           // permissionless after migration: unsold+leftover → single-sided LP or burn
+    function migrateAndSettle() external;                 // permissionless: LBPStrategy.migrate, lock the positions it minted, settle — one tx; the entry the site uses
     function recover() external;                          // permissionless if graduated but migration failed
     function previewLaunch(LaunchParams calldata p) external view returns (address predictedAuction, uint256 impliedFloorFdvWei, uint256 impliedGraduationRaiseWei);
 }

@@ -35,15 +35,20 @@ install() {
   fi
 }
 
+# Every dependency file the compiler reads is committed with the repository (gate-6 review,
+# Claude Fable 5.1, F-2), so a checkout builds exactly the reviewed code and install() below finds
+# each directory present and skips it. The commit each one came from is pinned here for anyone who
+# wants the rest of an upstream tree; a fresh install of these refs is not guaranteed to reproduce
+# the committed files byte for byte, and the committed files are what counts.
 echo "installing dependencies..."
-install foundry-rs/forge-std
-install OpenZeppelin/openzeppelin-contracts@v5.4.0
-install Uniswap/v4-core
-install Uniswap/v4-periphery
-install Uniswap/permit2
-install Vectorized/solady
-install Uniswap/uerc20-factory
-install uniswap/blocknumberish
+install foundry-rs/forge-std@bf647bd6046f2f7da30d0c2bf435e5c76a780c1b
+install OpenZeppelin/openzeppelin-contracts@c64a1edb67b6e3f4a15cca8909c9482ad33a02b0
+install Uniswap/v4-core@46c6834698c48bc4a463a86d8420f4eb1d7f3b75
+install Uniswap/v4-periphery@9969eec44cfdf07e24b41de47f40276a58401976
+install Uniswap/permit2@cc56ad0f3439c502c246fc5cfcc3db92bb8b7219
+install Vectorized/solady@acd959aa4bd04720d640bf4e6a5c71037510cc4b
+install Uniswap/uerc20-factory@a747318fcce114f56a3a21b8bcec83663a61208b
+install uniswap/blocknumberish@38fe20bc0341d5bc2780d41f90dadb70e10f8cea
 
 # Permit2 pins solc 0.8.17 while this project pins 0.8.26. Relaxing the pragma lets the
 # whole tree compile under one compiler. Only the local test build compiles Permit2 from
