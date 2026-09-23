@@ -5,6 +5,10 @@ This is the exact text given to every model that reviews the launch path for gat
 reviews can be compared, and it is published with them so a reader can see what each model was
 asked. Replace `<COMMIT>` with the full commit hash of the latest `launch-review-N` tag before sending.
 
+A model that cannot read the repository is given the same code as an attached file instead,
+generated from the commit with each file's git blob hash so it can be checked, and the **Commit**
+paragraph below then says so. Nothing else in the prompt changes.
+
 This is a model review, not a professional audit. No firm is accountable for it and nobody carries
 liability for a miss. KAY9 is never described as "audited" or "verified safe" because of it.
 
