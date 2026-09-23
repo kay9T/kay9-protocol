@@ -202,6 +202,76 @@ The check depends on the splitter deployed on chain exposing `positionManager()`
 
 Claude Opus 5.5 (model id `claude-opus-5-5[1m]`), Anthropic.
 
+## Confirmation at `launch-review-5`
+
+The final contract change (the pre-migration gift, R-01 in the OpenAI verification and 2.1 above)
+was confirmed by a fresh Claude Opus 5.5 session (`claude-opus-5-5`), reading only
+`launch-review-5`: **narrowed**, closed for every migration that runs through `migrateAndSettle`,
+no defect introduced, and all nine properties hold. What stays open is the accepted path above: an
+actor who calls `LBPStrategy.migrate` directly and gives the vault half the raise in the same
+transaction, which costs them half the raise, locked into KAY9 liquidity, and returns nothing.
+
+### The confirmation, verbatim
+
+# KAY9Genesis final-change verification: launch-review-5 (`41e30ecd`)
+
+## 1. Residual (pre-migration balance poisoning via `migrateAndSettle`): **narrowed** (closed for the call that runs the migration)
+
+**What changed.** `migrateAndSettle` (`src/KAY9Genesis.sol:651-676`) now decides the outcome differently:
+- It reads `getSlot0` on the official key before `lbpStrategy.migrate` (`:654`) and again after it (`:656`).
+- It returns early unless the price went from zero to non-zero (`:665`).
+- Otherwise it calls `_recordOutcome(true)` (`:666`) before `_settle` (`:675`).
+- `_settle` then finds `outcomeRecorded` set and never reaches `_raiseCameBack` (`:961`, `:997-1004`).
+
+A gift sent to the vault before this call no longer changes the outcome. It ends up in `_placeLeftoverEth` as locked, single-sided ETH. The new unit test `test_migrateAndSettleIgnoresAGiftSentBeforehand` covers this case.
+
+**Can anything other than this launch's migration initialize the official pool during this call?** No.
+- `LBPStrategy.migrate` (lib `LBPStrategy.sol:212-265`) reverts unless `registeredPoolIds[officialId] == auction` (`:237`). So it can only act on this launch's initializer.
+- The key it builds uses the stored `poolParameters.hook == poolHook`. That is non-zero, so the hookless-to-strategy-hook fallback (`:241-247`) is never taken.
+- `poolHook` is validated at construction (`KAY9Genesis.sol:413`, `:452-458`) as an InitializerHook with an immutable `authorized == lbpStrategy` (`InitializerHook.sol:20`, `:54`). Only the strategy can call `initialize` on that key.
+- The strategy is `ReentrancyGuardTransient`, so no other initializer can be migrated or registered inside this frame. Genesis's `settle` and `recover` share Genesis's own guard.
+- No external call during `tryMigrate` hands control to arbitrary code:
+  - the CCA's `sweepCurrency` sends ETH to the strategy;
+  - the PositionManager uses the non-safe `_mint` (`PositionManager.sol:369`), so there is no ERC-721 receiver callback;
+  - KAY9 and ETH go back to the vault, whose `receive()` is empty.
+- If `tryMigrate` reverts, its `initialize` is rolled back by the try/catch (`LBPStrategy.sol:251`), so `priceAfter == 0` and the function returns (`:665`).
+
+**Can `priceBefore` be non-zero for a legitimate `migrateAndSettle`?** No.
+- `launch` refuses to start if the official pool already exists (`KAY9Genesis.sol:490-491`).
+- From `launch` until `migrate`, the key is reserved to `auction`, so other distributions get `PoolIdOccupied`, and the hook blocks direct initialization.
+- The only way to see `priceBefore != 0` is for a migration to have already run. In that case `migrate` itself reverts first, with `InitializerNotRegistered`.
+- The `priceBefore != 0` guard in `:665` is therefore defensive and never fires on a legitimate call.
+
+**Is recording success here ever wrong?** No. Zero before and non-zero after, inside one non-reentrant call to the strategy for this launch's registered initializer, can only mean that initializer's `tryMigrate` finished without reverting. That includes the position mint to `liquidityLock`.
+
+**Why narrowed rather than closed.** `LBPStrategy.migrate` has no access control. An attacker can call it directly at `migrationBlock` and send the vault half the raise in the same transaction. After that:
+- `migrateAndSettle` reverts with `InitializerNotRegistered`.
+- `settle` reads the balance (`:519`) and reverts with `PoolNotReady`.
+- `recover` runs. The gift and the leftover supply go into the hookless pool, and `poolKey` points there.
+- The migration's LP position sits in `liquidityLock` until someone tracks and locks it (the pre-existing F-6 path).
+
+This is the same window accepted at launch-review-4 and documented at `:979-990`: the attacker loses half the raise into locked liquidity, gets nothing back and strands nothing. The "gift before migration" variant is closed only when `migrateAndSettle` is the call that migrates. An attacker who runs the migration themselves still reaches the old window.
+
+## 2. Defects introduced by this change
+
+None found.
+
+- `officialId` is computed from the same immutables the strategy's stored key uses.
+- The early return on a failed migration leaves the outcome unrecorded, as before, so `recover` stays reachable.
+- The id-range lock loop and `_settle` are unchanged.
+- Informational only, not a defect: ETH already in the vault from an earlier launch that was relaunched without `recover` is now placed by `_placeLeftoverEth` on a good migration. Before, it made that migration read as failed. Either way it ends in locked liquidity.
+- The fork-test repair (re-applying the ArbSys mock with `_setBlock` after `vm.clearMockedCalls`) is correct. It strengthens the recovery assertions: at most 1 wei left, and a non-zero sweep block.
+
+## 3. The nine property verdicts
+
+No verdict changes. All nine still hold.
+- **Property 4:** the bound is unchanged at one wei, plus any gift, which also ends in locked liquidity.
+- **Property 6:** still depends on the gift path. That path is now reachable only when the attacker makes the direct `lbpStrategy.migrate` call themselves, not by a gift ahead of an honest `migrateAndSettle`.
+
+## 4. Reviewer
+
+Claude Opus 5.5 (1M context), model ID `claude-opus-5-5[1m]`.
+
 ## The review, verbatim
 
 # KAY9 launch path — independent model review

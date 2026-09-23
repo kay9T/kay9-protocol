@@ -34,6 +34,27 @@ done
 Every contract is its own entry point, so nothing depends on one file happening to import
 another. The runs overlap on shared libraries; findings are counted once below.
 
+## Re-run at `launch-review-5` (2026-09-24)
+
+Run again after the gate-6 model reviews changed `KAY9Genesis` and `KAY9LiquidityLock`, with the
+same command: **68 distinct findings in 13 detector classes, nothing above Medium, none a defect.**
+Per contract: Genesis 44, AuditHub 21, AccessVault 9, LiquidityLock 7, Registry 4, ScanRegistry 3,
+TeamVesting 2, AuditorRegistry 0, Token 0. The thirteen new findings all come from the new code and
+fall into the dispositions already given below:
+
+| Class | From | To | The new instances |
+|---|---|---|---|
+| `incorrect-equality` | 6 | 8 | `ethAmount == 0` and `liquidity == 0` in `_placeLeftoverEth`: early returns on an empty amount |
+| `unused-return` | 6 | 10 | `getSlot0` destructured for the price or the tick in `migrateAndSettle` (twice) and `_placeLeftoverEth`, and `AuctionSteps.stepAt` for the rate only |
+| `uninitialized-local` | 1 | 3 | `paysVault` in the lock's constructor and `emitted` in `AuctionSteps`: both start at the zero default on purpose |
+| `calls-loop` | 9 | 11 | `migrateAndSettle` locks each position the migration minted, a range of one or two ids |
+| `reentrancy-benign` | 4 | 5 | `migrateAndSettle`: `nonReentrant`, and the strategy it calls is non-reentrant and canonical |
+| `assembly` (new) | 0 | 1 | `AuctionSteps.stepAt`, a memory-safe read of one packed word, now reached from `_validate` |
+| `cyclomatic-complexity` (new) | 0 | 1 | `KAY9Genesis._validate`: fourteen guards, one per bound, each with its own error |
+
+The other six classes are unchanged in count. The sections below keep the 2026-09-23 wording; the
+table above is what moved.
+
 ## Summary
 
 **55 distinct findings in 11 detector classes. None is a defect, and nothing is reported above

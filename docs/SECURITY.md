@@ -367,6 +367,11 @@ slither src/KAY9AuditHub.sol --compile-force-framework solc --solc <path to solc
 
 Those two entry points reach every source file in `src/`.
 
+**Latest result (2026-09-24, at `launch-review-5`, after the gate-6 model reviews changed
+`KAY9Genesis` and `KAY9LiquidityLock`): 68 distinct findings in 13 detector classes, none a defect and
+nothing above Medium;** the thirteen new ones come from the new code and are listed in `SLITHER.md`.
+The table below is the 2026-09-23 run on the tree before those fixes.
+
 **Result (2026-09-22, repeated 2026-09-23, all nine contracts as their own entry points, slither
 0.11.6): 55 distinct findings in 11 detector classes, none of them a defect and nothing above
 Medium.** Re-run after the September re-review's remediation; the previous run on 2026-09-11 counted

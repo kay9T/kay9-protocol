@@ -195,14 +195,14 @@ contract Rehearse is Script {
         IPositionManager positionManager = genesis.positionManager();
         KAY9LiquidityLock lock = genesis.liquidityLock();
 
+        // The path the runbook and the site use: one transaction that migrates, locks the positions
+        // the migration minted and settles.
         vm.startBroadcast(_ownerKey());
-        (bool ok,) = address(genesis.lbpStrategy()).call(abi.encodeWithSignature("migrate(address)", genesis.auction()));
-        require(ok, "migrate failed");
-        uint256 tokenId = positionManager.nextTokenId() - 1;
-        console2.log("migration LP tokenId     ", tokenId);
-        lock.lock(tokenId);
-        genesis.settle();
+        genesis.migrateAndSettle();
         vm.stopBroadcast();
+        uint256 tokenId = positionManager.nextTokenId() - 1;
+        console2.log("last LP tokenId          ", tokenId);
+        console2.log("migration position locked", lock.isLocked(tokenId));
 
         console2.log("launchState              ", genesis.launchState());
         console2.log("LP NFT owner             ", IERC721(address(positionManager)).ownerOf(tokenId));
