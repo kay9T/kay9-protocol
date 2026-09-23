@@ -316,6 +316,43 @@ contract KAY9LaunchTest is Kay9TestBase {
         lock.lock(tokenId);
     }
 
+    /// @notice A good migration leaves at most rounding dust in the vault. Measured at zero.
+    function test_aGoodMigrationLeavesAtMostDust() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        assertLt(address(genesis).balance, 1e9, "a good migration returns dust or nothing");
+    }
+
+    /// @notice ETH the vault holds after a good migration ends in a locked position, not in the vault.
+    function test_settlePlacesLeftoverEth() public {
+        LaunchParams memory p = _runGraduatingAuction();
+        vm.roll(p.migrationBlock);
+        uni.lbpStrategy.migrate(ILBPInitializer(genesis.auction()));
+        lock.lock(_latestPositionId());
+
+        // Far below half the raise, so the migration still reads as good.
+        uint256 leftover = 0.001 ether;
+        vm.deal(address(genesis), address(genesis).balance + leftover);
+        uint256 nextId = uni.positionManager.nextTokenId();
+
+        genesis.settle();
+
+        assertLt(address(genesis).balance, 1e9, "the ETH left the vault");
+        uint256 last = uni.positionManager.nextTokenId() - 1;
+        assertGt(last, nextId, "a KAY9 position and an ETH position were both minted");
+        assertEq(IERC721(address(uni.positionManager)).ownerOf(last), address(uni.feeSplitter), "ETH position locked");
+    }
+
+    /// @notice A graduation threshold too small for the migration-outcome test is refused.
+    function test_launchRejectsATinyGraduationRaise() public {
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);
+        p.requiredCurrencyRaised = 1e15 - 1;
+        vm.prank(owner);
+        vm.expectRevert(KAY9Genesis.InvalidRequiredRaise.selector);
+        genesis.launch(p);
+    }
+
     /// @notice Settlement places the unsold supply as a single-sided position and locks it too.
     function test_settleLocksUnsoldSupply() public {
         LaunchParams memory p = _runGraduatingAuction();

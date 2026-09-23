@@ -86,6 +86,7 @@ contract KAY9Genesis is Ownable2Step {
     event RelaunchScheduled(uint256 earliestRelaunchTimestamp);
     event UnsoldSettled(uint256 amountToLiquidity, uint256 amountBurned, uint256 positionTokenId);
     event Recovered(uint256 ethAmount, uint256 tokenAmount, uint256 positionTokenId);
+    event LeftoverEthPlaced(uint256 ethAmount, uint256 positionTokenId); // settle(): ETH a good migration left in the vault, single-sided and locked
     event MigrationOutcomeRecorded(bool succeeded);
 
     // immutables

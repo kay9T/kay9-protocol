@@ -129,6 +129,11 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @param succeeded True when this launch's own migration built the official pool.
     event MigrationOutcomeRecorded(bool succeeded);
 
+    /// @notice Emitted when `settle` places ETH a good migration left in the vault as liquidity.
+    /// @param ethAmount The ETH placed.
+    /// @param positionTokenId The locked position it went into.
+    event LeftoverEthPlaced(uint256 ethAmount, uint256 positionTokenId);
+
     /// @notice Thrown when a constructor argument is the zero address.
     error ZeroAddress();
 
@@ -284,6 +289,14 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @notice The longest auction window, in blocks. About twenty-four hours, 86,400 s / 0.1 s.
     /// @dev See MIN_DURATION_BLOCKS for which clock this counts.
     uint64 public constant MAX_DURATION_BLOCKS = 864_000;
+
+    /// @notice The smallest graduation threshold a launch may use: 0.001 ETH.
+    /// @dev `_raiseCameBack` tells a failed migration from a good one by whether the vault holds half
+    ///      the raise, and a good migration can return a few wei of rounding. That test needs a raise
+    ///      many orders of magnitude above the dust: at a threshold of 1 wei, half the raise is zero
+    ///      and every good migration would read as failed (gate-6 review, 2026-09-23, M-02). Far
+    ///      below any real launch; the testnet rehearsal raises about 0.0018 ETH.
+    uint256 internal constant MIN_REQUIRED_RAISE = 1e15;
 
     /// @notice Leftover KAY9 below this amount is burned instead of being placed as liquidity.
     uint256 public constant DUST_THRESHOLD = 1_000e18;
@@ -604,6 +617,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         _recordOutcome(true);
         _sweepUnsoldTokens();
         _settleRemainder(key);
+        _placeLeftoverEth(key);
     }
 
     /// @notice Rebuilds the pool from a graduated auction whose migration failed. Permissionless.
@@ -683,7 +697,7 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         if (p.auctionTickSpacingQ96 < MIN_AUCTION_TICK_SPACING) revert InvalidAuctionTickSpacing();
         if (p.floorPriceQ96 < MIN_AUCTION_FLOOR_PRICE) revert InvalidFloorPrice();
         if (p.floorPriceQ96 % p.auctionTickSpacingQ96 != 0) revert InvalidFloorPrice();
-        if (p.requiredCurrencyRaised == 0) revert InvalidRequiredRaise();
+        if (p.requiredCurrencyRaised < MIN_REQUIRED_RAISE) revert InvalidRequiredRaise();
 
         uint256 stepsLength = p.auctionStepsData.length;
         if (stepsLength == 0 || stepsLength % 8 != 0) revert InvalidAuctionSteps();
@@ -892,7 +906,8 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
     /// @return True when this contract holds at least half of what the auction raised.
     function _raiseCameBack(address currentAuction) private view returns (bool) {
         try IContinuousClearingAuction(currentAuction).currencyRaised() returns (uint256 raised) {
-            return raised != 0 && address(this).balance >= raised / 2;
+            // Rounded up, so an odd raise never makes the bar a wei lower than half.
+            return raised != 0 && address(this).balance >= raised - raised / 2;
         } catch {
             return false;
         }
@@ -1021,6 +1036,43 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         settled = leftover == 0;
 
         emit UnsoldSettled(placed, burned, tokenId);
+    }
+
+    /// @notice Places whatever ETH the vault holds after a good migration as a single-sided,
+    ///         locked position, so none of the raise stays behind.
+    /// @dev The strategy forwards the migration position's unused currency to this contract, and
+    ///      before this nothing spent it (gate-6 review, 2026-09-23, L-01). On a real launch that
+    ///      remainder is a few wei or nothing, measured at zero in the suite, but it is part of the
+    ///      raise and the rule is that the raise ends in locked liquidity.
+    ///
+    ///      Native ETH is currency0, and a currency0-only range sits entirely above the current tick.
+    ///      Its lower edge is anchored at the higher of the current tick and the auction's clearing
+    ///      tick, the mirror of `_settleRemainder`'s anchor: the ETH is never offered for KAY9 at a
+    ///      price dearer than the auction cleared at, so pushing the price before calling `settle`
+    ///      buys nothing. An amount too small to make one unit of liquidity stays where it is; there
+    ///      is no other path for it and none is added.
+    function _placeLeftoverEth(PoolKey memory key) private {
+        uint256 ethAmount = address(this).balance;
+        if (ethAmount == 0) return;
+
+        (, int24 currentTick,,) = poolManager.getSlot0(key.toId());
+        int24 clearingTick = TickMath.getTickAtSqrtPrice(
+            AuctionPriceLib.toSqrtPriceX96(IContinuousClearingAuction(auction).clearingPrice(), true)
+        );
+        int24 anchor = clearingTick > currentTick ? clearingTick : currentTick;
+        int24 tickLower = TickRange.floorToSpacing(anchor, POOL_TICK_SPACING) + POOL_TICK_SPACING;
+        int24 tickUpper = TickRange.maxUsableTick(POOL_TICK_SPACING);
+        if (tickLower >= tickUpper) return;
+
+        uint128 liquidity = LiquidityAmounts.getLiquidityForAmount0(
+            TickMath.getSqrtPriceAtTick(tickLower), TickMath.getSqrtPriceAtTick(tickUpper), ethAmount
+        );
+        uint128 cap = TickRange.maxLiquidityPerTick(POOL_TICK_SPACING);
+        if (liquidity > cap) liquidity = cap;
+        if (liquidity == 0) return;
+
+        uint256 tokenId = _mintAndLock(key, tickLower, tickUpper, liquidity, uint128(ethAmount), 0, ethAmount);
+        emit LeftoverEthPlaced(ethAmount - address(this).balance, tokenId);
     }
 
     /// @notice Mints one position to the liquidity lock and locks it immediately.
