@@ -338,7 +338,7 @@ contract KAY9LaunchTest is Kay9TestBase {
 
         genesis.settle();
 
-        assertLt(address(genesis).balance, 1e9, "the ETH left the vault");
+        assertLe(address(genesis).balance, 1, "at most one wei of rounding stays behind");
         uint256 last = uni.positionManager.nextTokenId() - 1;
         assertGt(last, nextId, "a KAY9 position and an ETH position were both minted");
         assertEq(IERC721(address(uni.positionManager)).ownerOf(last), address(uni.feeSplitter), "ETH position locked");

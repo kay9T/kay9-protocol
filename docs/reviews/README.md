@@ -15,8 +15,8 @@ code, and a review by the same family is not a second opinion on it.
 
 | Date | Model | Family | Commit | Findings | Status |
 |---|---|---|---|---|---|
-| 2026-09-23 | GPT-5.6 Sol, reasoning effort high | OpenAI | `launch-review-1` (`db65339b`), verified at `launch-review-2` (`a327a830`) | 2 medium, 1 low | all three fixed; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md) |
-| pending | second family (not Anthropic) | | `launch-review-2` | | not yet run |
+| 2026-09-23 | GPT-5.6 Sol, reasoning effort high | OpenAI | `launch-review-1` (`db65339b`), verified at `launch-review-2` (`a327a830`) | 2 medium, 1 low | two closed, one narrowed to one wei of rounding and fixed at `launch-review-3`; [the review, verbatim, with the disposition of each finding](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/2026-09-23-openai-gpt-5.6-sol.md) |
+| pending | second family (not Anthropic) | | `launch-review-3` | | not yet run |
 
 The prompt: [LAUNCH_PATH_REVIEW_PROMPT.md](https://github.com/kay9T/kay9-protocol/blob/main/docs/reviews/LAUNCH_PATH_REVIEW_PROMPT.md).
 

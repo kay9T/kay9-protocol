@@ -677,6 +677,8 @@ contract KAY9Genesis is Ownable2Step, ReentrancyGuard, BlockNumberish {
         emit Recovered(ethAmount, tokenAmount, tokenId);
 
         _settleRemainder(key);
+        // The full-range mint above takes ETH in whole units of liquidity and returns the rest.
+        _placeLeftoverEth(key);
     }
 
     // -------------------------------------------------------------------------------------------

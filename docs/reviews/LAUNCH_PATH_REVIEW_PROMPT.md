@@ -3,7 +3,7 @@
 This is the exact text given to every model that reviews the launch path for gate 6 of
 `docs/LAUNCH_READINESS.md` (main project; not included here). The same prompt goes to each model family, so the
 reviews can be compared, and it is published with them so a reader can see what each model was
-asked. Replace `<COMMIT>` with the full commit hash of the tag `launch-review-1` before sending.
+asked. Replace `<COMMIT>` with the full commit hash of the latest `launch-review-N` tag before sending.
 
 This is a model review, not a professional audit. No firm is accountable for it and nobody carries
 liability for a miss. KAY9 is never described as "audited" or "verified safe" because of it.
@@ -49,8 +49,9 @@ path calls them, but report a finding in them only if KAY9 uses them wrongly.
    pool (native ETH / KAY9, fee 10000 = 1 %, tick spacing 200, Uniswap's InitializerHook), change
    the position recipient, keep unsold supply, or move tokens or ETH anywhere except through the
    launch pipeline. There is no withdraw function.
-4. Every ETH raised ends in the locked liquidity position; unsold tokens become single-sided
-   liquidity or are burned, and never reach the team.
+4. Every wei of the raise ends in locked liquidity, except at most one wei of integer rounding
+   left in the vault; unsold tokens become single-sided liquidity or are burned, and never reach
+   the team.
 5. If the auction does not reach its graduation threshold, every bidder gets their full ETH back,
    and a relaunch is possible only after the failure is marked and 48 hours have passed.
 6. A graduated auction whose migration fails is rebuilt by `recover()` into a pool priced at the

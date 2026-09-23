@@ -78,6 +78,7 @@ contract KAY9RecoverTest is Kay9TestBase {
         assertEq(key.tickSpacing, int24(200));
 
         assertLt(address(genesis).balance, ethBefore / 1000, "essentially all ETH went into the pool");
+        assertLe(address(genesis).balance, 1, "at most one wei of rounding stays behind");
         assertLt(token.balanceOf(address(genesis)), genesis.DUST_THRESHOLD(), "at most dust left");
         assertTrue(genesis.settled(), "the remainder was settled in the same call");
 
