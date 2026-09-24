@@ -1,7 +1,7 @@
 # Launch-path model review — the prompt
 
 This is the exact text given to every model that reviews the launch path for gate 6 of
-`docs/LAUNCH_READINESS.md` (main project; not included here). The same prompt goes to each model family, so the
+[`LAUNCH_READINESS.md`](../LAUNCH_READINESS.md). The same prompt goes to each model family, so the
 reviews can be compared, and it is published with them so a reader can see what each model was
 asked. Replace `<COMMIT>` with the full commit hash of the latest `launch-review-N` tag before sending.
 
