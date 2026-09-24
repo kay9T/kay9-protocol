@@ -746,6 +746,7 @@ boundary requester neutrality exists to hold. Bit 18 stays unassigned; do not re
 | 16 | UNVERIFIED_SOURCE | source not verified on explorer (informational; scores zero) |
 | 17 | INSUFFICIENT_DATA | analysis partial |
 | 19 | MONITORING_UPDATE | this report supersedes an earlier one for the same asset (informational; scores zero) |
+| 20 | LOW_COVERAGE | under 60% of the category weight was measured, so the record carries no headline score or risk band (informational; scores zero) |
 
 ## Cross-chain identity
 

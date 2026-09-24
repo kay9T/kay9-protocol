@@ -2,6 +2,14 @@
 
 The free tier. What it reads, what it refuses to say, and how to check it yourself.
 
+**Under 60% coverage there is no headline.** When less than 60% of the category weight could be
+measured, the record carries no headline score or risk band: the engine sets record-level flag bit
+20, `LOW_COVERAGE`, and every KAY9 surface draws "Insufficient data" and the measured share instead
+of a number. The categories that were measured keep their own numbers. A weighted mean over two
+categories once drew "Trust 94 — Low risk" for a token whose holders, liquidity and trading nobody
+could read, and the headline is what a reader takes away. The discovery worker does not give such a
+scan a one-call `latestScan` summary; it stays in its batch and is provable against the root.
+
 A basic scan is a **reproducibility claim**, not a consensus one. One engine reads one chain at one
 pinned block and publishes what it found. Nobody signs it and nobody agreed with it. Its whole
 authority is that you can run the same engine against the same block and get the same bytes. That

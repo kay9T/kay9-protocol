@@ -11,6 +11,10 @@ reassurance is exactly the failure this product exists to catch.
 
 ## 1. What you may and may not claim
 
+**Never** show a headline number for a record with flag bit 20 (`LOW_COVERAGE`) set, or for a
+report whose `measuredWeight` is under 0.6. Show "Insufficient data" instead; `isHeadlineWithheld`
+and `isCoverageTooLow` in `@kay9/chain` implement both checks.
+
 These are not style preferences. They are the terms of using KAY9's name.
 
 **Permitted phrasings, exactly:**
