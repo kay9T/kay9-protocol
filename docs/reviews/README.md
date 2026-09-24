@@ -36,6 +36,9 @@ good launch into the recovery path, at the cost of that half, locked into KAY9 l
 and for no return; the vault can keep at most one wei of rounding; and the claim that nobody can
 profit from forcing recovery is argued, not proved.
 
+The owner accepted these and closed gate 6 for the launch path on 2026-09-25. The watchdog stack's
+reviews are a separate part of the gate and are still to run.
+
 ## Independent copies
 
 Each review file was captured by the Internet Archive's Wayback Machine at the commit that carries

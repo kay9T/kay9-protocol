@@ -132,12 +132,13 @@ and have to be met before *that* deployment. A finding in one of them afterwards
 is a redeploy, every scan committed to the old registry answers to a contract nothing points at, and
 gate 1's clock starts again. `docs/ROADMAP.md` §8.1 dates this ahead of the watchdog's deployment.
 
-**Status (2026-09-24): evidence complete, for the owner to close.** GPT-5.6 Sol (OpenAI) and Claude
+**Status (2026-09-25): closed by the owner for the launch path.** GPT-5.6 Sol (OpenAI) and Claude
 Fable 5.1 (Anthropic) each reviewed the launch path in a fresh session; the fixes were verified by
 GPT-5.6 Sol and Claude Opus 5.5, and both confirmed the final commit `launch-review-5`
 (`41e30ecd`). Every review, verification and confirmation is published verbatim with a disposition
-for each finding in `docs/reviews/`, and the OpenAI thread is public on ChatGPT. This gate is
-closed by the owner, who has to agree that what is accepted there is acceptable.
+for each finding in `docs/reviews/`, and the OpenAI thread is public on ChatGPT. The owner
+reviewed what is accepted there and closed the gate for the launch path on 2026-09-25. The watchdog
+stack's part of this gate, below, is still open.
 
 ### Gate 7 — the full suite passes, including the parts that are inconvenient
 

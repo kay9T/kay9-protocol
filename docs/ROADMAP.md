@@ -303,7 +303,7 @@ promise: a slipped line moves the launch, not the gate.
 | **Done** Fri 25 Sep 2026 | Owner address, team beneficiary, creator-fee recipient and three auditor addresses exist; the auditor keys are held by three people in three countries and prove control; signatures in `docs/LAUNCH_READINESS.md` gates 10 and 11 | 10, 11 |
 | Fri 9 Oct 2026 | Watchdog live on mainnet: `DeployWatchdog.s.sol` broadcast, scanner authorised, `services/discovery-worker` committing batches unattended. This is the latest start that gives 30 days before launch | 1, 2 |
 | Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
-| **Done** Thu 24 Sep 2026 (was Fri 23 Oct) | Every launch-path review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree (`launch-review-5`). Closing gate 6 is the owner's decision | 6, 7 |
+| **Done** Thu 24 Sep 2026 (was Fri 23 Oct) | Every launch-path review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree (`launch-review-5`). Gate 6 closed for the launch path by the owner on 25 Sep | 6, 7 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
 | Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |
