@@ -49,8 +49,8 @@ fixed or accepted in writing. The prompt is
 
 | Date | Model | Family | Commit | Findings | Status |
 |---|---|---|---|---|---|
-| 2026-09-25 | GPT-5.6 Sol | OpenAI | `watchdog-review-1` (`c38dd247`) | 3 medium, 7 low | six fixed, four accepted in writing; verified at `watchdog-review-2`: seven closed, three narrowed, four new findings, all fixed at `watchdog-review-3`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-openai-gpt-5.6-sol.md) |
-| 2026-09-25 | Claude Opus 5.5 (Fable 5.1 had reached its usage limit) | Anthropic | `watchdog-review-1` (`c38dd247`) | 2 medium, 4 low, 3 informational | four fixed, three fixed in part, two accepted in writing; verified at `watchdog-review-2`: three closed, the rest narrowed or accepted, three new findings, all fixed at `watchdog-review-3`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-anthropic-claude-opus-5.5.md) |
+| 2026-09-25 | GPT-5.6 Sol | OpenAI | `watchdog-review-1` (`c38dd247`) | 3 medium, 7 low | six fixed, four accepted in writing; verified at `watchdog-review-2`: seven closed, three narrowed, four new findings, all fixed at `watchdog-review-3`, confirmed for deployment there; its last low finding fixed at `watchdog-review-4`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-openai-gpt-5.6-sol.md) |
+| 2026-09-25 | Claude Opus 5.5 (Fable 5.1 had reached its usage limit) | Anthropic | `watchdog-review-1` (`c38dd247`) | 2 medium, 4 low, 3 informational | four fixed, three fixed in part, two accepted in writing; verified at `watchdog-review-2`: three closed, the rest narrowed or accepted, three new findings, all fixed at `watchdog-review-3` and confirmed for deployment there; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-anthropic-claude-opus-5.5.md) |
 
 Both reviews found that one key could move a headline score, that the quorum could quietly shrink
 or stall after auditor rotation, and that the deploying key kept power for 48 hours. Those are

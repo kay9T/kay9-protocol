@@ -159,6 +159,111 @@ pragma solidity 0.8.26;
 
 Claude Opus 5.5 (model id `claude-opus-5-5[1m]`, 1M-context variant), by Anthropic, running as a Claude Code subagent. Verification date 2026-09-25.
 
+## Final confirmation at `watchdog-review-3`
+
+Same reviewer, on `c6cc435824c1b1da7c87920ecb248f7ba01ccdd3`. **N1 to N3 closed, N4 accepted, and the
+commit confirmed for the watchdog deployment.** One new low finding, V3-1: the interface spec still
+gave the widened counters as uint8. **Fixed** in `docs/CONTRACT_INTERFACES.md`, together with the
+one-batch rotation guidance the reviewer could not find in the public tree. The only contract
+change after this confirmation is the OpenAI reviewer's R3-01, at `watchdog-review-4`.
+
+### The confirmation, verbatim
+
+# KAY9 watchdog stack: final confirmation (round three)
+
+**Tree read:** `https://github.com/kay9T/kay9-protocol` at commit `c6cc435824c1b1da7c87920ecb248f7ba01ccdd3` (tag `watchdog-review-3`, subject "fix(watchdog): close the round-two findings from both model reviews"). I fetched it into the same temp clone and read only that tree. I reviewed the diff against `dc566818` for `src/` and `script/` line by line (the script did not change).
+
+First two lines of `src/KAY9AuditHub.sol` at `c6cc4358`:
+
+```
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+```
+
+**Tests.**
+- All `test/unit/*` suites pass: 332 tests, 0 failures.
+- My throwaway suite, `test/review/WatchdogVerify.t.sol`, exists only in the temp checkout and extends the repo's `KAY9AuditHubTest`. I updated it for this tree and added checks for N2 on the attest path, for `checkDispute`, and for N3. All of its tests pass, together with the inherited suite: 45 in total.
+- I did not run the invariant or fork suites.
+
+---
+
+## 1. N1 to N4
+
+| # | Status | Evidence |
+|---|---|---|
+| N1: watchdog freshness bypass through a job record | **Closed** | `KAY9Registry` keeps `_maxAnalyzedAt` per asset, raised on every `recordReport` from either path, and `latestAnalyzedAt` returns it. My PoC `test_F2_bypassThroughAJobRecord` now reverts `StaleWatchdogReport(t0+1h, t0+2h)`: the job landing at `analyzedAt = t0` no longer lowers the bar. The original F2 scenario still reverts (`test_F2_originalScenarioNowReverts`). |
+| N2: a lowered threshold lets the submitter choose between contradictions | **Closed** | `_finalizeUnlessContested` disputes the job when any other position also has at least `required` active holders. It is used by both `attest` and `finalizeAgreed`. Proven both ways. `test_loweredThresholdSubmitterPicksBetweenContradictions` now ends `Disputed` with no report written. `test_N2_attestPathAlsoDisputes` covers the attest path: 4 auditors at threshold 3 split X 1 / Y 2, the threshold is lowered to 1, and a fourth auditor's vote for X disputes the job instead of finalising it. |
+| N3: immutable guardian | **Closed** | The `guardian` storage variable has an `onlyOwner` `setGuardian` (timelocked) that refuses zero and emits `GuardianUpdated`. `test_N3_guardianReplaceable` shows three things: the guardian cannot replace itself, the timelock can replace it, the old guardian then gets `NotGuardian`, and the new one revokes. A compromised guardian can now do damage only until a `setGuardian` has passed its 48-hour delay. |
+| N4: removal halts cases that used to keep running | **Accepted; I agree** | The disposition cites runbook guidance in `docs/DEPLOYMENT.md`. **That file is not in this public tree**, so I could not verify the guidance. The contract behaviour fails safe either way. |
+
+The first-round findings I re-ran on this tree are unchanged from round two:
+- F1 is narrowed (`test_F1_...` passes).
+- F4 and F5 are closed.
+- F6 and F7 are accepted (`test_F6_...` and `test_F7_...` still show the documented behaviour).
+
+---
+
+## 2. Review of the changed code
+
+**New permissionless `checkDispute(jobId)`.**
+- It reuses `_disputeIfUnreachable` with the current threshold.
+- It returns without disputing while the registry is halted.
+- It reverts after the deadline and on a non-`Requested` job, so a unit cannot be restored twice.
+- It is `nonReentrant`.
+- The membership-aware rule (best active holders plus silent active auditors, compared with the threshold) cannot dispute a job that some position could still settle under the current set. Shown in `test_checkDispute_membershipOnly`: it returns false with two silent auditors, false again after a 1–1 split while a third auditor is silent, and true after that third auditor is removed. A second call then reverts.
+- Anyone can call it at the exact moment a timelock removal executes. That is correct behaviour under the current set. If governance splits a rotation into two separate operations, a pending job can be disputed in between. That is refund-only and is covered by the N4 batching guidance.
+
+**`_finalizeUnlessContested`.**
+- The comparison skips the position being finalised and checks every other recorded position through `_activeHolders`, so removed holders do not count.
+- A contested job disputes and refunds exactly once, through the shared `_dispute`.
+- Gas is bounded by (number of positions) × (holders), each with a registry call. With `MAX_AUDITORS = 32` this is fine.
+- One harmless gap: `checkDispute` does not detect the contested state, because `best >= required` there. A contested job therefore stays `Requested` until an auditor calls `finalizeAgreed` or `attest` (which disputes it) or the job expires. The refund happens either way.
+
+**`uint16` counters.** These are consistent across `Job.attestations`, `digestVotes`, `bestAgreement`, the local `votes` and the events. The narrowing cast `uint16(best)` in `_dispute` is safe because `best` is at most the number of holders.
+
+**High-water mark.**
+- The update is correct, and it is monotonic.
+- A strict `>` means two different watchdog reports analysed in the same second cannot both land. That is acceptable.
+- The name `latestAnalyzedAt` now returns a maximum rather than the last record's value. It is documented, but an integrator reading the name could misunderstand it (informational).
+- Job records stay exempt from freshness and still become `latest` by commit order. That is the documented design, and a job result cannot be analysed in the future (`AnalyzedInFuture`).
+
+**`setGuardian`.** It is `onlyOwner`, refuses zero, and emits an event. Correct.
+
+### New finding
+
+**V3-1. `docs/CONTRACT_INTERFACES.md` still specifies the old `uint8` types, and the event signatures changed.**
+- **Severity:** Low (integration, not contract security)
+- **Location:** `docs/CONTRACT_INTERFACES.md:540` (`uint8 attestations` in `Job`), `:549` (the `AuditDisputed(uint256,uint8,uint8,uint8)` event), `:646` (the paragraph saying the counters are `uint8`).
+- **Why it matters:** the project calls this file the binding ABI spec for web and services. Changing to `uint16` changes the topic0 of `AuditAttested` and `AuditDisputed`, and the ABI of the `getJob` tuple. An indexer or website built from the spec would silently miss every attestation and dispute event, and would mis-decode `getJob`.
+- **Fix:** update the spec (and any ABI copies in the web and services) to `uint16` before go-live.
+
+I found no new contract-level defect in the round-three changes.
+
+---
+
+## 3. Confirmation for deploying the watchdog stack
+
+**I confirm commit `c6cc4358` for deploying the watchdog stack (`KAY9AuditorRegistry`, `KAY9AuditHub` without a vault, `KAY9Registry`, `KAY9ScanRegistry`, `DeployWatchdog.s.sol`).** I found no security blocker in the contracts.
+
+Conditions, not contract blockers:
+1. **Fix V3-1 before go-live.** Bring `CONTRACT_INTERFACES.md` and every consumer ABI in line with the `uint16` counters and the new event signatures. Otherwise the website and indexer will silently miss attestation and dispute events. Jobs do not exist until the vault is bound, so strictly this must be done before `setAccessVault`, but the spec is wrong today.
+2. **The N4 runbook guidance** is cited in `docs/DEPLOYMENT.md`, which is not in the public tree. Make sure it exists wherever the operators will actually read it.
+3. **Standing residuals, accepted in earlier rounds:**
+   - A single authorised scanner's `latestScan` value is its own unproven claim (F1). It is revocable at once, but the value persists until an honest batch re-indexes the asset.
+   - `verifyScan` must be given a `scanLeaf` output (F6).
+   - Removing an auditor takes 48 hours (F8).
+
+## 4. Not covered
+
+- **Suites not run:** the invariant and fork suites.
+- **Deployments not examined:** any deployed instance, and the `deployments/*.json` files.
+- **Out of scope, not read:** `Deploy.s.sol`, `KAY9AccessVault` internals, and the launch path.
+- **Not visible in this tree:** the OpenAI reviewer's round-two findings, beyond the changes listed in the coordinator's message and visible in the diff; and `docs/DEPLOYMENT.md`.
+
+## Reviewer
+
+Claude Opus 5.5 (model id `claude-opus-5-5[1m]`, 1M-context variant), by Anthropic, running as a Claude Code subagent. Date 2026-09-25.
+
 ## The review, verbatim
 
 One local file path in the reviewer's toolchain note is replaced, and marked where it was. Nothing

@@ -182,6 +182,10 @@ lowering the threshold: nothing is attested or published until the owner names a
 publish alone (watchdog review, 2026-09-25). The threshold is therefore either zero, meaning halted,
 or within [1, auditor count].
 
+Rotate an auditor as **one** timelock batch: add the new key, remove the old one, set the
+threshold. Scheduled separately, a removal that briefly leaves fewer auditors than the threshold
+halts the quorum until the threshold operation executes.
+
 ## KAY9AccessVault
 
 Access to the deep and forensic tiers is a **lock**, never a payment. The vault holds the
@@ -537,16 +541,16 @@ struct Job {
                                        // chain, kept for the audit trail only — never an RPC pin
     uint64  accessPeriodStartedAt;   // the vault period the quota unit came from
     uint64  slaSeconds;              // the service level in force at request time, frozen for the job's life
-    uint8   attestations;            // how many auditors have taken a position
+    uint16  attestations;            // how many auditors have taken a position; uint16 because votes accumulate across rotations
     JobStatus status;
     uint256 reportId;                // set when fulfilled
 }
 
 contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     event AuditRequested(uint256 indexed jobId, address indexed requester, bytes32 indexed chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind, uint64 expiresAt);
-    event AuditAttested(uint256 indexed jobId, address indexed auditor, bytes32 digest, uint8 votesForDigest);
+    event AuditAttested(uint256 indexed jobId, address indexed auditor, bytes32 digest, uint16 votesForDigest);
     event AuditFulfilled(uint256 indexed jobId, uint256 indexed reportId, uint8 overallTrust, address[] signers);
-    event AuditDisputed(uint256 indexed jobId, uint8 attestations, uint8 bestAgreement, uint8 required);
+    event AuditDisputed(uint256 indexed jobId, uint16 attestations, uint16 bestAgreement, uint8 required);
     event AuditExpired(uint256 indexed jobId, address indexed requester);
     event WatchdogReportPublished(uint256 indexed reportId, bytes32 indexed chainKey, bytes32 indexed assetId, address[] signers);
     event SlaUpdated(uint64 slaSeconds);
@@ -585,8 +589,8 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
 
     function getJob(uint256 jobId) external view returns (Job memory);
     function attestationOf(uint256 jobId, address auditor) external view returns (bytes32 digest);
-    function digestVotes(uint256 jobId, bytes32 digest) external view returns (uint8);
-    function bestAgreement(uint256 jobId) external view returns (uint8);
+    function digestVotes(uint256 jobId, bytes32 digest) external view returns (uint16);
+    function bestAgreement(uint256 jobId) external view returns (uint16);
     function jobExpiresAt(uint256 jobId) external view returns (uint64);
     function hashResult(uint256 jobId, AuditResult calldata result) external view returns (bytes32);
 
