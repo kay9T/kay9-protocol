@@ -479,6 +479,37 @@ Model
 
 GPT-6 Astra Pro. No finer internal build or weights-revision identifier is exposed to me.
 
+## Confirmation at `watchdog-review-4`
+
+Same thread, on `a71cb5c6928ffdc45b78dccb398180972f14f0e4`: **R3-01 closed, no defect introduced, and
+the deployment confirmation carries over.** This is the commit to deploy.
+
+### The confirmation, verbatim
+
+KAY9 Watchdog — Final Patch Verification
+
+Commit reviewed: a71cb5c6928ffdc45b78dccb398180972f14f0e4
+Baseline: c6cc435824c1b1da7c87920ecb248f7ba01ccdd3
+Scope: The contract change and accompanying regression test in watchdog-review-4.
+
+R3-01 — Closed
+
+In src/KAY9AuditHub.sol:819–842, _finalizeUnlessContested initializes best from the submitted position’s active holders, examines every other recorded position using _activeHolders, and retains the largest active count. It decides whether to dispute only after completing that scan and passes the actual maximum to _dispute.
+
+The previously reported asymmetric case therefore emits the same correct bestAgreement regardless of which qualifying position the caller submits.
+
+Introduced defects — None found
+
+The change preserves the decision rule: another qualifying position causes one dispute; otherwise, the submitted position finalises. Historical votes from removed auditors remain excluded. The accompanying regression submits the smaller qualifying position and expects the larger agreement in AuditDisputed, directly targeting R3-01. I inspected that test but did not execute it.
+
+Deployment confirmation — Carries over
+
+Yes. My source-review deployment confirmation carries over to watchdog-review-4. R3-01 is closed, and this patch introduces no deployment-blocking defect identified in this review.
+
+The previous accepted design limitations remain unchanged. This is not certification of a successful build, Foundry run, deployment rehearsal or live configuration check; those were not performed in this verification.
+
+Model: GPT-6 Astra Pro.
+
 ## The review, verbatim
 
 The text below is the reply as ChatGPT displayed it, copied from the thread without edits.

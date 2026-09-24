@@ -49,12 +49,17 @@ fixed or accepted in writing. The prompt is
 
 | Date | Model | Family | Commit | Findings | Status |
 |---|---|---|---|---|---|
-| 2026-09-25 | GPT-5.6 Sol | OpenAI | `watchdog-review-1` (`c38dd247`) | 3 medium, 7 low | six fixed, four accepted in writing; verified at `watchdog-review-2`: seven closed, three narrowed, four new findings, all fixed at `watchdog-review-3`, confirmed for deployment there; its last low finding fixed at `watchdog-review-4`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-openai-gpt-5.6-sol.md) |
+| 2026-09-25 | GPT-5.6 Sol | OpenAI | `watchdog-review-1` (`c38dd247`) | 3 medium, 7 low | six fixed, four accepted in writing; verified at `watchdog-review-2`: seven closed, three narrowed, four new findings, all fixed at `watchdog-review-3`, confirmed for deployment there; its last low finding fixed at `watchdog-review-4` and that commit confirmed; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-openai-gpt-5.6-sol.md) |
 | 2026-09-25 | Claude Opus 5.5 (Fable 5.1 had reached its usage limit) | Anthropic | `watchdog-review-1` (`c38dd247`) | 2 medium, 4 low, 3 informational | four fixed, three fixed in part, two accepted in writing; verified at `watchdog-review-2`: three closed, the rest narrowed or accepted, three new findings, all fixed at `watchdog-review-3` and confirmed for deployment there; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-anthropic-claude-opus-5.5.md) |
 
 Both reviews found that one key could move a headline score, that the quorum could quietly shrink
 or stall after auditor rotation, and that the deploying key kept power for 48 hours. Those are
-fixed. What is accepted: `latestScan` is the scanner's own index rather than a value proven against
+fixed. **The commit to deploy is `watchdog-review-4`** (`a71cb5c6928ffdc45b78dccb398180972f14f0e4`). Both families
+confirmed it for deployment; Anthropic's confirmation is of `watchdog-review-3`, and the one
+contract change after it (R3-01, the dispute event's agreement count) was confirmed by OpenAI and
+has its own regression test. Slither at `watchdog-review-4` found nothing new.
+
+What is accepted: `latestScan` is the scanner's own index rather than a value proven against
 the batch root, `scannedAtBlock` is the scanner's statement, and removing an auditor still takes the
 48-hour timelock.
 
