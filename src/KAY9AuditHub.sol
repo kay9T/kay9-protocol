@@ -48,7 +48,7 @@ struct Job {
     /// `setSla` call must never move a pending job's own deadline — see `_disputeIfUnreachable`'s
     /// neighbour, `markExpired`, for why that snapshot is load-bearing.
     uint64 slaSeconds;
-    uint8 attestations;
+    uint16 attestations;
     JobStatus status;
     uint256 reportId;
 }
@@ -90,7 +90,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @param auditor The signer.
     /// @param digest The result the auditor signed.
     /// @param votesForDigest How many auditors now hold that position.
-    event AuditAttested(uint256 indexed jobId, address indexed auditor, bytes32 digest, uint8 votesForDigest);
+    event AuditAttested(uint256 indexed jobId, address indexed auditor, bytes32 digest, uint16 votesForDigest);
 
     /// @notice Emitted when a position reaches quorum and the result is recorded.
     /// @param jobId The settled job.
@@ -104,7 +104,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @param attestations How many auditors took a position.
     /// @param bestAgreement The largest number that agreed on any one result.
     /// @param required The quorum threshold at the time.
-    event AuditDisputed(uint256 indexed jobId, uint8 attestations, uint8 bestAgreement, uint8 required);
+    event AuditDisputed(uint256 indexed jobId, uint16 attestations, uint16 bestAgreement, uint8 required);
 
     /// @notice Emitted when a request times out without a result.
     /// @param jobId The expired job.
@@ -321,10 +321,10 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     mapping(uint256 jobId => mapping(address auditor => bytes32 digest)) public attestationOf;
 
     /// @notice How many auditors hold each position on each job.
-    mapping(uint256 jobId => mapping(bytes32 digest => uint8 votes)) public digestVotes;
+    mapping(uint256 jobId => mapping(bytes32 digest => uint16 votes)) public digestVotes;
 
     /// @notice The largest agreement reached on each job so far.
-    mapping(uint256 jobId => uint8 votes) public bestAgreement;
+    mapping(uint256 jobId => uint16 votes) public bestAgreement;
 
     /// @notice The auditors holding each position on a job, kept in ascending address order.
     mapping(uint256 jobId => mapping(bytes32 digest => address[] signers)) private _digestSigners;
@@ -490,7 +490,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
         _checkResult(result);
         bytes32 digest = hashResult(jobId, result);
-        uint8 votes = digestVotes[jobId][digest];
+        uint16 votes = digestVotes[jobId][digest];
         if (votes == 0) _jobDigests[jobId].push(digest);
 
         for (uint256 i = 0; i < count; ++i) {
@@ -500,9 +500,10 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
             attestationOf[jobId][signer] = digest;
             _insertSorted(_digestSigners[jobId][digest], signer);
-            // Checked arithmetic. The auditor set is capped at MAX_AUDITORS, far below 255, so a
-            // job would need many full rotations inside its SLA to reach the limit; if it ever
-            // did, the 256th vote reverts rather than wrapping the agreement count to zero.
+            // uint16, not uint8. The auditor set is capped at MAX_AUDITORS, but that bounds the
+            // current set, not everyone who ever attested: with rotations inside a 30-day SLA a
+            // job could collect more than 255 votes, and a uint8 counter would then revert a vote
+            // that completes a quorum (watchdog review, round two). 65,535 is out of reach.
             votes += 1;
             job.attestations += 1;
             emit AuditAttested(jobId, signer, digest, votes);
@@ -518,7 +519,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
             // auditor still holding it is still an auditor, so that an operator removed through
             // the timelock cannot carry a job over the line on a stale vote.
             address[] memory holders = _activeHolders(jobId, digest);
-            if (holders.length >= required) return _finalize(jobId, job, result, holders);
+            if (holders.length >= required) {
+                return _finalizeUnlessContested(jobId, job, result, digest, holders, required);
+            }
         }
 
         _disputeIfUnreachable(jobId, job, required);
@@ -551,7 +554,26 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         uint8 required = auditors.threshold();
         address[] memory holders = _activeHolders(jobId, digest);
         if (required == 0 || holders.length < required) revert QuorumNotMet(holders.length, required);
-        return _finalize(jobId, job, result, holders);
+        return _finalizeUnlessContested(jobId, job, result, digest, holders, required);
+    }
+
+    /// @notice Disputes a job whose agreement has become impossible since its last attestation.
+    /// @dev Permissionless and takes nothing but the job id. `attest` checks reachability when a
+    ///      vote arrives, but a change to the auditor set can make agreement impossible with no
+    ///      vote left to arrive: the remaining auditors have all spoken and disagree. Without this
+    ///      the job would wait for its deadline. It uses the same membership-aware rule as
+    ///      `attest`, so it can never dispute a job a silent or agreeing auditor could still
+    ///      settle, and it restores the quota unit exactly once, like every dispute.
+    /// @param jobId The job.
+    /// @return disputed Whether the job is now disputed.
+    function checkDispute(uint256 jobId) external nonReentrant returns (bool disputed) {
+        Job storage job = _jobs[jobId];
+        if (job.status == JobStatus.None) revert UnknownJob(jobId);
+        if (job.status != JobStatus.Requested) revert WrongJobStatus(jobId, job.status);
+        uint64 expiresAt = job.requestedAt + job.slaSeconds;
+        if (block.timestamp >= expiresAt) revert JobExpired(jobId, expiresAt);
+        _disputeIfUnreachable(jobId, job, auditors.threshold());
+        return job.status == JobStatus.Disputed;
     }
 
     /// @notice Commits an unsolicited, unpaid report signed by the quorum.
@@ -780,8 +802,46 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
         if (best + silent >= required) return;
 
+        _dispute(jobId, job, best, required);
+    }
+
+    /// @notice Finalises a position that meets the quorum, unless another position also does.
+    /// @dev A lowered threshold can leave two contradictory positions both meeting it. Picking one
+    ///      would let whoever submits first decide the record, so the job is disputed instead:
+    ///      contradictory results are never settled by who calls first (watchdog review, round two).
+    /// @param jobId The job.
+    /// @param job The job storage pointer.
+    /// @param result The result the position signed.
+    /// @param digest The position.
+    /// @param holders Its active holders, ascending.
+    /// @param required The quorum threshold.
+    /// @return reportId The registry index, or zero when the job was disputed instead.
+    function _finalizeUnlessContested(
+        uint256 jobId,
+        Job storage job,
+        AuditResult calldata result,
+        bytes32 digest,
+        address[] memory holders,
+        uint8 required
+    ) private returns (uint256 reportId) {
+        bytes32[] storage digests = _jobDigests[jobId];
+        for (uint256 i = 0; i < digests.length; ++i) {
+            if (digests[i] != digest && _activeHolders(jobId, digests[i]).length >= required) {
+                _dispute(jobId, job, holders.length, required);
+                return 0;
+            }
+        }
+        return _finalize(jobId, job, result, holders);
+    }
+
+    /// @notice Marks a job disputed and returns its quota unit.
+    /// @param jobId The job.
+    /// @param job The job storage pointer.
+    /// @param best The largest active agreement, for the event.
+    /// @param required The quorum threshold.
+    function _dispute(uint256 jobId, Job storage job, uint256 best, uint8 required) private {
         job.status = JobStatus.Disputed;
-        emit AuditDisputed(jobId, job.attestations, uint8(best), required);
+        emit AuditDisputed(jobId, job.attestations, uint16(best), required);
         accessVault.restore(job.requester, job.tier, job.accessPeriodStartedAt);
     }
 

@@ -111,6 +111,9 @@ contract KAY9Registry is BlockNumberish {
     /// @notice Report ids per asset, in commitment order.
     mapping(bytes32 assetKeyHash => uint256[] reportIds) private _history;
 
+    /// @notice The largest `analyzedAt` recorded per asset. See `latestAnalyzedAt`.
+    mapping(bytes32 assetKeyHash => uint64 analyzedAt) private _maxAnalyzedAt;
+
     /// @notice Binds the registry to its audit hub.
     /// @param auditHub_ The hub allowed to append reports.
     constructor(address auditHub_) {
@@ -158,7 +161,9 @@ contract KAY9Registry is BlockNumberish {
                 committedBlock: uint64(_getBlockNumberish())
             })
         );
-        _history[assetKey(result.chainKey, result.assetId)].push(reportId);
+        bytes32 key = assetKey(result.chainKey, result.assetId);
+        _history[key].push(reportId);
+        if (result.analyzedAt > _maxAnalyzedAt[key]) _maxAnalyzedAt[key] = result.analyzedAt;
 
         emit ReportRecorded(
             reportId, result.chainKey, result.assetId, meta.jobId, result.overallTrust, result.reportHash
@@ -242,21 +247,23 @@ contract KAY9Registry is BlockNumberish {
         return (true, _reports[ids[total - 1]]);
     }
 
-    /// @notice When the most recent report about one asset was analysed.
-    /// @dev A cheap read for the hub's freshness rule on watchdog reports.
+    /// @notice The newest analysis time ever recorded for one asset, by either report path.
+    /// @dev A high-water mark, not the last record's value. A requested job can land a result
+    ///      analysed earlier than a watchdog report already on record; reading the last record
+    ///      would let the comparison move backwards and let an older watchdog report through
+    ///      (watchdog review, round two). The hub's freshness rule reads this.
     /// @param chainKey The CAIP-2 chain key hash.
     /// @param assetId The asset identifier.
     /// @return exists Whether any report exists.
-    /// @return analyzedAt The latest record's `analyzedAt`, or zero.
+    /// @return analyzedAt The largest `analyzedAt` recorded for the asset, or zero.
     function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId)
         external
         view
         returns (bool exists, uint64 analyzedAt)
     {
-        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
-        uint256 total = ids.length;
-        if (total == 0) return (false, 0);
-        return (true, _reports[ids[total - 1]].result.analyzedAt);
+        bytes32 key = assetKey(chainKey, assetId);
+        if (_history[key].length == 0) return (false, 0);
+        return (true, _maxAnalyzedAt[key]);
     }
 
     /// @notice The headline numbers of the most recent report about one asset.

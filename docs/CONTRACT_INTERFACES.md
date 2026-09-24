@@ -357,7 +357,7 @@ contract KAY9ScanRegistry {
     event ScannerUpdated(address indexed scanner, bool allowed);
 
     uint32 public constant MAX_BATCH = 500;          // bounds both count and summaries
-    address public immutable guardian;               // may revoke a scanner at once, nothing else
+    address public guardian;                         // may revoke a scanner at once, nothing else; replaceable by the owner
     mapping(address => bool) public isScanner;
 
     constructor(address owner_, address guardian_, address[] memory initialScanners);  // owner is the timelock from the first block
@@ -371,6 +371,7 @@ contract KAY9ScanRegistry {
     function latestScan(bytes32 chainKey, bytes32 assetId) external view returns (bool scanned, uint256 batchId, uint8 overallTrust);
     function setScanner(address scanner, bool allowed) external;  // onlyOwner
     function revokeScanner(address scanner) external;             // guardian only, no delay
+    function setGuardian(address newGuardian) external;           // onlyOwner; emits GuardianUpdated
     function renounceOwnership() external;                        // always reverts RenounceDisabled
 }
 ```
@@ -484,7 +485,7 @@ contract KAY9Registry {
     function historyCount(bytes32 chainKey, bytes32 assetId) external view returns (uint256);
     function history(bytes32 chainKey, bytes32 assetId, uint256 offset, uint256 limit) external view returns (uint256[] memory reportIds); // same clamping as getReports
     function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);
-    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint64 analyzedAt);  // the hub's freshness rule for watchdog reports
+    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint64 analyzedAt);  // the largest analyzedAt ever recorded for the asset; the hub's freshness rule for watchdog reports
     function latestSummary(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSummaryForToken(bytes32 chainKey, address token) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint8 declaredRequesterKind, uint64 analyzedAt, uint64 committedAt);
@@ -576,7 +577,8 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     function requestAudit(bytes32 chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind) external returns (uint256 jobId);
     function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands; reverts JobExpired at or after jobExpiresAt
     function markExpired(uint256 jobId) external;                                    // permissionless at or after jobExpiresAt; restores the quota unit
-    function finalizeAgreed(uint256 jobId, AuditResult calldata result) external returns (uint256 reportId);  // caller must be an active auditor; settles a recorded position that meets the current threshold
+    function finalizeAgreed(uint256 jobId, AuditResult calldata result) external returns (uint256 reportId);  // caller must be an active auditor; settles a recorded position that meets the current threshold, or disputes if another position meets it too
+    function checkDispute(uint256 jobId) external returns (bool disputed);           // permissionless; disputes a job whose agreement a membership change made impossible
     function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; analyzedAt must be newer than the asset's latest record
     function renounceOwnership() external;                                            // always reverts RenounceDisabled
     function watchdogReportCommitted(bytes32 digest) external view returns (bool);
@@ -679,10 +681,15 @@ the log with it.
   dispute the job. A halted registry (threshold zero) disputes nothing; the job can still expire.
 - `attest` only checks the position it adds to. If governance lowers the threshold, a position
   recorded earlier can come to meet it with no auditor able to add a vote, so `finalizeAgreed`
-  settles it.
+  settles it. If two contradictory positions both meet the quorum, the job is disputed instead,
+  so whoever submits first never decides the record. A membership change alone can make
+  agreement impossible with no vote left to arrive; anyone can then call `checkDispute`.
+- The per-job vote counters are uint16. The auditor set is capped at 32, but votes accumulate
+  across rotations within a job's SLA.
 - Every score in a result must be at most 100, and `analyzedAt` may not be in the future. A
-  watchdog report must also be newer, by `analyzedAt`, than the asset's latest record, so no single
-  auditor can publish an older signed snapshot over a newer one.
+  watchdog report must also be newer, by `analyzedAt`, than every record the asset has, so no
+  single auditor can publish an older signed snapshot over a newer one, even after a job result
+  analysed earlier has landed in between.
 - A `Disputed` or `Expired` job restores its quota unit to the period it came from, so a caller is
   never charged a quota for an audit that produced no result.
 

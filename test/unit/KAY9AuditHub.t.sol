@@ -1615,6 +1615,94 @@ contract KAY9AuditHubTest is Kay9TestBase {
     }
 
     // -------------------------------------------------------------------------------------------
+    // Watchdog-stack review, round two (2026-09-25)
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice An older job result landing in between cannot reopen the freshness window.
+    /// @dev Both reviewers' round-two scenario: W_new is published, a job lands a result analysed
+    ///      before it, and W_old, analysed between the two, must still be refused.
+    function test_aJobRecordDoesNotReopenTheWatchdogFreshnessWindow() public {
+        uint256 jobId = _openJob();
+        uint64 t0 = uint64(block.timestamp);
+        AuditResult memory job = _result();
+        job.analyzedAt = t0;
+        job.reportHash = keccak256("job");
+
+        vm.warp(block.timestamp + 2 hours);
+        AuditResult memory wNew = _result();
+        wNew.reportHash = keccak256("w-new");
+        wNew.overallTrust = 10;
+        AuditResult memory wOld = _result();
+        wOld.analyzedAt = t0 + 1 hours;
+        wOld.reportHash = keccak256("w-old");
+        wOld.overallTrust = 90;
+
+        bytes[] memory newSigs = _sign(0, wNew, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.publishWatchdogReport(wNew, newSigs);
+
+        bytes[] memory jobSigs = _sign(jobId, job, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.attest(jobId, job, jobSigs);
+
+        bytes[] memory oldSigs = _sign(0, wOld, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(
+            abi.encodeWithSelector(KAY9AuditHub.StaleWatchdogReport.selector, wOld.analyzedAt, wNew.analyzedAt)
+        );
+        hub.publishWatchdogReport(wOld, oldSigs);
+    }
+
+    /// @notice Two contradictory positions that both meet a lowered threshold dispute the job.
+    function test_contestedPositionsAfterALoweredThresholdDispute() public {
+        _outliveGovernance();
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+
+        AuditResult memory x = _result();
+        x.overallTrust = 90;
+        x.reportHash = keccak256("x");
+        AuditResult memory y = _result();
+        y.overallTrust = 5;
+        y.reportHash = keccak256("y");
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+        _attestAlone(jobId, y, _keyOf(signers[1]), _hash(jobId, y));
+
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (1)));
+
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.finalizeAgreed(jobId, x);
+        assertEq(reportId, 0, "nothing recorded");
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Disputed), "the contest is a dispute");
+        assertEq(reportRegistry.reportCount(), 0, "neither result reached the log");
+    }
+
+    /// @notice A removal that makes agreement impossible can be disputed without another vote.
+    function test_checkDisputeSettlesAMembershipOnlyImpossibility() public {
+        _outliveGovernance();
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+
+        AuditResult memory x = _result();
+        x.reportHash = keccak256("x");
+        AuditResult memory y = _result();
+        y.reportHash = keccak256("y");
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+        _attestAlone(jobId, y, _keyOf(signers[1]), _hash(jobId, y));
+
+        assertFalse(hub.checkDispute(jobId), "the silent third auditor could still agree");
+
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[2])));
+        assertEq(auditorRegistry.threshold(), 2, "two of two, still a quorum");
+
+        assertTrue(hub.checkDispute(jobId), "both remaining auditors have spoken and disagree");
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Disputed));
+
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.WrongJobStatus.selector, jobId, JobStatus.Disputed));
+        hub.checkDispute(jobId);
+    }
+
+    // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------
 

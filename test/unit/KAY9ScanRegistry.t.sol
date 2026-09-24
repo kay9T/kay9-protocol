@@ -140,6 +140,26 @@ contract KAY9ScanRegistryTest is Test {
         scans.setScanner(stranger, true);
     }
 
+    /// @notice The owner can replace the guardian, and the old one loses its power.
+    function test_theOwnerReplacesTheGuardian() public {
+        address next = address(0x6A2E);
+        vm.prank(guardian);
+        vm.expectRevert();
+        scans.setGuardian(next);
+
+        vm.prank(owner);
+        scans.setGuardian(next);
+        assertEq(scans.guardian(), next);
+
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.NotGuardian.selector, guardian));
+        scans.revokeScanner(scanner);
+
+        vm.prank(next);
+        scans.revokeScanner(scanner);
+        assertFalse(scans.isScanner(scanner));
+    }
+
     /// @notice Ownership cannot be renounced.
     function test_renounceIsDisabled() public {
         vm.prank(owner);

@@ -30,6 +30,289 @@ Each finding was checked against the source before it was decided. The fixes are
 | F-09 — `scannedAtBlock` is not read on-chain | Yes | **Accepted, and property 10 is narrowed.** `scannedAtBlock` is the scanner's statement of the block it read, on the scanned asset's own chain, which may not be this one. The contract cannot check it, and the docs now say so. The block numbers the contracts record themselves come from ArbSys |
 | F-10 — the script deploys to any chain | Yes | **Fixed.** `DeployWatchdog.s.sol` runs only on Robinhood Chain mainnet, its testnet and a local chain |
 
+## Verification at `watchdog-review-2`
+
+Same reviewer, on `dc56681878eaae5f1a9b35ac7e14041b0706a654`. The model identified itself this time as "GPT-6 Astra Pro"; the thread and its setting did not change between rounds, and the text is published as it came.
+
+The round-two findings are fixed at `watchdog-review-3`:
+
+| Finding | Disposition |
+|---|---|
+| A job record landing between two watchdog reports reopens the freshness window | **Fixed.** `KAY9Registry.latestAnalyzedAt` is now the largest `analyzedAt` ever recorded for the asset, by either path, not the last record's. Regression: `test_aJobRecordDoesNotReopenTheWatchdogFreshnessWindow` |
+| The guardian is immutable, so a retired guardian keeps its power | **Fixed.** The owner, behind the timelock, can replace it with `setGuardian`, which emits `GuardianUpdated`. Regression: `test_theOwnerReplacesTheGuardian` |
+| After a lowered threshold, the submitter chooses between two contradictory positions that both meet it | **Fixed.** If another position also meets the quorum, the job is disputed instead, on both `attest` and `finalizeAgreed`. Regression: `test_contestedPositionsAfterALoweredThresholdDispute` |
+| A removal alone can make agreement impossible with no vote left to trigger the dispute | **Fixed.** New permissionless `checkDispute(jobId)` applies the same membership-aware rule. Regression: `test_checkDisputeSettlesAMembershipOnlyImpossibility` |
+| The auditor cap does not bound votes across rotations, so the uint8 counters can still overflow | **Fixed.** `attestations`, `digestVotes` and `bestAgreement` are uint16 |
+| Removal now halts in cases that used to keep running (informational) | **Accepted.** Governance schedules removal, addition and threshold in one timelock batch; `docs/DEPLOYMENT.md` says so |
+
+### The verification, verbatim
+
+solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+KAY9 Watchdog — Verification Review
+
+Repository: kay9T/kay9-protocol
+Commit reviewed: dc56681878eaae5f1a9b35ac7e14041b0706a654
+Baseline: c38dd247c44b6e76d87b438f15364181b63f4945
+
+The quotation above is from src/KAY9ScanRegistry.sol:1–2 at the requested commit. The reviewed scan-registry blob is 8853d99e186efc24607811a30600b98f2f9358ec.
+
+Assessment
+
+Seven previous findings close against the implemented fixes or explicitly revised requirements. Three narrow rather than disappear: F-03, F-04 and F-07.
+
+The verification also identifies an incomplete interaction in the new watchdog freshness protection and a recovery limitation introduced by the immutable guardian. These are distinguished below from pre-existing behavior.
+
+This is a source-level verification with independently executed state-transition models, not an executed Solidity test report. Existing regression tests were inspected, not run.
+
+1. Findings and remaining defects, ranked by severity
+R2-01 — A late requested report can reset the new watchdog freshness comparison
+
+Severity: Medium
+Classification: Incomplete protection in the second review’s freshness fix; not a signature-verification bypass.
+
+Locations:
+src/KAY9AuditHub.sol:575–583 — watchdog freshness check.
+src/KAY9AuditHub.sol:697–713 — requested-job finalisation.
+src/KAY9Registry.sol:251–259 — latestAnalyzedAt.
+
+The new watchdog check compares the submitted analysis time with the last committed record’s analysis time. Requested-job finalisation can append an older analysis without a corresponding freshness restriction. Consequently, the value against which watchdog freshness is checked can move backwards. The getter does not preserve the greatest analysis time previously recorded.
+
+Concrete failure scenario
+
+This scenario applies after the access vault is bound, when requested jobs exist. Every result carries a valid quorum, every signer remains current, and all submissions occur before the job’s deadline.
+
+Order	Action	Last committed analysis time
+1	A job is requested at 10:00. Auditors produce a quorum-signed result for that job, but its finalising submission is delayed.	—
+2	Auditors sign watchdog report W_old, analysed at 10:30 with trust score 90. It is not published.	—
+3	Watchdog report W_new, analysed at 11:00 with trust score 10, is published. Publishing W_old now correctly reverts.	11:00
+4	At 11:05, a current auditor submits the valid signatures finalising the pending 10:00 job. _finalize appends it.	10:00
+5	At 11:06, a current auditor submits W_old. Its digest is unused, and 10:30 is greater than the current comparison value of 10:00. It succeeds.	10:30
+
+The final watchdog report is older than a watchdog report already published at 11:00, yet becomes the last committed report.
+
+What this does and does not establish
+
+The literal predicate “newer than the asset’s current last record” is implemented correctly. The broader security conclusion in the new comment—that a single auditor cannot make an older signed snapshot latest—does not follow once requested reports and watchdog reports share the log.
+
+This does not affect the pre-token, zero-vault deployment in the same way: the intervening requested job cannot exist there. It also does not forge scores, violate quorum, modify old records, or replay an already-committed watchdog digest.
+
+Suggested fix
+
+Maintain a separate, monotonic per-asset maximum recorded analyzedAt, updated whenever either report path appends. Compare watchdog submissions against that maximum rather than against the commitment-order tail.
+
+Preserve the ability to append historical requested-job results; simply rejecting them can interfere with job settlement. If consumers need the freshest analysis rather than the latest commitment, expose a separate freshest-analysis pointer without changing the append-only history.
+
+The added regression test_aStaleWatchdogReportCannotBecomeLatest covers a newer watchdog followed directly by an older watchdog. It does not cover an intervening requested-job finalisation.
+
+R2-02 — The immutable guardian retains revocation power after its Safe address is retired
+
+Severity: Medium
+Classification: New authority-recovery limitation introduced by the guardian fix.
+
+Locations:
+src/KAY9ScanRegistry.sol:144 — immutable guardian.
+src/KAY9ScanRegistry.sol:180–190 — constructor assignment.
+src/KAY9ScanRegistry.sol:390–394 — immediate revocation.
+src/KAY9ScanRegistry.sol:407–411 — owner-controlled scanner authorization.
+
+Deployment assigns the guardian to the initial OWNER_SAFE, while the contract owner is the timelock. The guardian is immutable; neither changing the timelock’s governance roles nor transferring contract ownership changes that address. There is no guardian replacement or retirement function.
+
+Concrete failure scenario
+
+The initial governance Safe is G1, which is also the scanner guardian. Governance later migrates to Safe G2 and removes G1’s timelock roles through properly scheduled operations.
+
+G1 is subsequently compromised or becomes controlled by former signatories who are no longer trusted. Although it has no remaining timelock role, it is still the scan registry’s immutable guardian.
+
+Whenever legitimate governance authorizes a scanner, G1 can immediately revoke it. The same applies to replacement scanners. Normal scanner operation can therefore be repeatedly disrupted by an address that governance has otherwise retired.
+
+Impact and qualification
+
+This is a scanner-availability and authority-retirement problem. The guardian cannot append reports, authorize scanners, change quorum, rewrite batches, or take funds.
+
+Rotating signers within the same Safe address can preserve a trusted guardian and avoids this particular address-migration problem. The defect appears when the Safe address itself must be replaced or its control cannot safely be recovered.
+
+Suggested fix
+
+Make guardian replacement a timelocked onlyOwner operation, emitting the previous and replacement addresses. Preserve the guardian’s removal-only powers.
+
+Governance can then migrate its timelock roles and guardian designation together. Immediate scanner revocation should remain available; the missing capability is retiring the address that holds that emergency power.
+
+R2-03 — F-03’s arithmetic is repaired, but membership changes alone still cannot trigger a dispute
+
+Severity: Low
+Classification: Pre-existing residual behavior, not a regression introduced by this commit.
+
+Locations:
+src/KAY9AuditHub.sol:496–524 — dispute evaluation follows a successful new attestation.
+src/KAY9AuditHub.sol:537–555 — finalizeAgreed only settles an existing quorum.
+src/KAY9AuditHub.sol:755–786 — active-holder dispute calculation.
+
+The new calculation correctly excludes removed auditors from both the agreement count and the silent-member count. However, it is still called only from a successful attest. Auditor-registry changes do not invoke it, and there is no separate dispute-rechecking entry point.
+
+Concrete failure scenario
+
+The current set is A, B, C, with threshold two.
+
+A attests to X; B attests to a different result Y. The job correctly remains open because silent auditor C could agree with either.
+
+Governance then removes C. Two auditors remain, so the new removal rule leaves the threshold at two rather than halting the registry.
+
+Agreement is now impossible: both remaining auditors have already taken incompatible positions. Nevertheless:
+
+Another attestation from A or B reverts with AlreadyAttested.
+
+An attestation from removed auditor C is rejected.
+
+finalizeAgreed(X) and finalizeAgreed(Y) revert because neither has quorum.
+
+The private dispute calculation is never reached.
+
+The job remains Requested until expiry instead of becoming Disputed.
+
+Impact
+
+The requester’s quota remains consumed until the SLA expiry path is used, and the on-chain status does not express the already-established impossibility of agreement. No contradictory report is published.
+
+The existing test test_aJobNobodyCanStillFinaliseWaitsForTheSlaRatherThanDisputing explicitly codifies this behavior. Accordingly, I am not presenting it as a newly introduced bug or claiming that the original F-03 regression remains unfixed. It is a remaining mismatch with the broader “dispute as soon as agreement is impossible” requirement.
+
+Suggested fix
+
+Add a callable per-job dispute recheck that uses current membership, enforces the appropriate job status and deadline rules, and restores quota at most once. It need not accept signatures or a result.
+
+Alternatively, explicitly narrow property 4: the contract detects unreachable agreement when a successful attestation evaluates it, while membership-only impossibility may wait for expiry.
+
+R2-04 — F-07’s 32-member cap does not bound cumulative attestations across rotations
+
+Severity: Low
+Classification: Incomplete fix; the original 300-current-auditor example is prevented, but the counter failure remains reachable.
+
+Locations:
+src/KAY9AuditorRegistry.sol:182–188 — cap on the current set.
+src/KAY9AuditHub.sol:493–507 — historical digest tracking and uint8 increments.
+src/KAY9AuditHub.sol:328–334 — historical vote counters and position storage.
+
+The cap limits concurrent members, not the number of different addresses that can attest during one job’s lifetime. Removed auditors’ positions and the job’s cumulative attestations count remain recorded. job.attestations still overflows when the 256th distinct historical signer is processed. The updated comment acknowledges that many rotations can reach this limit.
+
+Concrete failure scenario
+
+Use the permitted 30-day SLA, 32 current auditors, and threshold two.
+
+Keep one auditor silent throughout. The other 31 each attest to different results. No result reaches quorum, but the job remains reachable because the silent auditor could agree with one position.
+
+Governance replaces those 31 auditors with 31 fresh addresses, keeping the current set at or below 32. Repeat the voting and replacement process.
+
+After eight groups of 31 votes and eight replacements, 248 historical attestations exist. Eight sequential 48-hour governance delays occupy 16 days, within the 30-day SLA.
+
+Seven auditors in the next group take distinct positions, bringing the historical count to 255. An eighth then submits a valid signature agreeing with one of those seven. That signature would form a current two-auditor quorum, but:
+
+solidity
+job.attestations += 1;
+
+overflows before finalisation is checked. The transaction reverts, including the new vote. finalizeAgreed cannot recover this case because the second agreeing vote was never recorded.
+
+Impact and qualification
+
+A valid, reachable quorum cannot be recorded without further governance intervention or expiry. This requires unusually extensive, authorized auditor rotation; it is not an attack available to an ordinary requester. That limits its severity, but does not make the counter invariant true.
+
+The same distinction applies to _jobDigests: its length is not bounded by the current 32-member set.
+
+Suggested fix
+
+Widen the cumulative per-job counters and matching event/getter types. Alternatively, explicitly bound historical participation per job and define a safe terminal transition when that bound is reached, rather than allowing an arithmetic panic to block settlement.
+
+Correction to my previous recommendation: suggesting a current-set cap as sufficient was incomplete. Such a cap prevents growth beyond 255 simultaneous members, but does not prevent more than 255 historical participants across rotations.
+
+2. Disposition of the original ten findings
+
+“Closed” below includes a specification mismatch resolved by an explicitly accepted replacement requirement. It does not mean the original stronger requirement has somehow become true.
+
+Finding	Verdict	Verification
+F-01 — Deploying key retains roles	Closed	_validate rejects the deployer in both AUDITORS and SCANNERS, as well as OWNER_SAFE. The scan registry now receives the timelock owner and initial scanners in its constructor. The timelock is constructed with no optional external admin. This closes the direct-role and temporary-owner paths identified previously. It does not establish who controls the configured Safe or other keys.
+F-02 — Lowered threshold leaves an unfinalizable quorum	Closed	finalizeAgreed supplies the missing entry point. It checks the caller, job status, deadline, asset, nonzero current threshold, and current active holders of the supplied digest. It does not require an already-voted auditor to vote again.
+F-03 — Removed votes suppress disputes	Narrowed	The original removed-vote calculation is fixed: every recorded position is evaluated using current active holders. The broader immediate-dispute guarantee still has the membership-only trigger gap described in R2-03.
+F-04 — Latest scan score is not proven against the root	Narrowed	The index is now explicitly documented as scanner-supplied, auditors are no longer implicitly scanners, immediate revocation exists, and indexed trust scores above 100 are rejected. However, the exact root/summary mismatch remains possible. This is an accepted trust limitation, not a cryptographic repair.
+F-05 — Permissionless publication claim is false	Closed	Auditor-only submission is now explicit in the function documentation and consistent with the retained caller check. I accept the revised requirement; no permissionless relaying guarantee remains in the reviewed function.
+F-06 — Batch count exceeds 500	Closed for the reported check	count > MAX_BATCH now reverts, and summaries.length <= count also bounds the indexing loop. This enforces the declared count, not the actual cardinality of an independently supplied Merkle tree; the source now acknowledges that distinction.
+F-07 — Attestation counters overflow	Narrowed	MAX_AUDITORS = 32 prevents the original oversized-current-set configuration. It does not prevent cumulative per-job overflow after rotations. R2-04 remains.
+F-08 — Nonempty set with threshold zero	Closed against revised property 8	Zero is now an explicitly permitted halted state. A removal below the existing threshold sets zero rather than choosing a smaller quorum; recovery requires an explicit threshold decision. The report-publication paths reject zero.
+F-09 — Scanner-supplied height is unchecked	Closed against revised property 10	The revised requirement distinguishes scanner assertions about the scanned asset’s chain from contract-generated local heights. The unchecked input is no longer represented as an on-chain-derived value. Actual ArbSys selection in a live deployment was not verified.
+F-10 — Wrong-chain deployment is accepted	Closed	run now rejects unsupported chain IDs before deployment. The supported set is explicitly 4663, 46630 and local chain 31337. Mainnet still requires its confirmation phrase.
+3. Accepted-in-writing dispositions
+F-04 — Unverified scanner index
+
+I accept the decision to expose an explicitly unverified scanner-supplied index. I do not treat it as elimination of the original data-integrity limitation.
+
+The revised wording correctly separates a Merkle commitment from the convenience index. Separating scanner authorization from auditor membership and enabling emergency revocation reduce exposure, but neither makes a supplied summary a member of the committed tree. Revocation also does not correct a bad value already recorded; a subsequent honest indexed batch must replace it.
+
+I accept the qualitative calldata-cost tradeoff as a design choice, without claiming to have verified its economic justification.
+
+I do not accept an unconditional assertion that publishing a root and summaries alone guarantees detection or a self-contained proof of every mismatch. Checking against the committed dataset depends on obtaining the relevant document and data needed to reconstruct it. The contract does not guarantee that availability.
+
+Acceptance of this weaker index model does not close the guardian-retirement concern in R2-02.
+
+F-08 — Explicit halted state
+
+I accept the revised invariant:
+
+threshold == 0
+OR
+1 <= threshold <= auditorCount
+
+Requiring an explicit quorum decision after a removal causes a halt is consistent with avoiding an automatic reduction to one signer. Adding members while halted does not silently resume publication.
+
+One wording distinction matters: halted means no report can finalise through the hub. It does not mean attest necessarily rejects every incoming position. The implementation can record positions at threshold zero, while declining both finalisation and dispute. Documentation should not equate those different behaviors.
+
+F-09 — Local recorded heights versus remote analysis assertions
+
+I accept the revised distinction.
+
+A scan can describe an asset on another chain. Its historical scannedAtBlock is therefore not generally something that should be replaced with this deployment’s current ArbSys height. Recording it as a scanner assertion is coherent.
+
+The contract-generated requestedBlock and committedBlock fields use BlockNumberish. Its pinned implementation selects ArbSys through a constructor probe and otherwise falls back to block.number. Thus the local-chain test allowance does not itself establish an ArbSys guarantee, and a real Robinhood deployment still requires verification that the intended branch was selected.
+
+F-05 — Auditor-only submission
+
+I also accept this documentation-only disposition.
+
+Keeping transaction submission restricted to current auditors is consistent with intentionally leaving reportURI outside the signed digest. That does not make the URI quorum-authenticated; it means choosing the permanent pointer remains a trusted current-auditor action.
+
+4. Other changed-code checks
+
+finalizeAgreed does not create an unsigned-result publication path. It must find enough active holders of the exact supplied digest. Although it does not repeat _checkResult, positions can only have been recorded through attest, which validates the signed score and analysis-time fields before storing them. The deliberately unsigned URI is a separate, already-described trust boundary. I found no additional validation bypass in this change.
+
+The new scan validation remains transactionally atomic. The score check occurs inside the summaries loop after the batch push, but a revert rejects the whole transaction; it does not leave a partially accepted batch. The authorization change consistently removes implicit auditor access. An auditor can still be a scanner if explicitly authorized, which is different from implicit membership.
+
+The disabled renunciation paths cover the intended Ownable contracts: the hub, auditor registry and scan registry. The append-only report registry does not acquire an owner or a mutable writer through these changes.
+
+The original blanket timelock claim must reflect the intended new exception. Scanner additions remain owner-controlled, but the initial owner Safe, acting as guardian, can revoke scanners immediately. That is an explicit change to the authority model, not preservation of the former claim that every scanner change waits 48 hours. The guardian is the configured Safe, not the scan registry’s owner() address, which is the timelock.
+
+5. Verification performed and limitations
+
+I inspected the pinned in-scope contract sources, deployment changes, both disposition documents and relevant regression tests.
+
+I also executed independent Python state-transition models that checked:
+
+The positive F-02 case now has a finalisation path, and the original F-03 removed-holder example now disputes.
+
+A membership-only change can leave an unreachable job without a callable dispute transition.
+
+The cumulative counter can reach 255 with only 32 current members and fail on a quorum-forming next vote.
+
+A requested-job append can lower the comparison value used by the new watchdog freshness rule.
+
+These models assume valid signatures and authorized governance operations. They are not EVM executions, Solidity compilation results or replacements for Foundry regression tests.
+
+I did not compile the contracts, run the Foundry suite, execute Solidity proofs of concept, benchmark gas, or validate a live deployment. Consequently, I do not claim that repository tests pass, that deployed bytecode matches this commit, or that production ownership, guardian, scanner and timelock roles have been checked.
+
+The launch contracts, website and off-chain services remain out of scope. I did not establish scanner-document availability, actual Merkle leaf counts, scoring independence from requester metadata, Safe signer control, or the correctness of later access-vault wiring.
+
+Model
+
+Model: GPT-6 Astra Pro.
+Version detail: No finer internal build or weights-revision identifier is exposed to me.
+
 ## The review, verbatim
 
 The text below is the reply as ChatGPT displayed it, copied from the thread without edits.

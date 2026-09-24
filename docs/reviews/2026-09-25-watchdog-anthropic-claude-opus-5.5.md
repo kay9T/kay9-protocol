@@ -30,6 +30,135 @@ Each finding was checked against the source before it was decided. The fixes are
 | F8 — no emergency path | Yes | **Fixed for scanners, accepted for auditors.** The guardian revokes a scanner at once. Removing an auditor still takes the 48-hour timelock: an instant remover would let one key halt the quorum at will, and a compromised auditor still needs a second key to publish |
 | F9 — minor hub issues | Mixed | Scores are now bounded at 100, the "permissionless" wording is gone, and `renounceOwnership` is disabled on the hub, the scan registry and the auditor registry. Front-running an `attest` with a peer's signature records the same position, so nothing is lost, and is accepted. A dispute is final even if the threshold later falls; the requester already has the quota unit back, and is accepted. `setAccessVault` does not check the vault's hub; the token deployment sets the vault's hub itself in `Deploy.s.sol`, and this is accepted |
 
+## Verification at `watchdog-review-2`
+
+Same reviewer, on `dc56681878eaae5f1a9b35ac7e14041b0706a654`. Local file paths in the reviewer's notes are replaced, and marked where they were. Nothing else is changed.
+
+The round-two findings are fixed at `watchdog-review-3`:
+
+| Finding | Disposition |
+|---|---|
+| A job record landing between two watchdog reports reopens the freshness window | **Fixed.** `KAY9Registry.latestAnalyzedAt` is now the largest `analyzedAt` ever recorded for the asset, by either path, not the last record's. Regression: `test_aJobRecordDoesNotReopenTheWatchdogFreshnessWindow` |
+| The guardian is immutable, so a retired guardian keeps its power | **Fixed.** The owner, behind the timelock, can replace it with `setGuardian`, which emits `GuardianUpdated`. Regression: `test_theOwnerReplacesTheGuardian` |
+| After a lowered threshold, the submitter chooses between two contradictory positions that both meet it | **Fixed.** If another position also meets the quorum, the job is disputed instead, on both `attest` and `finalizeAgreed`. Regression: `test_contestedPositionsAfterALoweredThresholdDispute` |
+| A removal alone can make agreement impossible with no vote left to trigger the dispute | **Fixed.** New permissionless `checkDispute(jobId)` applies the same membership-aware rule. Regression: `test_checkDisputeSettlesAMembershipOnlyImpossibility` |
+| The auditor cap does not bound votes across rotations, so the uint8 counters can still overflow | **Fixed.** `attestations`, `digestVotes` and `bestAgreement` are uint16 |
+| Removal now halts in cases that used to keep running (informational) | **Accepted.** Governance schedules removal, addition and threshold in one timelock batch; `docs/DEPLOYMENT.md` says so |
+
+### The verification, verbatim
+
+# KAY9 watchdog stack: fix verification
+
+**Tree read:** `https://github.com/kay9T/kay9-protocol` at commit `dc56681878eaae5f1a9b35ac7e14041b0706a654` (tag `watchdog-review-2`, subject "fix(watchdog): close the watchdog-stack review findings before mainnet"). I fetched it into the same temp clone used for the first review and read only that tree. I reviewed the diff against `c38dd247` for `src/` and `script/DeployWatchdog.s.sol` line by line, and read the disposition file `docs/reviews/2026-09-25-watchdog-anthropic-claude-opus-5.5.md`.
+
+First two lines of `src/KAY9ScanRegistry.sol` at `dc566818`:
+
+```
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+```
+
+**Tests.** I rewrote the throwaway PoCs for the new tree as `test/review/WatchdogVerify.t.sol`, which exists only in the temp checkout. It extends the repo's own `KAY9AuditHubTest`, so it has a real vault and real jobs. All 10 new tests pass, and every test inherited from the parent suite passes with them (22 in the filtered run I kept). Every `test/unit/*` suite passes on this tree. I did not complete the invariant or fork suites.
+
+---
+
+## 1. Status of each original finding
+
+| # | Status | Reason and evidence |
+|---|---|---|
+| F1: one key sets any `latestScan` | **Narrowed** | Auditors are no longer implicit scanners: `commitScanBatch` checks only `isScanner`. Scores above 100 are refused. The immutable `guardian` can `revokeScanner` at once. All three are proven in `test_F1_auditorIsNotAScannerAndScoreBounded`: an auditor reverts `NotAScanner`, a score of 101 reverts `ScoreOutOfRange`, and the guardian revokes. The same test proves the remainder: one authorised scanner can still write any in-range value for any asset with a garbage root, and the value **survives the scanner's revocation** until some honest batch indexes that asset again. The contract has no marker saying a batch came from a scanner that was later revoked. |
+| F2: stale watchdog report becomes `latest` | **Narrowed, not closed** | The original scenario now reverts `StaleWatchdogReport` (`test_F2_originalScenarioNowReverts`). But the freshness bar is the `analyzedAt` of the **latest record**, and job records are exempt from the rule. A job report pinned to an earlier `analyzedAt` that lands after a newer watchdog report lowers the bar, and the stale report gets in. Proven in `test_F2_bypassThroughAJobRecord`; see N1 below. Before the token, when no jobs exist, the fix is complete. |
+| F3: deployer owns the scan registry until `acceptOwnership` | **Closed** | The constructor takes `owner_` (the timelock), `guardian_` and `initialScanners`. The script passes the timelock, `ownerSafe` and `cfg.scanners`, and refuses the deployer as an auditor or scanner. `owner() == timelock` from construction is asserted in `test_F1_...`. `renounceOwnership` is disabled on all three `Ownable2Step` contracts. |
+| F4: removal lowers quorum to one | **Closed** | `removeAuditor` now sets `threshold = 0` and emits `QuorumHalted` whenever `threshold > remaining`. Proven in `test_F4_removalHalts`: 2-of-3 minus two auditors is halted, not 1-of-1. |
+| F5: batch size unbounded | **Closed** | `count > MAX_BATCH` reverts `BatchTooLarge`. Proven in `test_F5_countBounded` (count 501). |
+| F6: `verifyScan` accepts root and nodes | **Still open, accepted and documented** | Unchanged in code; the NatSpec now requires a `scanLeaf` output. `test_F6_stillAcceptsRoot` still passes. |
+| F7: threshold 0 with an auditor present | **Still present, accepted** | Unchanged. `test_F7_zeroWithAuditor` still passes (count 1, threshold 0). `_disputeIfUnreachable` now returns early while halted, which makes the intended behaviour explicit. |
+| F8: no emergency path | **Narrowed** | Scanners: closed by `revokeScanner`. Auditors: removal still takes the 48-hour timelock (accepted), and `setRequestsPaused` is still timelocked. |
+| F9: minor hub issues | **Mostly closed** | Scores are bounded at 100 on the report path (`_checkResult`); the "permissionless" wording is gone; renounce is disabled. The "lowered threshold does not finalise" part is closed by `finalizeAgreed` (repo test `test_aLoweredThresholdIsSettledByFinalizeAgreed`). Front-running, disputes being final when auditors are later added, and `setAccessVault` not checking the vault's hub are accepted (see section 3). |
+
+---
+
+## 2. Defects in the changed code
+
+### N1. The watchdog freshness rule can be bypassed through a job record (F2 remainder)
+
+- **Severity:** Low. The impact is F2's, but it needs a job on the same asset, and jobs exist only after the token and vault.
+- **Location:** `src/KAY9AuditHub.sol` `publishWatchdogReport` (the `registry.latestAnalyzedAt` comparison); `src/KAY9Registry.sol` `latestAnalyzedAt` (it reads the last record, not a high-water mark).
+- **Scenario (proven, `test_F2_bypassThroughAJobRecord`):**
+  1. At t0 a requester opens a job on asset T.
+  2. At t0+1h, auditors A and B sign watchdog report W0 (score 90, `analyzedAt` t0+1h). It is never published.
+  3. At t0+2h, W1 (score 10, `analyzedAt` t0+2h) is published.
+  4. The job then lands through `attest` with `analyzedAt = t0` (the design pins a job's analysis to its request time) and becomes the latest record. The freshness bar drops to t0.
+  5. Any single auditor now publishes W0: t0+1h > t0, so it passes. `latestSummary(T)` returns 90 even though a newer watchdog report (score 10) is on record.
+- This happens without any collusion whenever a job's 6-hour SLA overlaps a watchdog update. A requester who has locked KAY9 can also create the condition on purpose.
+- **Fix:** keep a per-asset `maxAnalyzedAt` high-water mark in `KAY9Registry`, updated on every `recordReport`, and compare watchdog reports against that rather than against the last record's `analyzedAt`.
+
+### N2. After a threshold is lowered, whoever submits chooses between contradictory positions that both meet the quorum
+
+- **Severity:** Low (governance-triggered; no averaging happens)
+- **Location:** `KAY9AuditHub.finalizeAgreed`; the same applies to the finalise branch in `attest`.
+- **Scenario (proven, `test_loweredThresholdSubmitterPicksBetweenContradictions`):**
+  1. The SLA is 30 days and the threshold is 2 of 3. A attests X (score 90) and B attests Y (score 5). The job stays `Requested`, correctly, because C could still break the tie.
+  2. Governance lowers the threshold to 1.
+  3. Both positions now meet the quorum. Whichever auditor calls `finalizeAgreed` first decides whether X or Y is the permanent record. A holder of X can simply finalise X.
+- Property 4 promises disputes when auditors disagree. Here there are two quorum-meeting contradictions, and the contract picks one by submission order instead of disputing.
+- **Fix:** before finalising, when more than one position in `_jobDigests[jobId]` has at least `required` active holders, mark the job `Disputed` instead.
+
+### N3. The scan-registry guardian is immutable
+
+- **Severity:** Low
+- **Location:** `KAY9ScanRegistry.guardian` (immutable), set to `cfg.ownerSafe` by the script.
+- **Scenario:**
+  1. The owner Safe is later replaced: its signers are rotated by migrating to a new Safe, or it is compromised and the timelock revokes its proposer and executor roles.
+  2. The old address keeps `revokeScanner` power forever, and nothing can remove it.
+  3. If that address is hostile, it can revoke every scanner instantly each time governance re-adds one 48 hours later. Basic scans are then permanently denied, and the only recovery is a new `KAY9ScanRegistry`, which splits the scan history.
+- The guardian can only remove scanners, so the harm is denial of service, not false data.
+- **Fix:** let the timelocked owner change the guardian (`setGuardian`, `onlyOwner`), or let the guardian renounce its own role.
+
+### N4. Removal now halts in cases that used to keep running
+
+- **Severity:** Informational (operational; fails safe)
+- **Location:** `KAY9AuditorRegistry.removeAuditor`.
+- Removing one compromised key from 3-of-3, or removing an auditor before the replacement is added during a rotation, now halts every report and every job finalisation until `setThreshold` executes.
+- Governance should always put `removeAuditor` together with `addAuditor` and/or `setThreshold` in one `scheduleBatch`, so the halt never happens by accident. This deserves one line in the operations runbook.
+
+### Checked and found correct
+
+- **The new dispute rule** (active holders plus silent auditors, checked per position over `_jobDigests`) never disputes a job that some position could still finalise with the current set and threshold. A removed-then-re-added holder is counted correctly as active, and the loops are bounded by `MAX_AUDITORS = 32` times the number of positions.
+- **`finalizeAgreed`** keeps the deadline, the requirement that the submitter be an auditor, the asset match and the active-holder filter. It skips `_checkResult`, which is safe, because the digest can only match a position that passed `_checkResult` when it was attested.
+- **`renounceOwnership` overrides** declared `view` compile, and they revert for the owner.
+- **`MAX_AUDITORS`** is enforced in both the constructor and `addAuditor`.
+- **`AnalyzedInFuture`** is applied on both result paths.
+- **The chain allowlist in the script** (4663, 46630, 31337) and the refusal of the deployer as auditor or scanner are both correct.
+
+---
+
+## 3. Do I accept each written disposition?
+
+| Disposition | Accept? | Reason |
+|---|---|---|
+| F1 remainder: a scanner's value is its own claim; `scannedAtBlock` was not made monotonic | **Yes, with one addendum** | The argument is right: `scannedAtBlock` cannot be checked on-chain, and one far-future value would freeze the asset. "Newest batch wins" is the better rule. Addendum: because a revoked scanner's values stay in `latestScan`, integrators should be told to check `isScanner(getBatch(batchId).scanner)`. After any revocation, operators should re-index every asset the revoked scanner touched; the `AssetScanned` events identify them. |
+| F2: `latestSummary` still returns `committedAt`, not `analyzedAt` | **Yes** | Keeping the interface stable is reasonable because `latestSnapshot` exists. However, F2 itself is only narrowed (N1). |
+| F6: documented, signature unchanged | **Yes** | A `scanLeaf` output cannot collide with a node, and breaking existing verifiers is a real cost. The stated property 5 ("`verifyScan` accepts exactly the leaves") should be reworded to "accepts exactly the leaves when given a `scanLeaf` output". An additive `verifyScanFields` wrapper would cost nothing and break nothing. |
+| F7: halted state accepted | **Yes** | It fails safe, and it is announced by `QuorumHalted` and `isHalted`. |
+| F8: auditors still need the 48-hour timelock | **Yes** | An instant remover would let one key halt the quorum, and a lone compromised auditor still needs a second key to publish. The residual risk: during those 48 hours, a compromised auditor can still submit (and so choose `reportURI` for) finalisations it sits on, and can cast a contradicting vote. When the threshold equals the auditor count, one contradicting vote is enough to dispute a job, because unanimity is then impossible. That is a denial of service, not false data. |
+| F9: front-running `attest` | **Yes** | The recorded position is identical; only the original transaction fails. |
+| F9: a dispute is final even if the auditor set later grows | **Yes** | The requester is refunded, and it can simply request again. |
+| F9: `setAccessVault` does not check the vault's hub | **Yes, provisionally** | The disposition relies on `Deploy.s.sol` setting the vault's hub, which is out of my scope and which I did not read. A mismatch makes requests revert, which fails safe. A one-line `require(accessVault_.auditHub() == address(this))` would still remove the dependency. |
+
+---
+
+## 4. Not covered
+
+- **Unverified dispositions:** I did not read `Deploy.s.sol`, `KAY9AccessVault` beyond earlier signatures, or the OpenAI review. The F9 `setAccessVault` disposition therefore rests on a claim I did not check.
+- **Unfinished suites:** I did not finish the invariant or fork suites on this tree. A full `forge test` run without the fork suite was still running at the 10-minute mark, and I stopped following it after the unit suites passed.
+- **Deployed instances:** I did not examine any deployed instance.
+- **Off-chain behaviour:** the scanner and signer services, and the batch document format, are out of scope. N1's practical frequency depends on how often jobs and watchdog updates overlap on the same asset, which I did not measure.
+
+## Reviewer
+
+Claude Opus 5.5 (model id `claude-opus-5-5[1m]`, 1M-context variant), by Anthropic, running as a Claude Code subagent. Verification date 2026-09-25.
+
 ## The review, verbatim
 
 One local file path in the reviewer's toolchain note is replaced, and marked where it was. Nothing

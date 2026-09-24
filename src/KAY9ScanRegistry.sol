@@ -141,7 +141,16 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @dev It can only take power away: it can de-authorise a scanner and nothing else. A leaked
     ///      scanner key would otherwise keep overwriting `latestScan` for the 48 hours a timelocked
     ///      removal takes. Adding a scanner stays with the owner, behind the timelock.
-    address public immutable guardian;
+    ///
+    ///      Replaceable by the owner, so a retired or compromised guardian address can be retired
+    ///      with the rest of governance (watchdog review, round two); an immutable one could have
+    ///      revoked every scanner governance re-added, for good.
+    address public guardian;
+
+    /// @notice Emitted when the owner replaces the guardian.
+    /// @param previous The old guardian.
+    /// @param current The new guardian.
+    event GuardianUpdated(address indexed previous, address indexed current);
 
     /// @notice Addresses authorised to commit batches.
     /// @dev Auditors are not scanners by default. A basic scan is one key's claim, so every key
@@ -180,6 +189,7 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     constructor(address owner_, address guardian_, address[] memory initialScanners) Ownable(owner_) {
         if (guardian_ == address(0)) revert ZeroAddress();
         guardian = guardian_;
+        emit GuardianUpdated(address(0), guardian_);
         for (uint256 i = 0; i < initialScanners.length; ++i) {
             address scanner = initialScanners[i];
             if (scanner == address(0)) revert ZeroAddress();
@@ -391,6 +401,14 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
         if (msg.sender != guardian) revert NotGuardian(msg.sender);
         isScanner[scanner] = false;
         emit ScannerUpdated(scanner, false);
+    }
+
+    /// @notice Replaces the guardian. Owner only, so behind the timelock in production.
+    /// @param newGuardian The new guardian.
+    function setGuardian(address newGuardian) external onlyOwner {
+        if (newGuardian == address(0)) revert ZeroAddress();
+        emit GuardianUpdated(guardian, newGuardian);
+        guardian = newGuardian;
     }
 
     /// @notice Disabled. An ownerless registry could never authorise a replacement scanner.
