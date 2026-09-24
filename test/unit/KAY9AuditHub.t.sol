@@ -1677,6 +1677,31 @@ contract KAY9AuditHubTest is Kay9TestBase {
         assertEq(reportRegistry.reportCount(), 0, "neither result reached the log");
     }
 
+    /// @notice A contested dispute reports the largest agreement, whichever position was submitted.
+    function test_aContestedDisputeReportsTheLargestAgreement() public {
+        uint256 dKey = 0xD00D;
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (vm.addr(dKey))));
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (3)));
+        _outliveGovernance();
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+
+        AuditResult memory x = _result();
+        x.reportHash = keccak256("x");
+        AuditResult memory y = _result();
+        y.reportHash = keccak256("y");
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+        _attestAlone(jobId, x, _keyOf(signers[1]), _hash(jobId, x));
+        _attestAlone(jobId, y, _keyOf(signers[2]), _hash(jobId, y));
+
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (1)));
+
+        vm.expectEmit(true, false, false, true, address(hub));
+        emit KAY9AuditHub.AuditDisputed(jobId, 3, 2, 1);
+        vm.prank(auditorAddresses[0]);
+        hub.finalizeAgreed(jobId, y);
+    }
+
     /// @notice A removal that makes agreement impossible can be disputed without another vote.
     function test_checkDisputeSettlesAMembershipOnlyImpossibility() public {
         _outliveGovernance();

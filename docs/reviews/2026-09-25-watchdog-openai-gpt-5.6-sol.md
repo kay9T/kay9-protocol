@@ -313,6 +313,172 @@ Model
 Model: GPT-6 Astra Pro.
 Version detail: No finer internal build or weights-revision identifier is exposed to me.
 
+## Final confirmation at `watchdog-review-3`
+
+Same thread, on `c6cc435824c1b1da7c87920ecb248f7ba01ccdd3`. **R2-01 to R2-04 closed, and the
+commit confirmed for the watchdog deployment.** One new low finding, R3-01: a contested dispute
+reported the submitted position's size instead of the largest agreement in its event. **Fixed at
+`watchdog-review-4`**: every position is counted before the decision, and the event carries the
+largest active agreement. Regression: `test_aContestedDisputeReportsTheLargestAgreement`.
+
+### The confirmation, verbatim
+
+solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+KAY9 Watchdog — Final Confirmation Review
+
+Repository: kay9T/kay9-protocol
+Commit reviewed: c6cc435824c1b1da7c87920ecb248f7ba01ccdd3
+Comparison baseline: dc56681878eaae5f1a9b35ac7e14041b0706a654
+
+The opening quotation is from src/KAY9AuditHub.sol:1–2 at the requested commit. Its blob SHA is aea44245ae21227c59240822f77b8964902e36b2.
+
+1. Deployment decision
+
+Yes: I confirm this commit for the described pre-token watchdog deployment from a source-review perspective. R2-01 through R2-04 are closed. I found no deployment-blocking code defect in this closing pass.
+
+One new Low-severity correctness defect remains: the contested-quorum path can emit an incorrect AuditDisputed.bestAgreement value. It does not select or publish the wrong report, bypass quorum, or change quota restoration. It is documented as R3-01 below rather than concealed by the deployment confirmation.
+
+That defect is on the requested-job path, which cannot operate in the described initial deployment because the hub has no access vault. However, the hub is intended to be the permanent one: deploying this commit retains the diagnostic defect for later requested-job operation. Correcting it before deployment avoids accepting it in that permanent contract.
+
+This confirmation does not certify that compilation, the Solidity test suite, deployment rehearsal, or production configuration checks have passed. Those verification limits are stated in section 5.
+
+2. Verification of R2-01 through R2-04
+Finding	Status	Reason
+R2-01 — A requested report resets watchdog freshness	Closed	recordReport updates _maxAnalyzedAt using the maximum of the existing value and the appended result’s analysis time. Both report paths use this append function. latestAnalyzedAt returns that maximum, with existence determined separately from the history. An older requested result can still settle, but cannot lower the watchdog admission boundary.
+R2-02 — A retired guardian retains permanent revocation power	Closed	guardian is replaceable through setGuardian, which is onlyOwner, rejects zero, and emits the old and new addresses. revokeScanner checks the current guardian variable, so the previous guardian loses this capability immediately when replacement executes. The deployment assigns ownership to the timelock.
+R2-03 — Membership-only impossibility cannot trigger a dispute	Closed	Permissionless checkDispute(jobId) supplies the missing entry point without requiring a new vote. It checks existence, Requested status and the job’s frozen deadline, then invokes the membership-aware calculation. A successful dispute sets the terminal status and restores quota; another call cannot restore it again. A zero threshold retains the explicitly accepted halted behavior.
+R2-04 — Historical votes overflow despite a 32-member current-set cap	Closed for the reported failure	Job.attestations, digestVotes, bestAgreement, the local votes variable and the corresponding event counters are widened to uint16. The reported quorum-forming 256th vote no longer encounters a uint8 increment or truncation. The quorum threshold remains separately represented as uint8. This closes the demonstrated failure; it is not a claim that arbitrary historical growth can never exhaust a finite counter or transaction gas.
+R2-01: the original interleaving is now rejected
+
+For the previously reported sequence—watchdog analysis at 11:00, followed by a requested-job analysis at 10:00—the stored maximum remains 11:00. A previously unpublished watchdog result analysed at 10:30 is therefore rejected.
+
+The distinction between commitment order and analysis freshness remains important. latest still returns the last committed record; latestAnalyzedAt now returns the greatest analysis timestamp across the asset’s history. The fix does not prevent historical requested-job results from being appended, nor does it represent their scores as belonging to the maximum timestamp.
+
+R2-03: the original no-vote-left scenario now has an exit
+
+With auditors A, B, C and threshold two, suppose A holds X, B holds Y, and silent auditor C is removed. Calling checkDispute now finds zero silent current auditors and a maximum active agreement of one. It disputes the job without needing a signature from an already-voted or removed auditor.
+
+At or after the deadline, checkDispute rejects the call and leaves expiry to markExpired. This preserves the existing hard deadline rather than creating overlapping terminal paths.
+
+3. New finding in the changed code
+R3-01 — A contested-quorum dispute reports the submitted position’s size, not the largest agreement
+
+Severity: Low
+Status: Open
+Locations: src/KAY9AuditHub.sol:829–831 and 842–845
+
+When _finalizeUnlessContested finds another qualifying position, it calls:
+
+solidity
+_dispute(jobId, job, holders.length, required);
+
+Here, holders.length is the number of active holders of the submitted position. It is not necessarily the largest active agreement on the job. _dispute emits that argument as AuditDisputed.bestAgreement, even though its parameter documentation explicitly identifies it as the largest active agreement.
+
+Concrete failure scenario
+
+Governance has configured six current auditors, A through F, threshold four, and a sufficiently long SLA for the job to remain pending across a timelock operation.
+
+A requester opens a valid job.
+
+A, B and C attest to result X. D and E attest to contradictory result Y. F remains silent.
+
+The job remains Requested: X has three active holders and can still reach four through F.
+
+Governance lowers the threshold to two before the job expires.
+
+A current auditor calls finalizeAgreed(jobId, Y).
+
+Both positions meet the new threshold. The contract correctly disputes the job, writes neither result to the report registry, and restores its quota unit. But it emits:
+
+AuditDisputed(jobId, 5, 2, 2)
+
+The largest active agreement is three, so the documented event value should instead be:
+
+AuditDisputed(jobId, 5, 3, 2)
+
+Calling finalizeAgreed(jobId, X) from the equivalent starting state produces the latter value. Thus the caller can affect the reported bestAgreement by choosing which qualifying position to submit, even though the terminal dispute outcome is correctly independent of that choice.
+
+Impact
+
+The on-chain dispute event contains an incorrect diagnostic value. Consumers reconstructing agreement strength from this event receive different answers for equivalent disputes.
+
+This is not a surviving version of the contradictory-report selection defect: neither result enters KAY9Registry, and quota restoration still occurs once.
+
+Suggested fix
+
+Count the active holders of all recorded positions, retain the maximum, and separately determine whether more than one position meets the threshold. If the result is contested, pass the actual maximum into _dispute.
+
+Do not return immediately on the first competing quorum if the event continues to promise the largest active agreement.
+
+Deployment relevance
+
+This does not block basic scan commitments or pre-token watchdog publication. It is nevertheless a real correctness defect in the permanent hub, not merely an inaccurate comment.
+
+4. Review of the other changed behavior
+Contradictory recorded quorums no longer let the submitter select the report
+
+Both requested-report finalisation routes now pass through _finalizeUnlessContested after establishing that the submitted position meets the current nonzero quorum.
+
+The helper checks the other recorded digests using current active holders, not historical vote counts. If another position also meets the threshold, it disputes the job rather than recording either result. Consequently, the second family’s demonstrated lowered-threshold report-selection scenario is closed on both attest and finalizeAgreed. The remaining issue is the event value identified above.
+
+This guarantee concerns positions already recorded on-chain. It cannot account for contradictory signatures that have never been submitted; I have not interpreted the fix as claiming otherwise.
+
+The new permissionless function does not create a report-writing bypass
+
+checkDispute accepts only a job ID. It cannot supply a result, replace a digest, nominate signers or append a report. Its terminal action uses the same dispute routine as the other paths. The entry point is non-reentrant and requires the job still to be Requested. I found no new arbitrary-dispute or repeated-refund path in this change.
+
+Guardian replacement preserves the separation of powers
+
+The new setter changes the guardian address; it does not grant scanner authorization or transfer ownership. The guardian’s direct capability remains scanner revocation, while scanner authorization remains onlyOwner. Replacing a guardian does not automatically reauthorize scanners that the previous guardian already revoked.
+
+The counter change requires the new ABI
+
+Widening the counters also changes the canonical signatures of AuditAttested and AuditDisputed, and therefore their event topics. Deployment artifacts and event consumers must use the ABI generated from this commit rather than the round-two ABI. This is a release-integration requirement, not a defect in the widening itself. The event declaration changes are visible in the pinned source; Solidity defines the event signature using its parameter types. 
+Solidity Documentation
+
+5. Verification evidence and limits
+Source and regression-test inspection
+
+I read the changed contract logic at the pinned commit and the disposition entries. The added Solidity regressions inspected were:
+
+Regression	What its assertions cover
+test_aJobRecordDoesNotReopenTheWatchdogFreshnessWindow	Rejecting the older watchdog result after an intervening historical job result.
+test_theOwnerReplacesTheGuardian	Rejecting guardian self-replacement, permitting owner replacement, denying the old guardian and permitting the replacement.
+test_checkDisputeSettlesAMembershipOnlyImpossibility	Leaving a still-reachable job open, disputing after removal of the silent member, and rejecting a repeated terminal call.
+test_contestedPositionsAfterALoweredThresholdDispute	Disputing through finalizeAgreed without appending either contradictory result.
+
+These are inspected test definitions, not tests I executed. The added contested-position test uses equal-sized positions, so it does not expose R3-01.
+
+Executed model checks
+
+I executed independent Python models of the relevant state transitions. They exercised the high-water-mark behavior, guardian replacement, membership-only dispute, halt and deadline boundaries, the quorum-forming 256th historical vote, and contested finalisation through both public routes.
+
+The small-model checks covered 1,024 timestamp sequences and 114,688 membership/position/threshold combinations. The models also reproduced R3-01: choosing X versus Y produced different bestAgreement event values while preserving the same dispute status, empty report output and single quota restoration.
+
+These checks do not execute Solidity, ECDSA recovery, storage layout, gas accounting or EVM calls.
+
+Not verified
+
+I did not compile this tree, run Foundry, execute Solidity proofs of concept, measure deployed bytecode size, or perform a live-chain deployment rehearsal. The GitHub check-run query for this exact commit returned no runs; that is an absence of execution evidence, not a test failure.
+
+I did not verify production Safe control, actual deployed roles, deployed bytecode hashes, chain connectivity, or successful ArbSys selection in deployed contracts. Launch contracts, off-chain services and access-vault custody remain outside this closing review.
+
+6. Remaining items and scope of confirmation
+
+Deployment-blocking code findings identified in this pass: none.
+
+Open code finding: R3-01, Low severity, concerning requested-job dispute-event accuracy. It does not invalidate the closure of R2-01 through R2-04.
+
+The previously accepted boundaries remain accepted, not eliminated: scanner-supplied latest scores are not proven against their batch roots; scannedAtBlock is a scanner assertion; threshold zero is a permitted halted state; and report submission remains auditor-only with an unsigned URI. None of these was represented as newly fixed in this round.
+
+The release checks still needing independent confirmation are a successful build and Solidity test run for this exact commit, use of its generated ABI, and verification of the intended chain, contract wiring, governance delay and deployed roles. Their unverified status limits this report to source-review deployment confirmation, rather than certification that all operational release gates have passed.
+
+Model
+
+GPT-6 Astra Pro. No finer internal build or weights-revision identifier is exposed to me.
+
 ## The review, verbatim
 
 The text below is the reply as ChatGPT displayed it, copied from the thread without edits.

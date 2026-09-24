@@ -824,12 +824,20 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         address[] memory holders,
         uint8 required
     ) private returns (uint256 reportId) {
+        // Counts every position before deciding, so the dispute event reports the largest active
+        // agreement whichever qualifying position the caller submitted (final review, R3-01).
         bytes32[] storage digests = _jobDigests[jobId];
+        bool contested = false;
+        uint256 best = holders.length;
         for (uint256 i = 0; i < digests.length; ++i) {
-            if (digests[i] != digest && _activeHolders(jobId, digests[i]).length >= required) {
-                _dispute(jobId, job, holders.length, required);
-                return 0;
-            }
+            if (digests[i] == digest) continue;
+            uint256 active = _activeHolders(jobId, digests[i]).length;
+            if (active >= required) contested = true;
+            if (active > best) best = active;
+        }
+        if (contested) {
+            _dispute(jobId, job, best, required);
+            return 0;
         }
         return _finalize(jobId, job, result, holders);
     }
