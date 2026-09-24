@@ -13,6 +13,21 @@ since has reported anything above Medium.
 Every earlier revision of this file described contracts that no longer exist (the payment split,
 `submitResult`, `TreasuryUpdated`). Nothing below is carried over unread.
 
+## Watchdog stack at `watchdog-review-4` (2026-09-25)
+
+Re-run on the four watchdog contracts after both model reviews' fixes, same command as below.
+
+| Contract | Findings | By impact and check |
+|---|---|---|
+| `KAY9AuditHub` | 27 | Low: `timestamp` 15, `calls-loop` 8, `reentrancy-benign` 1, `reentrancy-events` 1; Informational: `unindexed-event-address` 2 |
+| `KAY9ScanRegistry` | 3 | Medium: `incorrect-equality` 1 (the Merkle root comparison in `verifyScan`, a false positive recorded below); Low: `timestamp` 2 |
+| `KAY9Registry` | 4 | Low: `timestamp` 4 |
+| `KAY9AuditorRegistry` | 0 | |
+
+Nothing new: every class was present and explained in the run below. `calls-loop` is the auditor-set
+reads, now bounded by `MAX_AUDITORS`; the reentrancy lines are `requestAudit`'s call to the vault,
+which is `nonReentrant` and trusted.
+
 ## How to reproduce
 
 `crytic-compile` still cannot read the `out/build-info` layout Foundry writes, so slither's
