@@ -46,6 +46,16 @@ contract KAY9AuditorRegistry is Ownable2Step {
     /// @param count The current auditor count.
     error InvalidThreshold(uint8 threshold, uint256 count);
 
+    /// @notice Thrown when adding an auditor would exceed `MAX_AUDITORS`.
+    error TooManyAuditors();
+
+    /// @notice Thrown by `renounceOwnership`: an ownerless registry could never replace a key.
+    error RenounceDisabled();
+
+    /// @notice The largest auditor set allowed.
+    /// @dev The hub counts votes in uint8 and loops over the set; a bound keeps both honest.
+    uint256 public constant MAX_AUDITORS = 32;
+
     /// @notice The ordered auditor set.
     address[] private _auditors;
 
@@ -97,15 +107,16 @@ contract KAY9AuditorRegistry is Ownable2Step {
     }
 
     /// @notice Removes an auditor.
-    /// @dev The threshold follows the set down when it would otherwise exceed it, so a removal can
-    ///      never leave a quorum larger than the number of auditors able to meet it.
+    /// @dev A removal that leaves fewer auditors than the threshold **halts** the registry: the
+    ///      threshold becomes zero, and `KAY9AuditHub` treats a zero threshold as unusable, so no
+    ///      attestation finalises and no watchdog report can be published until the owner names a
+    ///      new quorum with `setThreshold`. An earlier version lowered the threshold to the number
+    ///      left, so removing two of three auditors at threshold two left one key able to publish
+    ///      alone; the quorum only ever shrinks by an explicit decision now.
     ///
-    ///      Removing the **last** auditor is deliberately still allowed, and lands the registry in
-    ///      a halted state: the threshold becomes zero, and `KAY9AuditHub` treats a zero threshold
-    ///      as unusable, so no attestation finalises and no watchdog report can be published. That
-    ///      is the honest outcome of "every key is compromised, remove them all", and refusing the
-    ///      final removal would be worse — it would force the owner to leave one compromised key
-    ///      in place, with the threshold dropped to one, which is a key that can sign alone.
+    ///      Removing every auditor is still allowed and lands in the same halted state. That is the
+    ///      honest outcome of "every key is compromised, remove them all"; refusing the removal
+    ///      would force the owner to leave a compromised key in place.
     ///
     ///      The state is announced with `QuorumHalted` rather than left to be inferred from a
     ///      `ThresholdUpdated(0)`, and `isHalted` reports it, because `setThreshold` itself refuses
@@ -130,13 +141,12 @@ contract KAY9AuditorRegistry is Ownable2Step {
         delete _indexPlusOne[auditor];
         emit AuditorRemoved(auditor);
 
-        uint256 remaining = _auditors.length;
-        if (threshold > remaining) {
-            threshold = uint8(remaining);
-            emit ThresholdUpdated(uint8(remaining));
+        if (threshold > _auditors.length) {
+            threshold = 0;
+            emit ThresholdUpdated(0);
             // Zero is not an ordinary threshold — `setThreshold` refuses it — so it is announced
             // as what it is rather than left to be read off the line above.
-            if (remaining == 0) emit QuorumHalted();
+            emit QuorumHalted();
         }
     }
 
@@ -162,10 +172,16 @@ contract KAY9AuditorRegistry is Ownable2Step {
         emit ThresholdUpdated(newThreshold);
     }
 
+    /// @notice Disabled. An ownerless registry could never replace a compromised key.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
+    }
+
     /// @notice Shared add path used by the constructor and by addAuditor.
     /// @param auditor The address to add.
     function _addAuditor(address auditor) private {
         if (auditor == address(0)) revert ZeroAuditor();
+        if (_auditors.length >= MAX_AUDITORS) revert TooManyAuditors();
         if (_indexPlusOne[auditor] != 0) revert AlreadyAuditor(auditor);
         _auditors.push(auditor);
         _indexPlusOne[auditor] = _auditors.length;

@@ -168,10 +168,19 @@ contract KAY9AuditorRegistry is Ownable2Step {
     function auditorCount() external view returns (uint256);
     function threshold() external view returns (uint8);
     function addAuditor(address auditor) external;     // onlyOwner (Timelock)
-    function removeAuditor(address auditor) external;  // onlyOwner
+    function removeAuditor(address auditor) external;  // onlyOwner; halts (threshold 0) if fewer auditors than the threshold remain
     function setThreshold(uint8 threshold) external;   // onlyOwner
+    function isHalted() external view returns (bool);  // threshold == 0
+    uint256 public constant MAX_AUDITORS = 32;
+    function renounceOwnership() external;             // always reverts RenounceDisabled
 }
 ```
+
+A removal that would leave fewer auditors than the threshold **halts** the registry rather than
+lowering the threshold: nothing is attested or published until the owner names a new quorum with
+`setThreshold`. Lowering it automatically let two removals out of three leave one key able to
+publish alone (watchdog review, 2026-09-25). The threshold is therefore either zero, meaning halted,
+or within [1, auditor count].
 
 ## KAY9AccessVault
 
@@ -311,7 +320,7 @@ two carry different claims, and the product depends on nobody confusing them.
 | | `KAY9ScanRegistry` | `KAY9Registry` |
 |---|---|---|
 | Claim | reproducibility — "this is what the published engine computes" | consensus — "two of three auditors signed the same result" |
-| Writer | one authorised scanner, or any auditor | the audit hub only, after quorum |
+| Writer | an authorised scanner | the audit hub only, after quorum |
 | Trigger | automatic, on discovery and on re-scan | a request that consumed access quota |
 | Cost shape | one transaction per **batch** | one transaction per report |
 | Anyone can recompute it | yes, from public chain state at the stated block | no, it depends on the auditors' private analysis |
@@ -347,18 +356,22 @@ contract KAY9ScanRegistry {
     event AssetScanned(bytes32 indexed chainKey, bytes32 indexed assetId, uint256 indexed batchId, uint8 overallTrust, uint8 confidence, uint64 flags, uint64 scannedAtBlock);
     event ScannerUpdated(address indexed scanner, bool allowed);
 
-    uint32 public constant MAX_BATCH = 500;
-    KAY9AuditorRegistry public immutable auditors;
+    uint32 public constant MAX_BATCH = 500;          // bounds both count and summaries
+    address public immutable guardian;               // may revoke a scanner at once, nothing else
     mapping(address => bool) public isScanner;
+
+    constructor(address owner_, address guardian_, address[] memory initialScanners);  // owner is the timelock from the first block
 
     function assetKey(bytes32 chainKey, bytes32 assetId) external pure returns (bytes32);   // keccak256(abi.encode(chainKey, assetId))
     function scanLeaf(bytes32 chainKey, bytes32 assetId, uint8 overallTrust, uint8 confidence, uint64 flags, uint32 engineVersion, uint64 scannedAtBlock, bytes32 reportHash) external pure returns (bytes32);
-    function commitScanBatch(bytes32 root, uint32 count, uint32 engineVersion, string calldata uri, ScanSummary[] calldata summaries) external returns (uint256 batchId);  // scanner or auditor
+    function commitScanBatch(bytes32 root, uint32 count, uint32 engineVersion, string calldata uri, ScanSummary[] calldata summaries) external returns (uint256 batchId);  // authorised scanner only
     function verifyScan(uint256 batchId, bytes32 leaf, bytes32[] calldata proof) external view returns (bool);
     function batchCount() external view returns (uint256);
     function getBatch(uint256 batchId) external view returns (ScanBatch memory);
     function latestScan(bytes32 chainKey, bytes32 assetId) external view returns (bool scanned, uint256 batchId, uint8 overallTrust);
     function setScanner(address scanner, bool allowed) external;  // onlyOwner
+    function revokeScanner(address scanner) external;             // guardian only, no delay
+    function renounceOwnership() external;                        // always reverts RenounceDisabled
 }
 ```
 
@@ -383,23 +396,35 @@ Notes that a caller has to know:
 - **`verifyScan` reverts on an unknown batch rather than returning false.** False would be
   indistinguishable from "not in this batch", and a caller that got the id wrong deserves to be
   told.
-- **The contract does not check that the summaries are the batch's leaves, and cannot.** Checking
-  would mean rebuilding the tree on-chain, which costs more than the record is worth and defeats
-  the point of batching. Instead it publishes both the root and the summaries, so a scanner that
-  publishes summaries its own root does not support is caught by the first person who checks — and
-  the evidence stays on-chain for good.
+- **`latestScan` is an index the scanner supplies, not a value proven against the root.** The
+  contract does not check that the summaries are the batch's leaves. It publishes both the root and
+  the summaries, so a scanner that publishes summaries its own root does not support is caught by
+  the first person who checks, the evidence stays on-chain for good, and the guardian can revoke the
+  scanner at once. The newest batch always wins, so the next honest batch that indexes the asset
+  replaces a bad value. Proving each summary would put a Merkle proof per indexed scan in calldata,
+  which this chain pays for on its parent chain. Scores above 100 are refused.
+- **`verifyScan` proves that a hash is in the tree.** Pass a leaf computed with `scanLeaf` from the
+  scan's fields. Given the root itself or an internal node it also returns true, and neither says
+  anything about a scan; a double-hashed leaf cannot collide with a node.
+- **`scannedAtBlock` is the scanner's statement** of the block it read, on the scanned asset's own
+  chain. The contract records it and cannot check it. `committedBlock` is the one the contract
+  reads itself, from ArbSys.
 - **`count` is the batch; `summaries` is the subset indexed on-chain.** Every scan in the batch is
   committed to `root` and provable with `verifyScan`, whether or not it is indexed. Indexing an
   asset costs a cold storage write — measured at about 24,700 gas, against roughly 150,000 for the
   whole batch however large — so on a chain producing tens of thousands of launches a day,
   indexing everything would cost thousands of dollars a month and indexing what people have
   actually bought costs tens. A batch that claims to hold fewer scans than it indexes is refused
-  with `CountTooSmall`.
+  with `CountTooSmall`, and one that claims more than `MAX_BATCH` with `BatchTooLarge`.
 - **A scanner can only ever append.** There is no function, owner-only or otherwise, that alters or
   removes a committed batch. Removing a scanner stops it committing again and changes nothing it
   already committed.
-- **Auditors may commit without a separate scanner registration.** They already run the engine for
-  deep and forensic work, so a second registration would be bookkeeping with no security value.
+- **Auditors are not scanners by default.** A basic scan is one key's claim, so every key that can
+  make one is named in `isScanner`, and one auditor key cannot move a headline score that the
+  report path needs a quorum for.
+- **Governance owns it from the first block.** The constructor takes the timelock as owner and the
+  initial scanners, so the deploying key never owns it. The guardian, the owner's address, can
+  only revoke a scanner; adding one goes through the 48-hour timelock.
 
 ## KAY9Registry
 
@@ -459,6 +484,7 @@ contract KAY9Registry {
     function historyCount(bytes32 chainKey, bytes32 assetId) external view returns (uint256);
     function history(bytes32 chainKey, bytes32 assetId, uint256 offset, uint256 limit) external view returns (uint256[] memory reportIds); // same clamping as getReports
     function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);
+    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint64 analyzedAt);  // the hub's freshness rule for watchdog reports
     function latestSummary(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSummaryForToken(bytes32 chainKey, address token) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint8 declaredRequesterKind, uint64 analyzedAt, uint64 committedAt);
@@ -550,7 +576,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     function requestAudit(bytes32 chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind) external returns (uint256 jobId);
     function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands; reverts JobExpired at or after jobExpiresAt
     function markExpired(uint256 jobId) external;                                    // permissionless at or after jobExpiresAt; restores the quota unit
-    function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor
+    function finalizeAgreed(uint256 jobId, AuditResult calldata result) external returns (uint256 reportId);  // caller must be an active auditor; settles a recorded position that meets the current threshold
+    function publishWatchdogReport(AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; analyzedAt must be newer than the asset's latest record
+    function renounceOwnership() external;                                            // always reverts RenounceDisabled
     function watchdogReportCommitted(bytes32 digest) external view returns (bool);
 
     function getJob(uint256 jobId) external view returns (Job memory);
@@ -643,13 +671,18 @@ the log with it.
   the last of them, so the holders of a position are re-checked at the moment it would finalise.
   An operator removed through the timelock cannot carry a job over the line on a stale vote.
 - The job becomes `Disputed` as soon as agreement is arithmetically out of reach, that is when
-  `bestAgreement + silent < threshold`, where `silent` counts **currently active** auditors who
-  have not attested to this job at all, not `auditorCount - attestations`. The raw difference can
-  undercount silence once the set has rotated mid-job — an attestation from an auditor since
-  removed still increments `attestations` — and read a still-active, still-silent auditor as
-  having already spoken, when it could still bring either open position to quorum. With three
-  auditors, a threshold of two and no rotation, three mutually different results still dispute
-  the job.
+  `bestActive + silent < threshold`. `bestActive` is the largest number of **currently active**
+  auditors holding any one position, and `silent` counts currently active auditors who have not
+  attested to this job at all. Both are membership-aware: a removed auditor's vote neither fills a
+  silent seat nor counts toward a position, because a removed auditor's vote can never finalise.
+  With three auditors, a threshold of two and no rotation, three mutually different results still
+  dispute the job. A halted registry (threshold zero) disputes nothing; the job can still expire.
+- `attest` only checks the position it adds to. If governance lowers the threshold, a position
+  recorded earlier can come to meet it with no auditor able to add a vote, so `finalizeAgreed`
+  settles it.
+- Every score in a result must be at most 100, and `analyzedAt` may not be in the future. A
+  watchdog report must also be newer, by `analyzedAt`, than the asset's latest record, so no single
+  auditor can publish an older signed snapshot over a newer one.
 - A `Disputed` or `Expired` job restores its quota unit to the period it came from, so a caller is
   never charged a quota for an audit that produced no result.
 

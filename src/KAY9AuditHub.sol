@@ -218,6 +218,23 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @param accessVault The vault.
     event AccessVaultSet(address indexed accessVault);
 
+    /// @notice Thrown when a score in a result is above 100, the top of every trust scale.
+    error ScoreOutOfRange();
+
+    /// @notice Thrown when a watchdog report is not newer than the asset's latest record.
+    /// @dev Without this, any one auditor holding an older quorum-signed report that was never
+    ///      published could publish it after a newer one and make the stale snapshot `latest`.
+    /// @param analyzedAt The rejected report's analysis time.
+    /// @param latestAnalyzedAt The analysis time of the asset's current latest record.
+    error StaleWatchdogReport(uint64 analyzedAt, uint64 latestAnalyzedAt);
+
+    /// @notice Thrown when a result claims to have been analysed in the future.
+    /// @param analyzedAt The rejected analysis time.
+    error AnalyzedInFuture(uint64 analyzedAt);
+
+    /// @notice Thrown by `renounceOwnership`: an ownerless hub could never bind its access vault.
+    error RenounceDisabled();
+
     /// @notice Thrown when a watchdog report that has already been committed is submitted again.
     /// @param digest The EIP-712 digest of the duplicate report.
     error DuplicateWatchdogReport(bytes32 digest);
@@ -259,7 +276,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     ///      the registry somewhere else.
     ///
     ///      So the hub deploys without a vault and does the work that needs no access:
-    ///      `publishWatchdogReport` is permissionless, consumes no quota, and is how a quorum
+    ///      `publishWatchdogReport` needs no request, consumes no quota, and is how a quorum
     ///      publishes an unsolicited deep or forensic report. `requestAudit` is the only thing that
     ///      needs the vault, and it refuses until governance sets one.
     ///
@@ -311,6 +328,11 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
     /// @notice The auditors holding each position on a job, kept in ascending address order.
     mapping(uint256 jobId => mapping(bytes32 digest => address[] signers)) private _digestSigners;
+
+    /// @notice Every distinct position taken on each job, in the order first taken.
+    /// @dev Bounded by the auditor set, which `KAY9AuditorRegistry.MAX_AUDITORS` caps. Kept so the
+    ///      dispute check can count each position's **active** holders after the set rotates.
+    mapping(uint256 jobId => bytes32[] digests) private _jobDigests;
 
     /// @notice The digest of every watchdog report already committed, so none can be replayed.
     mapping(bytes32 digest => bool) public watchdogReportCommitted;
@@ -466,8 +488,10 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         uint256 count = signatures.length;
         if (count == 0) revert NoSignatures();
 
+        _checkResult(result);
         bytes32 digest = hashResult(jobId, result);
         uint8 votes = digestVotes[jobId][digest];
+        if (votes == 0) _jobDigests[jobId].push(digest);
 
         for (uint256 i = 0; i < count; ++i) {
             address signer = ECDSA.recover(digest, signatures[i]);
@@ -476,9 +500,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
 
             attestationOf[jobId][signer] = digest;
             _insertSorted(_digestSigners[jobId][digest], signer);
-            // Checked on purpose. Both counters are uint8 and the auditor set has no ceiling, so a
-            // job that outlived enough rotations could be attested more than 255 times; wrapping
-            // to zero would corrupt the agreement count, and refusing the 256th vote does not.
+            // Checked arithmetic. The auditor set is capped at MAX_AUDITORS, far below 255, so a
+            // job would need many full rotations inside its SLA to reach the limit; if it ever
+            // did, the 256th vote reverts rather than wrapping the agreement count to zero.
             votes += 1;
             job.attestations += 1;
             emit AuditAttested(jobId, signer, digest, votes);
@@ -501,12 +525,45 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         return 0;
     }
 
+    /// @notice Finalises a job whose recorded position already meets the current quorum.
+    /// @dev `attest` only checks the position it has just added to. When governance lowers the
+    ///      threshold, a position recorded earlier can come to meet the quorum with no auditor able
+    ///      to add to it, since each holds one position per job. This settles it. Like `attest` it
+    ///      needs an auditor submitter, because `reportURI` is not signed, and it applies the same
+    ///      deadline and the same active-holder filter.
+    /// @param jobId The job.
+    /// @param result The result the recorded position signed.
+    /// @return reportId The registry index of the recorded report.
+    function finalizeAgreed(uint256 jobId, AuditResult calldata result)
+        external
+        nonReentrant
+        returns (uint256 reportId)
+    {
+        _requireAuditorSubmitter();
+        Job storage job = _jobs[jobId];
+        if (job.status == JobStatus.None) revert UnknownJob(jobId);
+        if (job.status != JobStatus.Requested) revert WrongJobStatus(jobId, job.status);
+        uint64 expiresAt = job.requestedAt + job.slaSeconds;
+        if (block.timestamp >= expiresAt) revert JobExpired(jobId, expiresAt);
+        if (result.chainKey != job.chainKey || result.assetId != job.assetId) revert ResultAssetMismatch();
+
+        bytes32 digest = hashResult(jobId, result);
+        uint8 required = auditors.threshold();
+        address[] memory holders = _activeHolders(jobId, digest);
+        if (required == 0 || holders.length < required) revert QuorumNotMet(holders.length, required);
+        return _finalize(jobId, job, result, holders);
+    }
+
     /// @notice Commits an unsolicited, unpaid report signed by the quorum.
     /// @dev This is the continuous-monitoring path: an asset can be re-reported at any time without
     ///      anyone requesting it, and the registry appends rather than replaces. Unlike a job,
     ///      nothing is consumed by committing one, so the digest is recorded and a second
     ///      submission of the same signed report is refused. Without that, anyone holding one valid
     ///      signature set could append the same record to the permanent log without limit.
+    ///
+    ///      It is not permissionless: the submitter must be an active auditor, for the same
+    ///      `reportURI` reason as `attest`. A report must also be newer, by `analyzedAt`, than the
+    ///      asset's latest record, so no single auditor can make an older signed snapshot `latest`.
     /// @param result The signed result.
     /// @param signatures The 65-byte ECDSA signatures, ordered by ascending signer address.
     /// @return reportId The registry index of the recorded report.
@@ -516,8 +573,13 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         returns (uint256 reportId)
     {
         _requireAuditorSubmitter();
+        _checkResult(result);
         bytes32 digest = hashResult(0, result);
         if (watchdogReportCommitted[digest]) revert DuplicateWatchdogReport(digest);
+        (bool exists, uint64 latestAnalyzedAt) = registry.latestAnalyzedAt(result.chainKey, result.assetId);
+        if (exists && result.analyzedAt <= latestAnalyzedAt) {
+            revert StaleWatchdogReport(result.analyzedAt, latestAnalyzedAt);
+        }
         watchdogReportCommitted[digest] = true;
 
         address[] memory signers = _verifySorted(digest, signatures);
@@ -583,6 +645,22 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     // -------------------------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------------------------
+
+    /// @notice Disabled. An ownerless hub could never bind its access vault.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
+    }
+
+    /// @notice Refuses a result whose scores leave the 0-100 scale or whose analysis is in the future.
+    /// @param result The result.
+    function _checkResult(AuditResult calldata result) private view {
+        if (
+            result.overallTrust > 100 || result.contractTrust > 100 || result.liquidityTrust > 100
+                || result.holderTrust > 100 || result.insiderTrust > 100 || result.creatorTrust > 100
+                || result.tradingTrust > 100 || result.botTrust > 100
+        ) revert ScoreOutOfRange();
+        if (result.analyzedAt > block.timestamp) revert AnalyzedInFuture(result.analyzedAt);
+    }
 
     /// @notice Refuses a submitter that is not an active auditor.
     /// @dev Applied to every path that can append to the registry. `markExpired` does not need it,
@@ -663,47 +741,47 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     }
 
     /// @notice Disputes a job once no position can still reach the threshold.
-    /// @dev The best any position can end at is what it holds now plus every **currently active**
-    ///      auditor who has not yet attested to this job at all. When that is below the threshold,
-    ///      waiting cannot help.
+    /// @dev The best any position can end at is its **active** holders now, plus every currently
+    ///      active auditor who has not attested to this job at all. When that is below the
+    ///      threshold for every position, waiting cannot help.
     ///
-    ///      Silence is counted per active address, not as `auditorCount - job.attestations`. That
-    ///      arithmetic looks equivalent and is not once the auditor set has rotated mid-job: an
-    ///      attestation from an auditor since removed still incremented `job.attestations`, so it
-    ///      silently consumed one "silent" slot that in truth belonged to whichever active auditor
-    ///      had not yet voted. A three-way split — the original holder of a position replaced, the
-    ///      second auditor voting a different result, the replacement voting a third — reached
-    ///      `job.attestations == auditorCount` with the count read as "everyone has spoken" while
-    ///      the one auditor who survived the rotation without voting could still have matched
-    ///      either live position and reached quorum. Counting the active set directly is immune to
-    ///      that: a removed auditor's past vote no longer occupies a currently-active seat.
+    ///      Both halves are membership-aware. Counting silence as `auditorCount - attestations`
+    ///      goes wrong once the set rotates, because a removed auditor's vote still occupies a
+    ///      slot; counting a position by its historical votes goes wrong the same way, because a
+    ///      position whose holders were removed can never finalise (`_activeHolders` filters
+    ///      them). An earlier version used the historical `bestAgreement` and left such a job
+    ///      `Requested` until it expired, even when no position could reach the quorum.
     ///
-    ///      `best` itself stays unfiltered by membership on purpose (see the note on
-    ///      `bestAgreement` and `_activeHolders`): a position's vote count does not shrink just
-    ///      because one of its voters was later removed, matching what `attest`'s own quorum check
-    ///      does. Only the *silent* count needed to become membership-aware.
-    ///
-    ///      A job that can no longer finalise at all — because the auditors holding the leading
-    ///      position have since been removed — still stays `Requested` rather than disputing,
-    ///      until anyone calls `markExpired` after the service level. The requester loses nothing
-    ///      either way: both paths restore the quota unit. Removing an auditor takes 48 hours
-    ///      through the timelock and a job expires in six, so the window is narrow, and the
-    ///      outcome inside it is a slower refund rather than a wrong record.
+    ///      A zero threshold means the registry is halted. Nothing is disputed then, because the
+    ///      owner is expected to restore a quorum, and the job can still expire.
     /// @param jobId The job.
     /// @param job The job storage pointer.
     /// @param required The quorum threshold.
     function _disputeIfUnreachable(uint256 jobId, Job storage job, uint8 required) private {
+        if (required == 0) return;
         address[] memory current = auditors.auditors();
         uint256 silent = 0;
         for (uint256 i = 0; i < current.length; ++i) {
             if (attestationOf[jobId][current[i]] == bytes32(0)) ++silent;
         }
-        uint8 best = bestAgreement[jobId];
+        // Enough silent auditors to reach the quorum on their own: nothing to count.
+        if (silent >= required) return;
 
-        if (uint256(best) + silent >= required) return;
+        uint256 best = 0;
+        bytes32[] storage digests = _jobDigests[jobId];
+        for (uint256 i = 0; i < digests.length; ++i) {
+            address[] storage holders = _digestSigners[jobId][digests[i]];
+            uint256 active = 0;
+            for (uint256 j = 0; j < holders.length; ++j) {
+                if (auditors.isAuditor(holders[j])) ++active;
+            }
+            if (active > best) best = active;
+        }
+
+        if (best + silent >= required) return;
 
         job.status = JobStatus.Disputed;
-        emit AuditDisputed(jobId, job.attestations, best, required);
+        emit AuditDisputed(jobId, job.attestations, uint8(best), required);
         accessVault.restore(job.requester, job.tier, job.accessPeriodStartedAt);
     }
 

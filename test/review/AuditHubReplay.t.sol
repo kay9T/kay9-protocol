@@ -40,6 +40,7 @@ contract AuditHubReplayTest is Kay9TestBase {
         assertEq(reportRegistry.reportCount(), 1, "log did not grow");
 
         // A genuinely new report still goes through.
+        vm.warp(block.timestamp + 1);
         result.analyzedAt += 1;
         bytes[] memory hoistedSignatures1 = _sign(0, result, 2);
         vm.prank(auditorAddresses[0]);

@@ -157,8 +157,8 @@ fake charts, no countdown-to-buy.
 A tier nobody can reach is a tier nobody can check, so deep and forensic analysis is available
 before the token — through a different door, and labelled as such.
 
-**How.** `KAY9AuditHub.publishWatchdogReport` is permissionless, consumes no quota and needs no
-access record: it takes a result and two of three auditor signatures, verifies them against
+**How.** `KAY9AuditHub.publishWatchdogReport` is submitted by an auditor, consumes no quota and
+needs no access record: it takes a result and two of three auditor signatures, verifies them against
 `KAY9AuditorRegistry` on chain, and appends the report to `KAY9Registry`. That path exists for
 continuous monitoring — a quorum publishing an unsolicited report about an asset nobody asked
 about — and a beta deep audit is exactly that: unsolicited, unpaid, requested by nobody on chain.

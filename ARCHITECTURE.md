@@ -169,8 +169,8 @@ claim (two of three independent auditors signed the same result). Putting both i
 would let a reader mistake one for the other, and the product depends on that distinction being
 legible.
 
-- `commitScanBatch(root, count, engineVersion, uri, summaries)` — a scanner or any auditor may
-  commit. Every scan in the batch is committed to `root` and provable with `verifyScan`; only
+- `commitScanBatch(root, count, engineVersion, uri, summaries)` — only an authorised scanner may
+  commit; auditors are not scanners by default, and the owner can revoke a scanner at once. Every scan in the batch is committed to `root` and provable with `verifyScan`; only
   `summaries` additionally gets a storage write and an `AssetScanned` event. That split is a
   measured cost decision: indexing an asset costs about 24,700 gas against roughly 146,000 for the
   batch however large it is, so indexing everything on a chain producing tens of thousands of

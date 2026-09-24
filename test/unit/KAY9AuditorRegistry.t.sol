@@ -12,8 +12,11 @@ import {KAY9AuditorRegistry} from "../../src/KAY9AuditorRegistry.sol";
 ///      through the hub's rotation tests, which is why `removeAuditor` writing a threshold that
 ///      `setThreshold` itself forbids went unnoticed.
 contract KAY9AuditorRegistryTest is Kay9TestBase {
-    /// @notice The threshold never exceeds the number of auditors, through every removal.
-    function test_thresholdFollowsTheSetDown() public {
+    /// @notice A removal that leaves fewer auditors than the threshold halts; it never lowers it.
+    /// @dev An earlier version lowered the threshold to the number left, so removing two of three
+    ///      auditors at threshold two left one key able to publish alone. The quorum only ever
+    ///      shrinks by an explicit `setThreshold` now.
+    function test_aRemovalBelowTheThresholdHaltsInsteadOfLoweringIt() public {
         address[] memory sorted = _sortedAuditors();
         assertEq(auditorRegistry.auditorCount(), 3);
         assertEq(auditorRegistry.threshold(), 2);
@@ -22,31 +25,48 @@ contract KAY9AuditorRegistryTest is Kay9TestBase {
         assertEq(auditorRegistry.auditorCount(), 2, "two left");
         assertEq(auditorRegistry.threshold(), 2, "a two-of-two quorum is still satisfiable");
 
-        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (sorted[1])));
-        assertEq(auditorRegistry.auditorCount(), 1, "one left");
-        assertEq(auditorRegistry.threshold(), 1, "the threshold came down with the set");
-        assertFalse(auditorRegistry.isHalted(), "one auditor is a working registry, not a halt");
-    }
-
-    /// @notice Removing the last auditor halts the registry, and says so.
-    /// @dev Still permitted on purpose. Refusing it would force an owner responding to a total key
-    ///      compromise to leave one compromised key in place with the threshold dropped to one,
-    ///      which is a key that can sign alone — strictly worse than a halt.
-    function test_removingTheLastAuditorHaltsAndAnnouncesIt() public {
-        address[] memory sorted = _sortedAuditors();
-        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (sorted[0])));
-        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (sorted[1])));
-
-        // Called as the owner directly rather than through `_governanceCall`, so the timelock's
-        // own CallScheduled does not arrive first and consume the expectation.
         vm.expectEmit(false, false, false, false, address(auditorRegistry));
         emit KAY9AuditorRegistry.QuorumHalted();
         vm.prank(address(timelock));
-        auditorRegistry.removeAuditor(sorted[2]);
+        auditorRegistry.removeAuditor(sorted[1]);
+        assertEq(auditorRegistry.auditorCount(), 1, "one left");
+        assertEq(auditorRegistry.threshold(), 0, "halted, not lowered to one");
+        assertTrue(auditorRegistry.isHalted(), "and the registry says so");
 
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (1)));
+        assertEq(auditorRegistry.threshold(), 1, "a one-key quorum only by explicit choice");
+    }
+
+    /// @notice Removing every auditor is still allowed and leaves the registry halted.
+    /// @dev Refusing it would force an owner responding to a total key compromise to leave a
+    ///      compromised key in place.
+    function test_removingEveryAuditorLeavesItHalted() public {
+        address[] memory sorted = _sortedAuditors();
+        for (uint256 i = 0; i < 3; ++i) {
+            _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (sorted[i])));
+        }
         assertEq(auditorRegistry.auditorCount(), 0);
         assertEq(auditorRegistry.threshold(), 0, "no quorum can form");
         assertTrue(auditorRegistry.isHalted(), "and the registry says so rather than leaving it to be inferred");
+    }
+
+    /// @notice The set is capped, so the hub's uint8 vote counters cannot overflow through growth.
+    function test_theSetIsCapped() public {
+        uint256 room = auditorRegistry.MAX_AUDITORS() - auditorRegistry.auditorCount();
+        for (uint256 i = 0; i < room; ++i) {
+            vm.prank(address(timelock));
+            auditorRegistry.addAuditor(address(uint160(0xA0000 + i)));
+        }
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AuditorRegistry.TooManyAuditors.selector);
+        auditorRegistry.addAuditor(address(0xFFFFF));
+    }
+
+    /// @notice Ownership cannot be renounced.
+    function test_renounceIsDisabled() public {
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AuditorRegistry.RenounceDisabled.selector);
+        auditorRegistry.renounceOwnership();
     }
 
     /// @notice The halted threshold is a value `setThreshold` refuses to be given directly.

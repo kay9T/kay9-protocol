@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 
-import {KAY9AuditorRegistry} from "../../src/KAY9AuditorRegistry.sol";
 import {KAY9ScanRegistry} from "../../src/KAY9ScanRegistry.sol";
 
 /// @notice Measures what committing a batch actually costs, because the batch size is a cost
@@ -15,11 +14,9 @@ contract ScanBatchGasTest is Test {
     bytes32 internal constant CHAIN = keccak256("eip155:4663");
 
     function setUp() public {
-        address[] memory set = new address[](1);
-        set[0] = address(0xA1);
-        KAY9AuditorRegistry auditors = new KAY9AuditorRegistry(address(this), set, 1);
-        scans = new KAY9ScanRegistry(address(this), auditors);
-        scans.setScanner(scanner, true);
+        address[] memory initial = new address[](1);
+        initial[0] = scanner;
+        scans = new KAY9ScanRegistry(address(this), address(this), initial);
     }
 
     function _batch(uint256 n) internal pure returns (KAY9ScanRegistry.ScanSummary[] memory out) {
@@ -41,7 +38,7 @@ contract ScanBatchGasTest is Test {
         KAY9ScanRegistry.ScanSummary[] memory none = new KAY9ScanRegistry.ScanSummary[](0);
         vm.prank(scanner);
         uint256 before = gasleft();
-        scans.commitScanBatch(bytes32(uint256(99)), 10_000, 3, "ipfs://root-only", none);
+        scans.commitScanBatch(bytes32(uint256(99)), 500, 3, "ipfs://root-only", none);
         console2.log("root-only batch gas", before - gasleft());
     }
 

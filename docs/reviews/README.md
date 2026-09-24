@@ -39,6 +39,25 @@ profit from forcing recovery is argued, not proved.
 The owner accepted these and closed gate 6 for the launch path on 2026-09-25. The watchdog stack's
 reviews are a separate part of the gate and are still to run.
 
+## The watchdog stack
+
+The watchdog contracts (`KAY9AuditorRegistry`, `KAY9AuditHub`, `KAY9Registry`, `KAY9ScanRegistry`)
+and `DeployWatchdog.s.sol` go to mainnet about a month before the token and are as immutable, so
+gate 6 asks the same of them: two model families, at the commit to be deployed, with every finding
+fixed or accepted in writing. The prompt is
+[WATCHDOG_REVIEW_PROMPT.md](WATCHDOG_REVIEW_PROMPT.md).
+
+| Date | Model | Family | Commit | Findings | Status |
+|---|---|---|---|---|---|
+| 2026-09-25 | GPT-5.6 Sol | OpenAI | `watchdog-review-1` (`c38dd247`) | 3 medium, 7 low | six fixed, four accepted in writing; to be verified at `watchdog-review-2`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-openai-gpt-5.6-sol.md) |
+| 2026-09-25 | Claude Opus 5.5 (Fable 5.1 had reached its usage limit) | Anthropic | `watchdog-review-1` (`c38dd247`) | 2 medium, 4 low, 3 informational | four fixed, three fixed in part, two accepted in writing; to be verified at `watchdog-review-2`; [the review, verbatim, with the disposition of each finding](2026-09-25-watchdog-anthropic-claude-opus-5.5.md) |
+
+Both reviews found that one key could move a headline score, that the quorum could quietly shrink
+or stall after auditor rotation, and that the deploying key kept power for 48 hours. Those are
+fixed. What is accepted: `latestScan` is the scanner's own index rather than a value proven against
+the batch root, `scannedAtBlock` is the scanner's statement, and removing an auditor still takes the
+48-hour timelock.
+
 ## Independent copies
 
 Each review file was captured by the Internet Archive's Wayback Machine at the commit that carries

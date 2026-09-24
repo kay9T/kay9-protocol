@@ -8,7 +8,7 @@ import {KAY9ScanRegistry, ScanBatch} from "../../src/KAY9ScanRegistry.sol";
 
 /// @title KAY9ScanRegistryTest
 /// @notice Proves that the automatic basic-scan record is append-only, that only an authorised
-///         scanner or an auditor may add to it, and above all that a scan cannot be shown as
+///         scanner may add to it, and above all that a scan cannot be shown as
 ///         committed unless it really is in the batch it claims.
 /// @dev The Merkle checks are the important ones. Everything else in this contract is bookkeeping;
 ///      `verifyScan` is the part a third party relies on instead of trusting kay9.io, so a proof
@@ -21,6 +21,7 @@ contract KAY9ScanRegistryTest is Test {
     address internal auditor = address(0xA1);
     address internal scanner = address(0x5CA1);
     address internal stranger = address(0xBAD);
+    address internal guardian = address(0x6A2D);
 
     bytes32 internal constant CHAIN = keccak256("eip155:4663");
 
@@ -28,9 +29,9 @@ contract KAY9ScanRegistryTest is Test {
         address[] memory set = new address[](1);
         set[0] = auditor;
         auditors = new KAY9AuditorRegistry(owner, set, 1);
-        scans = new KAY9ScanRegistry(owner, auditors);
-        vm.prank(owner);
-        scans.setScanner(scanner, true);
+        address[] memory initial = new address[](1);
+        initial[0] = scanner;
+        scans = new KAY9ScanRegistry(owner, guardian, initial);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -96,14 +97,72 @@ contract KAY9ScanRegistryTest is Test {
         assertEq(scans.batchCount(), 1, "and the log grew by one");
     }
 
-    /// @notice An auditor may commit without a separate scanner authorisation.
-    function test_auditorMayCommitWithoutBeingRegisteredAsAScanner() public {
-        assertFalse(scans.isScanner(auditor), "the auditor is deliberately not a registered scanner");
+    /// @notice An auditor is not a scanner by default: one auditor key cannot move a headline
+    ///         score that the report path needs a quorum for.
+    function test_anAuditorIsNotAScannerByDefault() public {
+        assertTrue(auditors.isAuditor(auditor), "the auditor is an auditor");
         KAY9ScanRegistry.ScanSummary[] memory one = new KAY9ScanRegistry.ScanSummary[](1);
         one[0] = _summary(2, 10);
         vm.prank(auditor);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.NotAScanner.selector, auditor));
         scans.commitScanBatch(_leaf(2, 10), uint32(one.length), 3, "ipfs://batch-1", one);
-        assertEq(scans.batchCount(), 1, "the auditor's batch landed");
+    }
+
+    /// @notice The constructor names the owner and the scanners, so the deploying key never owns it.
+    function test_theOwnerAndScannersAreSetAtDeployment() public view {
+        assertEq(scans.owner(), owner, "owned by governance from the first block");
+        assertEq(scans.guardian(), guardian, "the guardian is fixed");
+        assertTrue(scans.isScanner(scanner), "the initial scanner is authorised");
+        assertFalse(scans.isScanner(address(this)), "the deploying contract is not");
+    }
+
+    /// @notice The guardian revokes a scanner at once, without the timelock.
+    function test_theGuardianRevokesAScannerAtOnce() public {
+        vm.prank(guardian);
+        scans.revokeScanner(scanner);
+        assertFalse(scans.isScanner(scanner), "revoked");
+
+        KAY9ScanRegistry.ScanSummary[] memory one = new KAY9ScanRegistry.ScanSummary[](1);
+        one[0] = _summary(2, 10);
+        vm.prank(scanner);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.NotAScanner.selector, scanner));
+        scans.commitScanBatch(_leaf(2, 10), uint32(one.length), 3, "ipfs://batch-1", one);
+    }
+
+    /// @notice Nobody but the guardian can revoke, and the guardian cannot authorise.
+    function test_onlyTheGuardianRevokesAndItCannotAuthorise() public {
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.NotGuardian.selector, stranger));
+        scans.revokeScanner(scanner);
+
+        vm.prank(guardian);
+        vm.expectRevert();
+        scans.setScanner(stranger, true);
+    }
+
+    /// @notice Ownership cannot be renounced.
+    function test_renounceIsDisabled() public {
+        vm.prank(owner);
+        vm.expectRevert(KAY9ScanRegistry.RenounceDisabled.selector);
+        scans.renounceOwnership();
+    }
+
+    /// @notice A summary score above 100 is refused.
+    function test_aScoreAbove100IsRefused() public {
+        KAY9ScanRegistry.ScanSummary[] memory one = new KAY9ScanRegistry.ScanSummary[](1);
+        one[0] = _summary(2, 101);
+        vm.prank(scanner);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.ScoreOutOfRange.selector, uint8(101)));
+        scans.commitScanBatch(bytes32(uint256(1)), 1, 3, "ipfs://batch-1", one);
+    }
+
+    /// @notice A batch cannot claim to hold more than MAX_BATCH scans, whatever it indexes.
+    function test_aBatchCannotClaimMoreThanTheCap() public {
+        uint32 max = scans.MAX_BATCH();
+        KAY9ScanRegistry.ScanSummary[] memory none = new KAY9ScanRegistry.ScanSummary[](0);
+        vm.prank(scanner);
+        vm.expectRevert(abi.encodeWithSelector(KAY9ScanRegistry.BatchTooLarge.selector, uint256(max) + 1, max));
+        scans.commitScanBatch(bytes32(uint256(1)), max + 1, 3, "ipfs://claims-too-much", none);
     }
 
     /// @notice Nobody else may commit.
@@ -405,8 +464,8 @@ contract KAY9ScanRegistryTest is Test {
     function test_aBatchMayIndexNothing() public {
         KAY9ScanRegistry.ScanSummary[] memory none = new KAY9ScanRegistry.ScanSummary[](0);
         vm.prank(scanner);
-        uint256 batchId = scans.commitScanBatch(_leaf(81, 40), 10_000, 3, "ipfs://root-only", none);
-        assertEq(scans.getBatch(batchId).count, 10_000);
+        uint256 batchId = scans.commitScanBatch(_leaf(81, 40), 500, 3, "ipfs://root-only", none);
+        assertEq(scans.getBatch(batchId).count, 500);
 
         bytes32[] memory noProof = new bytes32[](0);
         assertTrue(scans.verifyScan(batchId, _leaf(81, 40), noProof), "still provable against the root");

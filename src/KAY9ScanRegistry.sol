@@ -5,7 +5,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import {BlockNumberish} from "@uniswap/blocknumberish/src/BlockNumberish.sol";
-import {KAY9AuditorRegistry} from "./KAY9AuditorRegistry.sol";
 
 /// @notice One committed batch of basic scans.
 /// @dev The scan data itself is not on-chain. `root` commits to it, `uri` says where the batch
@@ -97,7 +96,7 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @notice Thrown when a constructor argument is the zero address.
     error ZeroAddress();
 
-    /// @notice Thrown when a caller that is neither an authorised scanner nor an auditor commits.
+    /// @notice Thrown when a caller that is not an authorised scanner commits.
     /// @param caller The rejected caller.
     error NotAScanner(address caller);
 
@@ -117,22 +116,37 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @param indexed_ The number of summaries supplied.
     error CountTooSmall(uint32 count, uint256 indexed_);
 
+    /// @notice Thrown when a summary's score is above 100, the top of the trust scale.
+    /// @param overallTrust The rejected score.
+    error ScoreOutOfRange(uint8 overallTrust);
+
+    /// @notice Thrown when a caller other than the guardian revokes a scanner.
+    /// @param caller The rejected caller.
+    error NotGuardian(address caller);
+
+    /// @notice Thrown by `renounceOwnership`: an ownerless registry could never authorise a scanner.
+    error RenounceDisabled();
+
     /// @notice Thrown when a batch id does not exist.
     /// @param batchId The unknown batch.
     error UnknownBatch(uint256 batchId);
 
-    /// @notice The most scans one transaction may index on-chain.
-    /// @dev Bounds the loop, not the batch: a batch may commit a root over any number of scans,
-    ///      and this caps how many of them also get a storage write and an event. Measured at
-    ///      about 24,700 gas each, 500 is 12.4 million gas in one transaction.
+    /// @notice The most scans one batch may hold, and so the most it may index on-chain.
+    /// @dev Bounds both the batch's stated `count` and the summaries loop. Measured at about 24,700
+    ///      gas per indexed summary, 500 is 12.4 million gas in one transaction. The count itself is
+    ///      still a claim the batch document proves; the bound stops a batch claiming an absurd one.
     uint32 public constant MAX_BATCH = 500;
 
-    /// @notice The auditor set. Its members may always commit, without a separate authorisation.
-    /// @dev The auditors already run the engine for deep and forensic work, so requiring a second
-    ///      registration for the cheapest tier would be bookkeeping with no security value.
-    KAY9AuditorRegistry public immutable auditors;
+    /// @notice The only address that may revoke a scanner without the timelock's delay.
+    /// @dev It can only take power away: it can de-authorise a scanner and nothing else. A leaked
+    ///      scanner key would otherwise keep overwriting `latestScan` for the 48 hours a timelocked
+    ///      removal takes. Adding a scanner stays with the owner, behind the timelock.
+    address public immutable guardian;
 
-    /// @notice Addresses authorised to commit batches, beyond the auditor set.
+    /// @notice Addresses authorised to commit batches.
+    /// @dev Auditors are not scanners by default. A basic scan is one key's claim, so every key
+    ///      that can make it is named here, and one auditor key cannot move a headline score that
+    ///      the report path would need a quorum for.
     mapping(address scanner => bool allowed) public isScanner;
 
     /// @notice Every batch ever committed, in commitment order.
@@ -155,12 +169,23 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @notice The most recent basic scan per asset.
     mapping(bytes32 assetKeyHash => LatestScan) private _latest;
 
-    /// @notice Deploys the scan registry.
+    /// @notice Deploys the scan registry, owned by governance from its first block.
+    /// @dev The initial scanners are set here so the deploying key never owns the registry. An
+    ///      earlier version made the deployer the owner, authorised scanners, then proposed the
+    ///      timelock as owner; until the timelock accepted, 48 hours later, the deploying key could
+    ///      authorise anyone.
     /// @param owner_ The owner, which in production is the TimelockController.
-    /// @param auditors_ The auditor set whose members may commit.
-    constructor(address owner_, KAY9AuditorRegistry auditors_) Ownable(owner_) {
-        if (address(auditors_) == address(0)) revert ZeroAddress();
-        auditors = auditors_;
+    /// @param guardian_ The address that may revoke a scanner without delay.
+    /// @param initialScanners Addresses authorised to commit from the start.
+    constructor(address owner_, address guardian_, address[] memory initialScanners) Ownable(owner_) {
+        if (guardian_ == address(0)) revert ZeroAddress();
+        guardian = guardian_;
+        for (uint256 i = 0; i < initialScanners.length; ++i) {
+            address scanner = initialScanners[i];
+            if (scanner == address(0)) revert ZeroAddress();
+            isScanner[scanner] = true;
+            emit ScannerUpdated(scanner, true);
+        }
     }
 
     /// @notice The composite key that groups scans of the same asset.
@@ -235,12 +260,15 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     ///      is an operational judgement — graduations and elevated risk, in practice — and it is
     ///      recorded in `docs/WATCHDOG.md` rather than fixed in the contract.
     ///
-    ///      The contract does not verify that the summaries are the batch's leaves, and cannot:
-    ///      checking would mean rebuilding the tree on-chain, which costs more than the record is
-    ///      worth and would defeat the point of batching. What it does is publish both the root
-    ///      and the summaries, so a disagreement between them is permanently visible to anyone who
-    ///      fetches the document. A scanner that publishes summaries its own root does not support
-    ///      is caught by the first person to check, and the record of it stays on-chain.
+    ///      **`latestScan` is an index the scanner supplies, not a value proven against the root.**
+    ///      The contract does not check that the summaries are the batch's leaves. It publishes
+    ///      both the root and the summaries, so a disagreement between them is permanently visible
+    ///      to anyone who fetches the document and recomputes the leaf with `scanLeaf`. A scanner
+    ///      that publishes summaries its own root does not support is caught by the first person
+    ///      to check, the record of it stays on-chain, and the guardian can revoke it at once. The
+    ///      next honest batch that indexes the asset replaces the value, because the newest batch
+    ///      always wins. Proving each summary would add a Merkle proof per indexed scan to the
+    ///      calldata, which on this chain is paid on the parent chain.
     /// @param root The Merkle root over the batch's leaves.
     /// @param count How many scans the batch holds. Never fewer than the summaries supplied.
     /// @param engineVersion The engine that produced the scans.
@@ -254,13 +282,11 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
         string calldata uri,
         ScanSummary[] calldata summaries
     ) external returns (uint256 batchId) {
-        if (!isScanner[msg.sender] && !auditors.isAuditor(msg.sender)) {
-            revert NotAScanner(msg.sender);
-        }
+        if (!isScanner[msg.sender]) revert NotAScanner(msg.sender);
 
         uint256 indexed_ = summaries.length;
         if (count == 0) revert EmptyBatch();
-        if (indexed_ > MAX_BATCH) revert BatchTooLarge(indexed_, MAX_BATCH);
+        if (count > MAX_BATCH) revert BatchTooLarge(count, MAX_BATCH);
         // A batch cannot index more scans than it contains. The count itself is not verifiable
         // on-chain — the document is what proves it — but a batch claiming to hold fewer scans
         // than it indexes is self-contradictory on its face and is refused here.
@@ -284,6 +310,7 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
 
         for (uint256 i = 0; i < indexed_; ++i) {
             ScanSummary calldata summary = summaries[i];
+            if (summary.overallTrust > 100) revert ScoreOutOfRange(summary.overallTrust);
             bytes32 key = assetKey(summary.chainKey, summary.assetId);
             _latest[key] = LatestScan({batchIdPlusOne: uint248(batchId + 1), overallTrust: summary.overallTrust});
             emit AssetScanned(
@@ -301,6 +328,11 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
     /// @notice Checks a scan against a committed batch.
     /// @dev This is the function a third party calls to satisfy itself that a scan it was shown
     ///      really is in the record, without trusting kay9.io or any index.
+    ///
+    ///      `leaf` must be computed with `scanLeaf` from the scan's fields. The function proves only
+    ///      that a hash is in the tree, so given the root itself, or an internal node, it also
+    ///      returns true; neither says anything about a scan. A leaf built from fields is double
+    ///      hashed and cannot collide with a node, which is what makes the check meaningful.
     /// @param batchId The batch the scan is claimed to be in.
     /// @param leaf The scan's leaf, from `scanLeaf`.
     /// @param proof The Merkle proof, from the leaf upwards.
@@ -351,6 +383,19 @@ contract KAY9ScanRegistry is Ownable2Step, BlockNumberish {
         LatestScan memory stored = _latest[assetKey(chainKey, assetId)];
         if (stored.batchIdPlusOne == 0) return (false, 0, 0);
         return (true, uint256(stored.batchIdPlusOne) - 1, stored.overallTrust);
+    }
+
+    /// @notice Revokes a scanner at once. Only the guardian may call it, and it can only remove.
+    /// @param scanner The scanner to de-authorise.
+    function revokeScanner(address scanner) external {
+        if (msg.sender != guardian) revert NotGuardian(msg.sender);
+        isScanner[scanner] = false;
+        emit ScannerUpdated(scanner, false);
+    }
+
+    /// @notice Disabled. An ownerless registry could never authorise a replacement scanner.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
     }
 
     /// @notice Authorises or removes a scanner.

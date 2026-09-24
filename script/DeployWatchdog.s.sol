@@ -73,6 +73,13 @@ contract DeployWatchdog is Script {
     /// @param what The name of the offending variable.
     error OutOfRange(string what);
 
+    /// @notice Thrown when no scanner is configured; auditors are not scanners by default.
+    error NoScanners();
+
+    /// @notice Thrown when the script is run against a chain it does not deploy to.
+    /// @param chainId The refused chain.
+    error UnsupportedChain(uint256 chainId);
+
     /// @notice Runs the deployment.
     /// @dev Split into reading the environment, checking what it said, and deploying, so that each
     ///      part can be tested on its own. The checks in particular must not be reachable only
@@ -82,6 +89,7 @@ contract DeployWatchdog is Script {
     /// @return d The deployed addresses.
     function run() external returns (WatchdogDeployment memory d) {
         address deployer = msg.sender;
+        if (!_supportedChain(block.chainid)) revert UnsupportedChain(block.chainid);
         WatchdogConfig memory cfg = _config();
         _validate(cfg, deployer);
 
@@ -102,8 +110,8 @@ contract DeployWatchdog is Script {
         // wraps silently, so a threshold of 258 would arrive as 2 — a number nobody typed, which
         // `_validate` below would then happily accept because 2 is a plausible quorum.
         cfg.threshold = _toUint8(vm.envUint("AUDITOR_THRESHOLD"), "AUDITOR_THRESHOLD");
-        // Optional. The auditors may always commit scan batches, so a deployment with no separate
-        // scanner is a working deployment; a dedicated scanner key is an operational convenience.
+        // Required. Auditors are not scanners by default, so a deployment with no scanner would
+        // go live with nobody able to commit a basic scan.
         cfg.scanners = vm.envOr("SCANNERS", ",", new address[](0));
     }
 
@@ -115,6 +123,24 @@ contract DeployWatchdog is Script {
         if (cfg.ownerSafe == deployer) revert MustNotBeDeployer("OWNER_SAFE");
         if (cfg.auditors.length == 0) revert NoAuditors();
         if (cfg.threshold == 0 || cfg.threshold > cfg.auditors.length) revert BadThreshold();
+        if (cfg.scanners.length == 0) revert NoScanners();
+        // The deploying key keeps no role anywhere: not owner, not auditor, not scanner.
+        for (uint256 i = 0; i < cfg.auditors.length; ++i) {
+            if (cfg.auditors[i] == deployer) revert MustNotBeDeployer("AUDITORS");
+        }
+        for (uint256 i = 0; i < cfg.scanners.length; ++i) {
+            if (cfg.scanners[i] == deployer) revert MustNotBeDeployer("SCANNERS");
+        }
+    }
+
+    /// @notice Whether this script may deploy to a chain.
+    /// @dev Robinhood Chain mainnet and testnet, and a local chain for tests. Anywhere else the
+    ///      stack would deploy without complaint, and `BlockNumberish` would fall back to the
+    ///      host chain's `block.number`.
+    /// @param chainId The chain id.
+    /// @return True when supported.
+    function _supportedChain(uint256 chainId) internal pure returns (bool) {
+        return chainId == RobinhoodAddresses.MAINNET_CHAIN_ID || chainId == 46630 || chainId == 31337;
     }
 
     /// @notice Narrows to uint8, refusing a value that would wrap.
@@ -151,16 +177,10 @@ contract DeployWatchdog is Script {
 
         KAY9AuditorRegistry auditorRegistry = new KAY9AuditorRegistry(address(timelock), cfg.auditors, cfg.threshold);
 
-        // Owned by the deployer only long enough to authorise the scanners, then handed over. The
-        // alternative — deploying it owned by the timelock — would mean the first scan could not be
-        // committed until a 48-hour governance proposal had executed, and the watchdog would go
-        // live silent. The power being held briefly is "may append scans", which cannot alter or
-        // remove anything already committed.
-        KAY9ScanRegistry scanRegistry = new KAY9ScanRegistry(deployer, auditorRegistry);
-        for (uint256 i = 0; i < cfg.scanners.length; ++i) {
-            scanRegistry.setScanner(cfg.scanners[i], true);
-        }
-        scanRegistry.transferOwnership(address(timelock));
+        // Owned by the timelock from its first block, with the scanners named in the constructor,
+        // so the first scan can land at once and the deploying key never owns it. The owner is the
+        // guardian: it can revoke a scanner without the 48-hour delay, and do nothing else.
+        KAY9ScanRegistry scanRegistry = new KAY9ScanRegistry(address(timelock), cfg.ownerSafe, cfg.scanners);
 
         // The deep and forensic side of the protocol deploys now too, with no access vault.
         //
@@ -169,8 +189,8 @@ contract DeployWatchdog is Script {
         // migration later. The vault holds KAY9 and cannot exist before the token, so the hub takes
         // a zero vault and governance binds the real one at launch, once.
         //
-        // What that buys is the thing this ordering is for: `publishWatchdogReport` is
-        // permissionless and consumes no quota, so a quorum can publish deep and forensic reports
+        // What that buys is the thing this ordering is for: `publishWatchdogReport` needs no
+        // request and consumes no quota, so a quorum can publish deep and forensic reports
         // from day one, months before anybody is asked to lock a single KAY9 for one.
         address predictedHub = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
         KAY9Registry reportRegistry = new KAY9Registry(predictedHub);
@@ -210,22 +230,13 @@ contract DeployWatchdog is Script {
         console2.log("authorised scanners    ", scanners.length);
         for (uint256 i = 0; i < scanners.length; ++i) {
             console2.log("  scanner              ", scanners[i]);
-            if (scanners[i] == deployer) {
-                console2.log("  ^ this is the deploying key. It may append scans and nothing else,");
-                console2.log("    but replace it with a dedicated key before this is more than a rehearsal.");
-            }
         }
+        console2.log("scanner guardian       ", cfg.ownerSafe);
+        console2.log("deploying key          ", deployer, "(keeps no role)");
         console2.log("timelock delay seconds ", TIMELOCK_DELAY);
 
         console2.log("");
-        console2.log("=== ACTION REQUIRED, the deployment is not finished ===");
-        console2.log("KAY9ScanRegistry ownership is PROPOSED to the timelock, not held by it.");
-        console2.log("Ownable2Step needs the new owner to accept, so until the timelock");
-        console2.log("executes acceptOwnership() the deploying key still owns the registry.");
-        console2.log("Queue and execute it before announcing anything:");
-        console2.log("  target ", d.scanRegistry);
-        console2.log("  data   ", "acceptOwnership()");
-        console2.log("Verify with: scanRegistry.owner() == the timelock address above.");
+        console2.log("Every contract is owned by the timelock from deployment; nothing to accept.");
 
         console2.log("");
         console2.log("=== when the token launches ===");

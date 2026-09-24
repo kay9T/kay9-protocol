@@ -234,9 +234,10 @@ and `acceptOwnership()` has executed everywhere `Ownable2Step` needs it.
 
 **Evidence.** `owner()` on each contract, read from chain, equal to the timelock address.
 
-**A trap worth naming.** `Ownable2Step` makes the handover a *proposal*. Until the timelock
-executes `acceptOwnership()`, the deploying key still owns the contract. Both deploy scripts print
-this in capitals and it has to be checked, not assumed.
+**A trap worth naming.** `Ownable2Step` makes a handover a *proposal*. Until the timelock
+executes `acceptOwnership()`, the deploying key still owns the contract. The watchdog contracts
+avoid it by taking the timelock as owner in their constructors; the token deployment still hands
+some contracts over and prints the step in capitals. It has to be checked, not assumed.
 
 ---
 

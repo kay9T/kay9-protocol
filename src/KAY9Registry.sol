@@ -242,6 +242,23 @@ contract KAY9Registry is BlockNumberish {
         return (true, _reports[ids[total - 1]]);
     }
 
+    /// @notice When the most recent report about one asset was analysed.
+    /// @dev A cheap read for the hub's freshness rule on watchdog reports.
+    /// @param chainKey The CAIP-2 chain key hash.
+    /// @param assetId The asset identifier.
+    /// @return exists Whether any report exists.
+    /// @return analyzedAt The latest record's `analyzedAt`, or zero.
+    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId)
+        external
+        view
+        returns (bool exists, uint64 analyzedAt)
+    {
+        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
+        uint256 total = ids.length;
+        if (total == 0) return (false, 0);
+        return (true, _reports[ids[total - 1]].result.analyzedAt);
+    }
+
     /// @notice The headline numbers of the most recent report about one asset.
     /// @dev This is the read a wallet, DEX, launchpad or embedded badge makes: one call, no arrays
     ///      of structs, no report body. It exists so that consuming KAY9 risk data never requires

@@ -19,6 +19,10 @@ contract WatchdogHarness is DeployWatchdog {
         _validate(cfg, deployer);
     }
 
+    function supportedChain(uint256 chainId) external pure returns (bool) {
+        return _supportedChain(chainId);
+    }
+
     function mainnetConfirmed(string memory confirmation) external pure returns (bool) {
         return _mainnetConfirmed(confirmation);
     }
@@ -126,21 +130,48 @@ contract DeployWatchdogTest is Test {
         assertEq(registry.auditorCount(), 3);
         assertEq(registry.threshold(), 2);
 
-        assertEq(address(scans.auditors()), d.auditorRegistry, "the scan registry knows the auditor set");
         assertTrue(scans.isScanner(scannerKey), "the supplied scanner may commit");
         assertFalse(scans.isScanner(ownerSafe), "and nobody else was authorised by accident");
+        assertFalse(scans.isScanner(auditorA), "auditors are not scanners by default");
+        assertFalse(scans.isScanner(DEFAULT_SENDER), "the deploying key is not a scanner");
 
-        // Ownable2Step: the handover is proposed, not complete, and the script says so loudly.
-        assertEq(scans.pendingOwner(), d.timelock, "ownership is proposed to the timelock");
-        assertTrue(scans.owner() != d.timelock, "and not yet held by it, which the report warns about");
+        // Owned by the timelock from its first block: no handover, so no window in which the
+        // deploying key owns it.
+        assertEq(scans.owner(), d.timelock, "the scan registry answers to the timelock immediately");
+        assertEq(scans.pendingOwner(), address(0), "and nothing is pending");
+        assertEq(scans.guardian(), ownerSafe, "the owner may revoke a scanner without delay");
+        assertEq(KAY9AuditHub(d.auditHub).owner(), d.timelock, "the hub answers to the timelock");
     }
 
-    /// @notice A scanner is optional, because the auditors can always commit.
-    function test_scannersAreOptional() public {
-        WatchdogDeployment memory d = _deployWatchdog(_config(false));
-        KAY9ScanRegistry scans = KAY9ScanRegistry(d.scanRegistry);
-        assertFalse(scans.isScanner(scannerKey));
-        assertTrue(KAY9AuditorRegistry(d.auditorRegistry).isAuditor(auditorA), "an auditor can still commit");
+    /// @notice A scanner is required: auditors are not scanners by default, so none means silence.
+    function test_aScannerIsRequired() public {
+        WatchdogHarness harness = new WatchdogHarness();
+        vm.expectRevert(DeployWatchdog.NoScanners.selector);
+        harness.validate(_config(false), DEFAULT_SENDER);
+    }
+
+    /// @notice The deploying key may be neither an auditor nor a scanner.
+    function test_refusesTheDeployerAsAuditorOrScanner() public {
+        WatchdogHarness harness = new WatchdogHarness();
+        WatchdogConfig memory cfg = _config(true);
+        cfg.auditors[1] = DEFAULT_SENDER;
+        vm.expectRevert(abi.encodeWithSelector(DeployWatchdog.MustNotBeDeployer.selector, "AUDITORS"));
+        harness.validate(cfg, DEFAULT_SENDER);
+
+        cfg = _config(true);
+        cfg.scanners[0] = DEFAULT_SENDER;
+        vm.expectRevert(abi.encodeWithSelector(DeployWatchdog.MustNotBeDeployer.selector, "SCANNERS"));
+        harness.validate(cfg, DEFAULT_SENDER);
+    }
+
+    /// @notice The script deploys to Robinhood Chain mainnet, its testnet and a local chain only.
+    function test_onlyRobinhoodChainsAreSupported() public {
+        WatchdogHarness harness = new WatchdogHarness();
+        assertTrue(harness.supportedChain(4663), "mainnet");
+        assertTrue(harness.supportedChain(46630), "testnet");
+        assertTrue(harness.supportedChain(31337), "local");
+        assertFalse(harness.supportedChain(1), "not Ethereum");
+        assertFalse(harness.supportedChain(56), "not BNB Chain");
     }
 
     /// @notice The owner Safe may not be the deploying key.
@@ -225,6 +256,7 @@ contract DeployWatchdogTest is Test {
             "AUDITORS", string.concat(vm.toString(auditorA), ",", vm.toString(auditorB), ",", vm.toString(auditorC))
         );
         vm.setEnv("AUDITOR_THRESHOLD", "2");
+        vm.setEnv("SCANNERS", vm.toString(scannerKey));
     }
 
     /// @notice Sets the extra variables the token launch needs but the watchdog does not.

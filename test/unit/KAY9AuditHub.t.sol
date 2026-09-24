@@ -1310,13 +1310,14 @@ contract KAY9AuditHubTest is Kay9TestBase {
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditorRegistry.InvalidThreshold.selector, uint8(0), 3));
         auditorRegistry.setThreshold(0);
 
-        // Removing an auditor lowers an unsatisfiable threshold automatically.
+        // Removing an auditor below the threshold halts the registry rather than lowering it.
         auditorRegistry.setThreshold(3);
         auditorRegistry.removeAuditor(existing);
         vm.stopPrank();
         assertFalse(auditorRegistry.isAuditor(existing), "the auditor is gone");
         assertEq(auditorRegistry.auditorCount(), 2, "two remain");
-        assertEq(auditorRegistry.threshold(), 2, "and the threshold followed them down");
+        assertEq(auditorRegistry.threshold(), 0, "halted, not lowered");
+        assertTrue(auditorRegistry.isHalted(), "until the owner names a new quorum");
     }
 
     /// @notice The hub refuses to be wired to a vault that numbers the tiers differently, because
@@ -1393,8 +1394,8 @@ contract KAY9AuditHubTest is Kay9TestBase {
         assertEq(reportRegistry.getReport(reportId).result.reportURI, result.reportURI, "the honest URI");
 
         // The same rule covers the unsolicited path.
+        vm.warp(block.timestamp + 1);
         AuditResult memory watchdog = _result();
-        watchdog.analyzedAt += 1;
         bytes[] memory watchdogSignatures = _sign(0, watchdog, 2);
         vm.prank(outsider);
         vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, outsider));
@@ -1474,6 +1475,143 @@ contract KAY9AuditHubTest is Kay9TestBase {
         hub.markExpired(expiring);
         assertEq(uint8(hub.getJob(expiring).status), uint8(JobStatus.Expired));
         assertEq(accessVault.deepRemaining(requester), 4, "the expired unit came back too");
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Watchdog-stack review fixes (2026-09-25)
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice A position that meets a lowered threshold can be settled, though no auditor can
+    ///         add a vote to it.
+    function test_aLoweredThresholdIsSettledByFinalizeAgreed() public {
+        _outliveGovernance();
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (3)));
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+
+        AuditResult memory x = _result();
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+        _attestAlone(jobId, x, _keyOf(signers[1]), _hash(jobId, x));
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "two of three is not a quorum yet");
+
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (2)));
+
+        vm.prank(auditorAddresses[0]);
+        uint256 reportId = hub.finalizeAgreed(jobId, x);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the agreed position settles");
+        assertEq(reportRegistry.getReport(reportId).signers.length, 2, "signed by the two who agreed");
+    }
+
+    /// @notice `finalizeAgreed` refuses a position below the quorum, and a stranger.
+    function test_finalizeAgreedNeedsAQuorumAndAnAuditor() public {
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+        AuditResult memory x = _result();
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.QuorumNotMet.selector, uint256(1), uint256(2)));
+        hub.finalizeAgreed(jobId, x);
+
+        vm.prank(requester);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.SubmitterNotAnAuditor.selector, requester));
+        hub.finalizeAgreed(jobId, x);
+    }
+
+    /// @notice When the only agreeing auditors are removed and the rest split, the job disputes.
+    /// @dev The scenario from the watchdog review: five auditors at threshold three, two agree,
+    ///      both are removed, and the remaining three vote so that no position can reach three.
+    ///      Counting the removed votes, the old check saw an agreement of two plus one silent
+    ///      auditor and left the job open.
+    function test_rotationDisputesWhenOnlyRemovedAuditorsAgreed() public {
+        uint256 dKey = 0xD00D;
+        uint256 eKey = 0xE00E;
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (vm.addr(dKey))));
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (vm.addr(eKey))));
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.setThreshold, (3)));
+        _outliveGovernance();
+
+        address[] memory signers = _signerSet(3);
+        uint256 jobId = _openJob();
+
+        AuditResult memory x = _result();
+        x.reportHash = keccak256("x");
+        _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
+        _attestAlone(jobId, x, _keyOf(signers[1]), _hash(jobId, x));
+
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
+        _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[1])));
+
+        AuditResult memory y = _result();
+        y.reportHash = keccak256("y");
+        bytes[] memory one = new bytes[](1);
+        one[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, y));
+        vm.prank(signers[2]);
+        hub.attest(jobId, y, one);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "two silent auditors could still agree");
+
+        AuditResult memory z = _result();
+        z.reportHash = keccak256("z");
+        one[0] = _signDigest(dKey, _hash(jobId, z));
+        vm.prank(signers[2]);
+        hub.attest(jobId, z, one);
+
+        assertEq(
+            uint8(hub.getJob(jobId).status),
+            uint8(JobStatus.Disputed),
+            "no position can reach three active votes, so the job disputes"
+        );
+    }
+
+    /// @notice An older signed report cannot be published after a newer one to become `latest`.
+    function test_aStaleWatchdogReportCannotBecomeLatest() public {
+        vm.warp(block.timestamp + 1 days);
+        AuditResult memory older = _result();
+        older.analyzedAt = uint64(block.timestamp - 1 hours);
+        older.overallTrust = 90;
+        older.reportHash = keccak256("older");
+        AuditResult memory newer = _result();
+        newer.overallTrust = 10;
+        newer.reportHash = keccak256("newer");
+
+        bytes[] memory newerSignatures = _sign(0, newer, 2);
+        bytes[] memory olderSignatures = _sign(0, older, 2);
+
+        vm.prank(auditorAddresses[0]);
+        hub.publishWatchdogReport(newer, newerSignatures);
+
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(
+            abi.encodeWithSelector(KAY9AuditHub.StaleWatchdogReport.selector, older.analyzedAt, newer.analyzedAt)
+        );
+        hub.publishWatchdogReport(older, olderSignatures);
+
+        (, uint64 latestAnalyzedAt) = reportRegistry.latestAnalyzedAt(chainKey, assetId);
+        assertEq(latestAnalyzedAt, newer.analyzedAt, "the newer report stays latest");
+    }
+
+    /// @notice A result analysed in the future, or with a score above 100, is refused.
+    function test_aFutureOrOutOfRangeResultIsRefused() public {
+        AuditResult memory future = _result();
+        future.analyzedAt = uint64(block.timestamp + 1);
+        bytes[] memory futureSignatures = _sign(0, future, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.AnalyzedInFuture.selector, future.analyzedAt));
+        hub.publishWatchdogReport(future, futureSignatures);
+
+        AuditResult memory tooHigh = _result();
+        tooHigh.botTrust = 101;
+        bytes[] memory tooHighSignatures = _sign(0, tooHigh, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(KAY9AuditHub.ScoreOutOfRange.selector);
+        hub.publishWatchdogReport(tooHigh, tooHighSignatures);
+    }
+
+    /// @notice Ownership of the hub cannot be renounced.
+    function test_hubRenounceIsDisabled() public {
+        vm.prank(address(timelock));
+        vm.expectRevert(KAY9AuditHub.RenounceDisabled.selector);
+        hub.renounceOwnership();
     }
 
     // -------------------------------------------------------------------------------------------
