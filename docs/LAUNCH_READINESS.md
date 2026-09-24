@@ -137,8 +137,14 @@ Fable 5.1 (Anthropic) each reviewed the launch path in a fresh session; the fixe
 GPT-5.6 Sol and Claude Opus 5.5, and both confirmed the final commit `launch-review-5`
 (`41e30ecd`). Every review, verification and confirmation is published verbatim with a disposition
 for each finding in `docs/reviews/`, and the OpenAI thread is public on ChatGPT. The owner
-reviewed what is accepted there and closed the gate for the launch path on 2026-09-25. The watchdog
-stack's part of this gate, below, is still open.
+reviewed what is accepted there and closed the gate for the launch path on 2026-09-25.
+
+**Watchdog stack (2026-09-25): evidence complete, for the owner to close.** GPT-5.6 Sol (OpenAI) and
+Claude Opus 5.5 (Anthropic) reviewed `KAY9AuditorRegistry`, `KAY9AuditHub`, `KAY9Registry`,
+`KAY9ScanRegistry` and `DeployWatchdog.s.sol` at `watchdog-review-1`; three fix rounds followed, and
+both confirmed the result for deployment. The commit to deploy is `watchdog-review-4` (`a71cb5c6`).
+Slither found nothing new there. Every review and confirmation is published verbatim in
+`docs/reviews/`.
 
 ### Gate 7 — the full suite passes, including the parts that are inconvenient
 
