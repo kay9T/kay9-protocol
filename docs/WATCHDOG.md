@@ -287,7 +287,7 @@ Pool ids are derived locally: `keccak256(abi.encode(currency0, currency1, fee, t
 
 Uniswap v2 and v3 style factories are probed when configured (PancakeSwap v2 and v3 are the defaults on BNB; nothing is assumed on Robinhood). For v2 pairs, LP tokens are ERC-20, so the burned fraction is measurable and `UNLOCKED_LIQUIDITY` is meaningful.
 
-**Cannot infer:** liquidity in hooked v4 pools, in fee tiers outside the probe list, on DEXes with a different factory interface, or on venues that are not AMMs at all. Lock state for v3 and v4 positions, which are NFTs — whether one is locked depends on who owns the position token, which this version does not enumerate; the report raises `EVM_LP_LOCK_UNKNOWN` rather than guessing. A token that trades somewhere unprobed gets `EVM_NO_LIQUIDITY_FOUND` with the venue count as evidence, which is a statement about the search, not about the token.
+**Cannot infer:** liquidity in hooked v4 pools, in fee tiers outside the probe list, on DEXes with a different factory interface, or on venues that are not AMMs at all. Lock state for v3 positions, and for v4 positions whose ownership cannot be read exactly (below); the report raises `EVM_LP_LOCK_UNKNOWN` rather than guessing. A token that trades somewhere unprobed gets `EVM_NO_LIQUIDITY_FOUND` with the venue count as evidence, which is a statement about the search, not about the token.
 
 **What a depth is a depth of (engine 1.7.0).** A v4 pool enumerated from its `Initialize` event carries its whole pool key, so the engine knows which virtual reserve is the token and what the other currency is. Depth is summed, compared with the chain's threshold and printed with the native symbol only for pools paired with the native currency or its wrapped form. A pool paired with anything else is recorded and named with `quoteIsNative: false` and is left out of the total; if the native total is below the threshold while such a pool exists, the result is `EVM_LIQUIDITY_UNPRICED` — unmeasured — rather than a finding of thin liquidity. One pool reached both by its `Initialize` log and by the fixed probe list is counted once. Before 1.7.0 the enumeration labelled `amount1` as the quote side whatever the currency order, which in a native pair is the token: reports from engines below 1.7.0 must not have their v4 `quoteDepthWei` or `totalQuoteDepthWei` read as native depth.
 
@@ -719,14 +719,18 @@ Stated plainly, because a scanner that hides its limits is worse than no scanner
   committed. `analyzedAt` and `committedAt` are on-chain precisely so a reader can see how stale a
   verdict is.
 
+**Pricing a non-native pair (engine 1.10.0).** Most Pons launches graduate into a pool paired with USDG, not ETH, so in 1.9 the deepest pool of 11 of 15 graduated tokens measured on 2026-09-25 was unpriced and the whole liquidity dimension went unmeasured over dust-sized ETH pools. A chain now lists quote assets it can price (`dex.quotePricing`): each names three deep, hookless native/asset v4 pools, and the engine reads their prices at the analysis block and takes the median, needing at least two answers. A depth in the asset's units becomes `pricedDepthWei` on the pool and joins the native total. Nothing is fetched from a feed or a third party; one pushed pool cannot set the price.
+
+**Who holds a v4 position (engine 1.10.0).** Every change to a v4 position is a `ModifyLiquidity` event on the PoolManager carrying the caller, the tick range and a salt, and the PositionManager's salt is the position's NFT id. For the three deepest pools whose `Initialize` is inside the window, the engine nets those events per position, keeps the positions whose range holds the current tick, and checks that they sum to exactly the pool's own `getLiquidity`; any difference and nothing is claimed. Each owner (the NFT's owner, or the caller for a position opened directly) is *locked* if it is a burn address, one of the chain's `burnAddresses` (KAY9's own `FeeSplitter` is one), or a listed `dex.positionLockers` contract whose runtime code hash still matches; *unlocked* if it has no code; *unknown* otherwise. Weighted by priced depth, and only when the pools read hold at least nine tenths of it: half or more unlocked raises `EVM_V4_LP_UNLOCKED` (high, `UNLOCKED_LIQUIDITY`); half or more locked is measured and silent; anything else stays `EVM_LP_LOCK_UNKNOWN`, naming the holders. The one listed locker on Robinhood is PonsV2LaunchLocker (`0x267444d0…4952`), whose bytecode was read on 2026-09-25: its only `CALL` pulls tokens in with `transferFrom(msg.sender, this, amount)`, its only `STATICCALL` is the position manager's `ownerOf`, and it has no path that moves a position out.
+
 ---
 
 ## 10. Roadmap
 
 ### V1.1 — coverage
 
-Uniswap v3 and v4 position ownership enumeration, so `UNLOCKED_LIQUIDITY` becomes measurable for
-concentrated liquidity. Creator-history liquidity checks (did the prior launches' pools survive?),
+Uniswap v3 position ownership enumeration, so `UNLOCKED_LIQUIDITY` becomes measurable for v3 as it
+is for v4 since engine 1.10.0. Creator-history liquidity checks (did the prior launches' pools survive?),
 run against a bounded set of prior deployments. Extend Solana beyond Raydium CPMM and Orca Whirlpool
 state decoding to executable depth and historical snapshots. A
 read-only transaction simulation path (`eth_call` with state overrides) to turn the honeypot

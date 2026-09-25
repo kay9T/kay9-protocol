@@ -204,7 +204,7 @@ will be created to fake presence somewhere.
 - **Forensic tier fully exercised.** The contracts ship with `TIER_FORENSIC` active at a 10,000
   KAY9 lock, one forensic and four deep audits per period, and `upgrade` from a live deep period. The
   work is the analysis depth behind it: deeper wallet clustering and funding-source tracing.
-- **Analysis coverage.** v3 and v4 position ownership so `UNLOCKED_LIQUIDITY` becomes measurable,
+- **Analysis coverage.** v3 position ownership so `UNLOCKED_LIQUIDITY` becomes measurable (v4 is, since engine 1.10),
   creator-history liquidity checks, Solana AMM state decoding, and a read-only simulation path to
   turn the honeypot heuristic into a demonstrated result. `docs/WATCHDOG.md` §10 has the detail.
 - **Report permanence.** Move report bodies to Arweave alongside IPFS so the on-chain hash always
