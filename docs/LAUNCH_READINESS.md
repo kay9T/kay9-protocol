@@ -193,7 +193,7 @@ block all computed and confirmed by the owner.
 **Watch the clock.** Auction windows are counted on the clock the auction reads, which on this
 Arbitrum Orbit chain is `ArbSys.arbBlockNumber()` — the chain's own height, about every 0.1 s —
 and **not** the `block.number` a contract sees, which is the parent chain's and advances about
-every 12 s. Four hours is **144,000** blocks. `KAY9Genesis.chainBlockNumber()` returns the clock
+every 12 s. The planned 24 hours is **864,000** blocks. `KAY9Genesis.chainBlockNumber()` returns the clock
 it validates against; `Launch.s.sol` derives from it. `docs/RESEARCH.md` has both measurements and
 the testnet launch that was over before its first bid because the other clock was used.
 

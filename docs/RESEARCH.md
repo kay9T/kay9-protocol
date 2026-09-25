@@ -17,7 +17,7 @@ Everything below was checked against live RPC calls or the upstream source at th
   chain's** height, while `ArbSys.arbBlockNumber()` is the chain's own. Uniswap's Continuous
   Clearing Auction v2.1.0 and the LBP strategy read the clock through `BlockNumberish`, which
   uses ArbSys wherever the precompile answers — so **every block figure in a launch (start, end,
-  claim, migration) is on the chain's own clock: 4 h ≈ 144,000 blocks, and `KAY9Genesis` bounds a
+  claim, migration) is on the chain's own clock: 24 h ≈ 864,000 blocks, and `KAY9Genesis` bounds a
   window at 36,000–864,000 blocks (one hour to one day).** Since 2026-09-11 `KAY9Genesis` reads
   that same clock through the same helper (`chainBlockNumber()`), as do the block fields recorded
   by `KAY9AuditHub`, `KAY9Registry` and `KAY9ScanRegistry`.

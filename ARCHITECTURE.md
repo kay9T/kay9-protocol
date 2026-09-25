@@ -58,7 +58,7 @@ in the visitor's browser against a public RPC, so it has no operator to fail.
 | Testnet faucet | `https://faucet.testnet.chain.robinhood.com` |
 | Gas token | ETH |
 | Stack | Arbitrum Orbit (Nitro). The EVM's `block.number` follows Ethereum; `ArbSys.arbBlockNumber()` and RPC `eth_blockNumber` expose the chain's own height. Uniswap's `BlockNumberish` uses ArbSys. |
-| Block time | The chain's own blocks: ≈ 0.10 s, read by contracts through `ArbSys.arbBlockNumber()`. The EVM's `block.number` is the **parent chain's** height (≈ 12 s) and nothing in KAY9 compares against it. The auction, the strategy and `KAY9Genesis` all read the chain's own clock through Uniswap's `BlockNumberish`. **4 hours ≈ 144,000 blocks.** `docs/RESEARCH.md`. |
+| Block time | The chain's own blocks: ≈ 0.10 s, read by contracts through `ArbSys.arbBlockNumber()`. The EVM's `block.number` is the **parent chain's** height (≈ 12 s) and nothing in KAY9 compares against it. The auction, the strategy and `KAY9Genesis` all read the chain's own clock through Uniswap's `BlockNumberish`. **24 hours ≈ 864,000 blocks.** `docs/RESEARCH.md`. |
 | Cancun (EIP-1153) | Supported (Uniswap v4 and launcher run on it) |
 
 Canonical addresses on mainnet 4663 (all confirmed to have code on-chain):
@@ -135,7 +135,7 @@ Because every trust-relevant field is asserted by the contract, the owner's rema
 
 ### 4.2 Lifecycle
 
-1. **Auction** (CCA v2.1.0, native ETH, 455 M KAY9, 4 h ≈ 144,000 blocks on the chain's own clock, emission schedule from the Uniswap SDK's convex default). Anyone bids with `submitBid`; the Uniswap web app auctions tab also lists it.
+1. **Auction** (CCA v2.1.0, native ETH, 455 M KAY9, 24 h ≈ 864,000 blocks on the chain's own clock, emission schedule from the Uniswap SDK's convex default). Anyone bids with `submitBid`; the Uniswap web app auctions tab also lists it.
 2. **Graduation** requires `currencyRaised ≥ requiredCurrencyRaised` (deployment parameter, default = clearing the full auction supply at the floor price).
 3. **Migration**: anyone calls `LBPStrategy.migrate(auction)` after `migrationBlock`. The strategy sweeps the ETH, initializes the v4 pool `(ETH, KAY9, fee 10000, tickSpacing 200, InitializerHook)` at the clearing price, mints one full-range position with 100 % of the ETH and up to 455 M KAY9, and transfers the LP NFT to `KAY9LiquidityLock`. Leftover ETH dust and unused reserve KAY9 go to Genesis.
 4. **Lock**: anyone calls `KAY9LiquidityLock.lock(tokenId)`. The lock registers the owner's creator-fee address as beneficiary in `UERC20BeneficiaryVault` (possible only while the lock owns the NFT) and then transfers the NFT to FeeSplitter `0xeFF1…`, where it is irrecoverable. Fees: 40 % of native-side fees to the beneficiary NFT holder (the owner address), 60 % native and 100 % KAY9-side fees compound back into the position via the CompoundingClaimRecipient.

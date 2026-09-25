@@ -117,6 +117,28 @@ contract KAY9LaunchTest is Kay9TestBase {
     // Configuration invariants
     // -------------------------------------------------------------------------------------------
 
+    /// @notice The planned 24-hour auction (owner, 2026-09-25) builds a valid schedule and launches.
+    /// @dev 864,000 blocks is also `MAX_DURATION_BLOCKS`, so this is the longest auction the vault
+    ///      accepts: the schedule must still sum to exactly 1e7 mps over exactly that many blocks.
+    function test_aTwentyFourHourAuctionLaunches() public {
+        uint64 day = 864_000;
+        assertEq(day, genesis.MAX_DURATION_BLOCKS(), "24 hours is the ceiling");
+        LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, day);
+        (uint256 totalMps, uint64 totalBlocks, uint256 steps) = AuctionSteps.totals(p.auctionStepsData);
+        assertEq(totalMps, 1e7, "the whole supply is released");
+        assertEq(totalBlocks, day, "over exactly 24 hours of blocks");
+        for (uint256 i = 0; i < steps; ++i) {
+            (uint24 mps, uint40 delta) = AuctionSteps.stepAt(p.auctionStepsData, i);
+            assertGt(delta, 0, "no zero-length step");
+            assertLe(mps, genesis.MAX_STEP_MPS(), "no step above the cap");
+        }
+
+        vm.prank(owner);
+        genesis.launch(p);
+        assertGt(genesis.auction().code.length, 0, "the auction deployed");
+        assertEq(token.balanceOf(genesis.auction()), genesis.AUCTION_ALLOCATION(), "and holds the allocation");
+    }
+
     /// @notice A launch moves exactly 910 M into the pipeline and predicts the auction correctly.
     function test_launchMovesFullAllocation() public {
         LaunchParams memory p = _launchParams(FLOOR_FDV_WEI, FOUR_HOURS_BLOCKS);

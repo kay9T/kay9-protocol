@@ -280,7 +280,7 @@ Fill these in and the relative weeks above become a calendar.
 | Item | Value |
 |---|---|
 | Target TGE, date and time UTC | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; time of day UTC to be confirmed by the owner. A target that moves if a readiness gate is open (§8.1) |
-| Auction duration | 4 hours, about 144,000 blocks on the chain's own clock |
+| Auction duration | 24 hours, about 864,000 blocks on the chain's own clock (owner, 2026-09-25; it was 4 hours) |
 | Floor FDV, USD | to be set, reference 1,000 |
 | Graduation FDV, USD | to be set, reference 10,000 |
 | Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment: 10 May 2027 at the TGE time of day if TGE is 10 November 2026 |
