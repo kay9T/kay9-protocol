@@ -139,12 +139,12 @@ GPT-5.6 Sol and Claude Opus 5.5, and both confirmed the final commit `launch-rev
 for each finding in `docs/reviews/`, and the OpenAI thread is public on ChatGPT. The owner
 reviewed what is accepted there and closed the gate for the launch path on 2026-09-25.
 
-**Watchdog stack (2026-09-25): evidence complete, for the owner to close.** GPT-5.6 Sol (OpenAI) and
+**Watchdog stack (2026-09-25): closed by the owner.** GPT-5.6 Sol (OpenAI) and
 Claude Opus 5.5 (Anthropic) reviewed `KAY9AuditorRegistry`, `KAY9AuditHub`, `KAY9Registry`,
 `KAY9ScanRegistry` and `DeployWatchdog.s.sol` at `watchdog-review-1`; three fix rounds followed, and
 both confirmed the result for deployment. The commit to deploy is `watchdog-review-4` (`a71cb5c6`).
 Slither found nothing new there. Every review and confirmation is published verbatim in
-`docs/reviews/`.
+`docs/reviews/`. The owner closed this part of the gate on 2026-09-25, so gate 6 is closed in full.
 
 ### Gate 7 — the full suite passes, including the parts that are inconvenient
 

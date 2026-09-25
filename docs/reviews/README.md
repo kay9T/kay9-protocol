@@ -54,7 +54,7 @@ fixed or accepted in writing. The prompt is
 
 Both reviews found that one key could move a headline score, that the quorum could quietly shrink
 or stall after auditor rotation, and that the deploying key kept power for 48 hours. Those are
-fixed. **The commit to deploy is `watchdog-review-4`** (`a71cb5c6928ffdc45b78dccb398180972f14f0e4`). Both families
+fixed. The owner closed gate 6 for the watchdog stack on 2026-09-25. **The commit to deploy is `watchdog-review-4`** (`a71cb5c6928ffdc45b78dccb398180972f14f0e4`). Both families
 confirmed it for deployment; Anthropic's confirmation is of `watchdog-review-3`, and the one
 contract change after it (R3-01, the dispute event's agreement count) was confirmed by OpenAI and
 has its own regression test. Slither at `watchdog-review-4` found nothing new.
