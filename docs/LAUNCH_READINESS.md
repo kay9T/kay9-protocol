@@ -19,12 +19,12 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **0 of 14** (gate 7's Slither and fork-suite halves were done on 2026-09-11 and the suites are green; the contracts changed on 2026-09-18, so both halves are run again against the final tree, and the gate stays open until the model reviews of gate 6 have run against it) |
-| Watchdog live on mainnet | no |
+| Gates passed | **3 of 14**: 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork-suite halves were green on 2026-09-11 but predate the 2026-09-18 contract changes, so both are run again against the final tree |
+| Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
 | Testnet rehearsal (gate 8) | executed on 2026-09-11 on the clock-fixed contracts through launch, bids, graduation, migration, governance, the oracle warm-up, the exits and claims, the lock, a settled audit, a disputed audit and the stale-feed path; `markExpired` and `upgrade` the same day; `renew` and `unlock` executable from 2026-09-18 when the 7-day period expires. Two findings came out of it (`docs/STATUS.md` §1.8, §1.9), one a site fix already shipped. Transaction hashes in `docs/STATUS.md` §12. **Every stack rehearsed on predates the contract changes merged on 2026-09-18** (`KAY9AuditHub`'s hard deadline, `KAY9TeamVesting`'s launch gate, `KAY9Registry.latestSnapshot`, `KAY9AccessVault.upgrade`), so the gate needs a redeploy and another run before it can close; the September hashes stay as the record of what those runs found |
-| Last reviewed | 2026-09-18 |
+| Last reviewed | 2026-09-25 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
 
