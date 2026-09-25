@@ -47,14 +47,21 @@ commit; a list of any gaps longer than six hours with an explanation for each.
 
 **Status (2026-09-25): running; the 30 days started.** `KAY9ScanRegistry`
 `0x79778723c021386F3C7727289A30716edaa635A1` on chain 4663, scanner `0xeaA9…Bda6` authorised in the
-constructor, and the Azure job `kay9-scanner-run` committing every three hours. First batch: batch 0,
+constructor, and the Azure job `kay9-scanner-run` committing every two hours. First batch: batch 0,
 block 71,926,233, 10 scans, document on IPFS, all 10 proofs verified against the root on chain. The
 gate can close 30 days after that commit if no gap exceeds six hours unexplained.
 
 ### Gate 2 — the record covers what people actually buy
 
-**Condition.** Every graduation on the chain for 30 days has a basic scan committed within one hour
-of the graduation event.
+**Condition.** Every graduation on the chain for 30 days has a basic scan committed within three
+hours of the graduation event.
+
+*Changed by the owner on 2026-09-25 from one hour.* One hour would need a pass every hour and about
+twice the gas. Measured the same day, the chain produced 8 graduations in three hours of chain time
+(against 552 new pools and 1,133 launches), and graduations head the scan queue, so every pass takes
+all of them first. The job runs every two hours with 17 scans a pass, about the same daily volume as
+every three hours with 25, so the worst case is about two hours and a quarter: two hours to the next
+pass, a 2,000-block reorg lag of about three and a half minutes, and the pass itself.
 
 **Evidence.** Count of `PoolGraduated` events in the window against count of matching
 `AssetScanned` entries, and the distribution of the delay between them. Misses listed individually.
