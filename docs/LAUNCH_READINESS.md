@@ -45,6 +45,12 @@ commit; a list of any gaps longer than six hours with an explanation for each.
 
 **Not evidence.** A testnet run. A run somebody restarted by hand every morning.
 
+**Status (2026-09-25): running; the 30 days started.** `KAY9ScanRegistry`
+`0x79778723c021386F3C7727289A30716edaa635A1` on chain 4663, scanner `0xeaA9…Bda6` authorised in the
+constructor, and the Azure job `kay9-scanner-run` committing every three hours. First batch: batch 0,
+block 71,926,233, 10 scans, document on IPFS, all 10 proofs verified against the root on chain. The
+gate can close 30 days after that commit if no gap exceeds six hours unexplained.
+
 ### Gate 2 — the record covers what people actually buy
 
 **Condition.** Every graduation on the chain for 30 days has a basic scan committed within one hour
