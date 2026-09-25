@@ -1,8 +1,20 @@
 {
   "chainId": 4663,
   "network": "robinhood",
-  "deployedAt": null,
-  "commit": null,
-  "contracts": {},
-  "codeHashes": {}
+  "deployedAt": "2026-09-25",
+  "commit": "watchdog-review-4 (a71cb5c6), main f428907",
+  "contracts": {
+    "Timelock": "0x7230105A20b94FE3613DEDaFb7c673C75ba7233B",
+    "KAY9AuditorRegistry": "0xA4AB9A0ffc4E8b3189e34453b347522bD0c68f04",
+    "KAY9ScanRegistry": "0x79778723c021386F3C7727289A30716edaa635A1",
+    "KAY9Registry": "0x3bD24351532274b7ea026d408Ba6bFB0922f5068",
+    "KAY9AuditHub": "0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA"
+  },
+  "codeHashes": {
+    "Timelock": "0x4c20744258682f9beb300d50e797ec698cf7b596799e33ee0b71cb850c4ba203",
+    "KAY9AuditorRegistry": "0xe65009af6216707863d6815ab858a6a854f2f07dc460681e2f93936a6d9fffc9",
+    "KAY9ScanRegistry": "0xec022d6041dba22de273e49a63d9be11ba7c462e2b9766b756ef880312ae9540",
+    "KAY9Registry": "0x109e85bf692b99356d3b883f6e8c3abb1b0f6c7ff68757684311f0d19750e91b",
+    "KAY9AuditHub": "0xea987bddee191888e590f4eac9550574c956efaee0e02ae1259de286527f2152"
+  }
 }
