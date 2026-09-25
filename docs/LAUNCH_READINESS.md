@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **3 of 14**: 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork-suite halves were green on 2026-09-11 but predate the 2026-09-18 contract changes, so both are run again against the final tree |
+| Gates passed | **4 of 14**: 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork-suite halves were green on 2026-09-11 but predate the 2026-09-18 contract changes, so both are run again against the final tree |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -97,6 +97,13 @@ which is a good sign about the method and a bad sign about how much has been che
 
 **Evidence.** A sweep of the rendered site listing each figure and its source. Any figure that
 cannot be traced is removed before launch, not explained.
+
+**Status (2026-09-25): met for the text of that date; run again in the launch week.** The sweep is
+`docs/reviews/2026-09-25-gate5-sweep.md`: every figure traced to a contract constant, a code
+constant, a chain read or a dated measurement. It found five wrong statements and all were fixed in
+all thirteen languages: two "4 h" left over from the four-hour auction, an early launch-rate estimate
+ten times the measured graduation rate, a claim that the watchdog scans with archive and explorer
+access (it uses the public RPC), and "access buys analysis" in the Persian and German text.
 
 ---
 

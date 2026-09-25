@@ -24,6 +24,8 @@ counter would embarrassingly read zero. The measurement says the opposite.
 | **Token launches, all sources** | dominated by one launchpad | **~20,000–50,000** |
 | **Graduations to a real pool** | 684 over 50,000 blocks | **~500–700** |
 
+Re-measured on 2026-09-25 over three hours of chain time, for gate 2 of `docs/LAUNCH_READINESS.md`: 1,133 launches, 552 new v4 pools and 8 graduations, which is roughly 9,000 launches, 4,400 pools and 64 graduations a day. The graduation rate is an order of magnitude below the first estimate; the site quotes this later sample, with its date.
+
 So the product problem is not "is there anything to show". It is **ranking and filtering**. A feed
 of every new token is a feed of tens of thousands of bonding-curve tokens a day, almost all of
 which never take a second buyer, and a scan queue drained in arrival order would spend its entire
