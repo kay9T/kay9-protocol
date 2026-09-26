@@ -96,8 +96,8 @@ tokens read from the chain: 60 graduated, 11 standalone pools, 8 fresh launches,
 tokenised equities. A second pass labelled 219 graduations. The rugged set is 32: 14 insider
 dumps, 15 early-buyer dumps and 3 liquidity pulls. Hand-checking found eight engine defects and two
 in the method; each is fixed, tested and written up. The nine rugs with no launch-time finding are
-discussed token by token. The browser scan runs 1.12 once the site deploys. The watchdog's
-scanner job still runs the 1.10 image of 2026-09-25 until that image is rebuilt.
+discussed token by token. The browser scan runs 1.12, and so does the watchdog's scanner job from
+batch 19 (2026-09-26, block 73,152,542): batches 0 to 18 carry engine 1.10.
 
 ### Gate 5 — no invented statistics anywhere
 
