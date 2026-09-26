@@ -4,6 +4,26 @@ This is the public contract and specification repository for KAY9 on Robinhood
 Chain (mainnet 4663, testnet 46630). Read [WHITEPAPER.md](WHITEPAPER.md) for the
 protocol, token, trust model, status, and limitations.
 
+## Start here: what is live on mainnet
+
+The watchdog stack has been live on Robinhood Chain mainnet since 25 September
+2026 (block 71,926,233). The token, the auction and the access vault are not
+deployed yet; the target launch date is 10 November 2026, gated on the
+conditions in the whitepaper.
+
+| Contract | Address | Source |
+|---|---|---|
+| `KAY9ScanRegistry` — watchdog scan batches and per-token scores | [`0x7977…35A1`](https://robinhoodchain.blockscout.com/address/0x79778723c021386F3C7727289A30716edaa635A1) | [src/KAY9ScanRegistry.sol](src/KAY9ScanRegistry.sol) |
+| `KAY9AuditHub` — deep-audit requests and the 2-of-3 attestation quorum | [`0x3d5D…136dA`](https://robinhoodchain.blockscout.com/address/0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA) | [src/KAY9AuditHub.sol](src/KAY9AuditHub.sol) |
+| `KAY9Registry` — append-only audit reports | [`0x3bD2…5068`](https://robinhoodchain.blockscout.com/address/0x3bD24351532274b7ea026d408Ba6bFB0922f5068) | [src/KAY9Registry.sol](src/KAY9Registry.sol) |
+| `KAY9AuditorRegistry` — the auditor set and threshold | [`0xA4AB…8f04`](https://robinhoodchain.blockscout.com/address/0xA4AB9A0ffc4E8b3189e34453b347522bD0c68f04) | [src/KAY9AuditorRegistry.sol](src/KAY9AuditorRegistry.sol) |
+| Timelock (48 hours) — governs all of the above | [`0x7230…233B`](https://robinhoodchain.blockscout.com/address/0x7230105A20b94FE3613DEDaFb7c673C75ba7233B) | [deployments/4663.json](deployments/4663.json) |
+
+To see it working: run a basic scan at [kay9.io](https://kay9.io) (it runs in
+your browser, no wallet), or mention `@kay9_io scan <token address>` on
+[X](https://x.com/kay9_io). To check the tests: `forge test` (see
+[Commands](#commands)).
+
 Audit access uses refundable KAY9 locks and on-chain quotas. There is no per-audit
 token payment or escrow in the audit hub. The binding specifications are
 [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRACT_INTERFACES.md](docs/CONTRACT_INTERFACES.md),
