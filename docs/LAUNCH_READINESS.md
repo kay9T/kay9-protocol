@@ -88,6 +88,16 @@ reconstruction and kay9.io — which must be empty.
 **Why it is a gate.** If the site is the only place the data exists, every claim on it is
 unverifiable and the token is being sold on trust.
 
+**Status (2026-09-26): open, the procedure is published and needs its third party.** The
+procedure is `docs/REBUILD_THE_RECORD.md`, also on kay9.io/docs; the tool it uses is
+`tools/rebuild-record.mjs` in the public repository, about 180 lines with viem as its only
+dependency; and kay9.io/feed has a **Download as CSV** link that gives the rows the page read, before
+any filter, in the columns the tool writes. KAY9 followed the procedure word for word in an empty
+folder on 2026-09-26: the tool rebuilt batches 0 to 22 (305 shown scans) with every root, count,
+engine version and event matching, and the diff against the feed's file, batches 20 to 22, was
+empty (42 rows). That run proves the procedure works; it is not the evidence, which must come from
+somebody outside the project.
+
 ### Gate 4 — the calibration is re-run and published
 
 **Condition.** `docs/SCORE_CALIBRATION.md` re-run against at least 50 tokens spanning graduated,
