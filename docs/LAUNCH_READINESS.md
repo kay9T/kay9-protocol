@@ -19,11 +19,11 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **4 of 14**: 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork-suite halves were green on 2026-09-11 but predate the 2026-09-18 contract changes, so both are run again against the final tree |
+| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
-| Testnet rehearsal (gate 8) | executed on 2026-09-11 on the clock-fixed contracts through launch, bids, graduation, migration, governance, the oracle warm-up, the exits and claims, the lock, a settled audit, a disputed audit and the stale-feed path; `markExpired` and `upgrade` the same day; `renew` and `unlock` executable from 2026-09-18 when the 7-day period expires. Two findings came out of it (`docs/STATUS.md` §1.8, §1.9), one a site fix already shipped. Transaction hashes in `docs/STATUS.md` §12. **Every stack rehearsed on predates the contract changes merged on 2026-09-18** (`KAY9AuditHub`'s hard deadline, `KAY9TeamVesting`'s launch gate, `KAY9Registry.latestSnapshot`, `KAY9AccessVault.upgrade`), so the gate needs a redeploy and another run before it can close; the September hashes stay as the record of what those runs found |
+| Testnet rehearsal (gate 8) | run end to end on 2026-09-24 on a stack deployed from `launch-review-5`, the reviewed commit, `migrateAndSettle` included (`docs/STATUS.md` §18.2). Only `renew` and `unlock` remain, executable from **2026-09-30 17:58 UTC** when the 7-day period ends. The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
 | Last reviewed | 2026-09-25 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
@@ -88,8 +88,16 @@ fresh, stablecoin, RWA and at least 10 tokens known to have rugged.
 **Evidence.** The updated document, including every false positive found and what was done about
 it, and an explicit false-negative discussion for the rugged set.
 
-**Why it is a gate.** The current calibration is four tokens. It found three systematic defects,
-which is a good sign about the method and a bad sign about how much has been checked.
+**Why it is a gate.** The first calibration was four tokens. It found three systematic defects,
+which is a good sign about the method and a bad sign about how much had been checked.
+
+**Status (2026-09-26): met.** `docs/SCORE_CALIBRATION.md` was re-run with engine 1.12.0 on 84
+tokens read from the chain: 60 graduated, 11 standalone pools, 8 fresh launches, USDG and four
+tokenised equities. A second pass labelled 219 graduations. The rugged set is 32: 14 insider
+dumps, 15 early-buyer dumps and 3 liquidity pulls. Hand-checking found eight engine defects and two
+in the method; each is fixed, tested and written up. The nine rugs with no launch-time finding are
+discussed token by token. The browser scan runs 1.12 once the site deploys. The watchdog's
+scanner job still runs the 1.10 image of 2026-09-25 until that image is rebuilt.
 
 ### Gate 5 — no invented statistics anywhere
 

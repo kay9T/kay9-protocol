@@ -54,19 +54,19 @@ claim more than it says.
 |---|---|
 | Nine contracts, governance wiring | rewritten for the access model |
 | Contract tests | rewritten: unit, fuzz, invariant and reentrancy suites, run by CI on every contract change; the fork suite is run by hand against mainnet state (gate 7) |
-| Adversarial security review | repeated against the access-model contracts on 2026-09-11, by one reviewer who is not the author. A model review of the whole tree on 2026-09-17 had its contract findings decided and merged on 2026-09-18. Gate 6 is still open: it asks for two model families at the commit to be deployed, published in full |
-| Static analysis | re-run on 2026-09-11 against all nine contracts, the vault included (`packages/contracts/SLITHER.md`). The contracts changed on 2026-09-18, so it is run again against the final tree (gate 7) |
+| Adversarial security review | repeated against the access-model contracts on 2026-09-11, by one reviewer who is not the author. A model review of the whole tree on 2026-09-17 had its contract findings decided and merged on 2026-09-18. Gate 6 closed by the owner on 2026-09-25, after two model families reviewed the commits to be deployed (`docs/reviews/`) |
+| Static analysis | re-run on 2026-09-24 against all nine contracts at `launch-review-5`, and on 2026-09-25 against the four watchdog contracts (`packages/contracts/SLITHER.md`) |
 | Website | rewritten for the access model; live on kay9.io |
 | Analysis engine, EVM and Solana adapters | written; the basic scan runs in the visitor's browser (`docs/BASIC_SCAN.md`) |
 | Auditor job, quorum signing | rewritten for attestation and scale-to-zero (`services/audit-worker`), and tested; not running against mainnet |
 | Continuous integration and deployment | GitHub Actions |
 | Token discovery | ten verified sources on Robinhood Chain; a live pass over 20,000 blocks found 1,459 tokens in nine requests |
-| `KAY9ScanRegistry` and Merkle batching | written and tested; deployed nowhere yet |
-| Automatic scan pipeline | `services/discovery-worker` now wires discovery, scanning, publishing and committing into one deployable scheduled job; not yet deployed or run |
+| `KAY9ScanRegistry` and Merkle batching | live on Robinhood mainnet since 2026-09-25 (`packages/chain/deployments/4663.json`) |
+| Automatic scan pipeline | `services/discovery-worker` runs as the Azure job `kay9-scanner-run` every two hours; batch 0 committed at block 71,926,233 on 2026-09-25 (gate 1) |
 | Watchdog deployment script | `DeployWatchdog.s.sol`, no token in it |
 | Deep/forensic beta intake, pre-token | `beta`/`beta-api` written and tested (`services/audit-worker`) — a free, walletless queue feeding the existing `publishWatchdogReport` quorum path; not yet deployed |
-| Score calibration against real tokens | four tokens, three systematic defects found and fixed; needs 50+ including known rugs |
-| Live feed, watchdog dashboard, token pages | on kay9.io, rendering "not deployed yet" until the registry exists |
+| Score calibration against real tokens | re-run on 2026-09-26 on 84 tokens and a rugged set of 32 dumps and liquidity pulls; eight engine defects found and fixed in engine 1.12 (gate 4) |
+| Live feed, watchdog dashboard, token pages | on kay9.io, reading the live registry |
 | Documentation | in `docs/`, kept in step with the code: `docs/CONTRACT_INTERFACES.md` changes before the contracts do |
 
 ## 1. Before launch — the watchdog runs, and hardening
@@ -303,16 +303,16 @@ promise: a slipped line moves the launch, not the gate.
 | **Done** Fri 25 Sep 2026 | Owner address, team beneficiary, creator-fee recipient and three auditor addresses exist; the auditor keys are held by three people in three countries and prove control; signatures in `docs/LAUNCH_READINESS.md` gates 10 and 11 | 10, 11 |
 | **Done** Thu 25 Sep 2026 (was Fri 9 Oct) | Watchdog live on mainnet: `DeployWatchdog.s.sol` broadcast, scanner authorised, `services/discovery-worker` committing batches unattended. This is the latest start that gives 30 days before launch | 1, 2 |
 | **Done** Thu 25 Sep 2026 | Every number on kay9.io traced to its source (`docs/reviews/2026-09-25-gate5-sweep.md`); run again in the launch week | 5 |
-| Fri 16 Oct 2026 | Calibration re-run against 50+ tokens including 10 known rugs, published | 4 |
+| **Done** Sat 26 Sep 2026 (was Fri 16 Oct) | Calibration re-run against 50+ tokens including 10 known rugs, published: 84 tokens and a rugged set of 32, engine 1.12 (`docs/SCORE_CALIBRATION.md`) | 4 |
 | **Done** Thu 24 Sep 2026 (was Fri 23 Oct) | Every launch-path review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree (`launch-review-5`). Gate 6 closed for the launch path by the owner on 25 Sep | 6, 7 |
+| Sun 25 Oct 2026 (was Sun 8 Nov) | Gate 1's 30 unattended days complete, counted from batch 0 on 25 Sep at block 71,926,233, provided no gap exceeds six hours unexplained | 1 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
 | Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |
 | Thu 5 Nov 2026 | Timelock operations executed; `owner()` checks pass everywhere | 12 |
 | Fri 6 Nov 2026 | Launch parameters derived, printed and confirmed by the owner in writing; auction window announced | 9 |
-| Sun 8 Nov 2026 | Gate 1's 30 unattended days complete (from a 9 Oct start) | 1 |
 | Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
-| **Tue 10 Nov 2026** | `KAY9Genesis.launch()` signed; auction runs 4 h; migrate, lock and settle are permissionless afterwards | — |
+| **Tue 10 Nov 2026** | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
 
 What is *not* on this calendar is anything that depends on money the project does not have: the
 independent-operator move in §6 has a precondition, not a date, and stays that way.
