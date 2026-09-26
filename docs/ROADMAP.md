@@ -306,6 +306,7 @@ promise: a slipped line moves the launch, not the gate.
 | **Done** Sat 26 Sep 2026 (was Fri 16 Oct) | Calibration re-run against 50+ tokens including 10 known rugs, published: 84 tokens and a rugged set of 32, engine 1.12 (`docs/SCORE_CALIBRATION.md`) | 4 |
 | **Done** Thu 24 Sep 2026 (was Fri 23 Oct) | Every launch-path review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree (`launch-review-5`). Gate 6 closed for the launch path by the owner on 25 Sep | 6, 7 |
 | Sun 25 Oct 2026 (was Sun 8 Nov) | Gate 1's 30 unattended days complete, counted from batch 0 on 25 Sep at block 71,926,233, provided no gap exceeds six hours unexplained | 1 |
+| Mon 26 Oct 2026 | Gate 2's 30 days complete: every graduation scanned within three hours, counted from block 72,173,850 when the start-up backlog cleared (`docs/reviews/2026-09-26-gate2-coverage.md`) | 2 |
 | Fri 30 Oct 2026 | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
 | Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |

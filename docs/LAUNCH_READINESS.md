@@ -69,6 +69,14 @@ pass, a 2,000-block reorg lag of about three and a half minutes, and the pass it
 **Why it is a gate.** A watchdog that misses the tokens people can buy is not a watchdog. Coverage
 of the launch firehose is explicitly *not* required — see `docs/TOKEN_DISCOVERY.md` §1.
 
+**Status (2026-09-26): running, no miss since the start-up backlog cleared.** The evidence script is
+`services/watchdog/scripts/gate2-coverage.ts`, and the first reading is
+`docs/reviews/2026-09-26-gate2-coverage.md`. From batch 0, 84 of 102 due graduations were scanned
+within three hours and 18 later. None was missed. All 18 fell in the job's first hours, while
+batches 0 to 5 worked through graduations from before batch 0. From block 72,173,850, after that
+backlog, all 84 due graduations were scanned within three hours: median 1 h 03 min, longest
+2 h 30 min. The 30 days are counted from there, which ends on 26 October.
+
 ### Gate 3 — the record is rebuildable by somebody else
 
 **Condition.** A third party, given only the chain and the batch documents, reconstructs the same
