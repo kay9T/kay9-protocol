@@ -95,8 +95,9 @@ dependency; and kay9.io/feed has a **Download as CSV** link that gives the rows 
 any filter, in the columns the tool writes. KAY9 followed the procedure word for word in an empty
 folder on 2026-09-26: the tool rebuilt batches 0 to 22 (305 shown scans) with every root, count,
 engine version and event matching, and the diff against the feed's file, batches 20 to 22, was
-empty (42 rows). That run proves the procedure works; it is not the evidence, which must come from
-somebody outside the project.
+empty (42 rows). On 2026-09-27 the procedure gained a pinned range, batches 0 to 25, so that every
+checker rebuilds the same record: 351 rows, SHA-256 `b01d57d7…f299196`. That run proves the
+procedure works; it is not the evidence, which must come from somebody outside the project.
 
 ### Gate 4 — the calibration is re-run and published
 

@@ -74,8 +74,22 @@ An empty diff means every score kay9.io showed in those batches is a scan commit
 root on chain, with the same asset, score, confidence, flags and block. Any line the diff prints is
 a finding, and so is a non-zero exit in step 2.
 
-**Step 4. Report it.** For gate 3 the evidence is your run, not ours. Keep the two CSV files, the
-output of both commands and the date, and send them to KAY9: the Telegram group
+**Step 3b. Check the pinned range.** The website's file covers only the last few hours, so two
+people checking on different days compare different batches. The pinned range gives everyone the
+same record to rebuild: batches 0 to 25, committed between block 71,926,233 (25 September 2026,
+04:01 UTC) and block 73,580,878 (27 September 2026, 02:24 UTC).
+
+```bash
+node rebuild-record.mjs --out pinned.csv --from 0 --to 25
+sha256sum pinned.csv    # on macOS: shasum -a 256 pinned.csv
+```
+
+KAY9's run of it gives 351 rows and the SHA-256
+`b01d57d7e9688f8a6291ab5475a0a62d8f70e17a9d0b4ac19ab4adf20f299196`. A batch is never changed once
+committed, so this hash does not move as the record grows. A different hash is a finding.
+
+**Step 4. Report it.** For gate 3 the evidence is your run, not ours. Keep the CSV files, the
+output of the commands and the date, and send them to KAY9: the Telegram group
 <https://t.me/KAY9Pack>, or @kay9_io on X. They are published beside the gate.
 
 ## 4. What an empty diff proves, and what it does not
