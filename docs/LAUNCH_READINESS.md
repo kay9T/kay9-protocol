@@ -51,6 +51,12 @@ constructor, and the Azure job `kay9-scanner-run` committing every two hours. Fi
 block 71,926,233, 10 scans, document on IPFS, all 10 proofs verified against the root on chain. The
 gate can close 30 days after that commit if no gap exceeds six hours unexplained.
 
+**2026-09-27: two batch documents lost.** Batches 27 and 28 (blocks 73,722,772 and 73,792,926) were
+committed on schedule while the free pinning plan was full: the worker fell back to its own disk,
+and their documents are lost. Their roots and events are on chain; their contents cannot be
+checked. Batch documents and reports now go to the public record, <https://record.kay9.io>, and the
+worker does not commit a batch it could not publish there (`docs/WATCHDOG.md` §11.5).
+
 ### Gate 2 — the record covers what people actually buy
 
 **Condition.** Every graduation on the chain for 30 days has a basic scan committed within three
@@ -90,7 +96,7 @@ unverifiable and the token is being sold on trust.
 
 **Status (2026-09-26): open, the procedure is published and needs its third party.** The
 procedure is `docs/REBUILD_THE_RECORD.md`, also on kay9.io/docs; the tool it uses is
-`tools/rebuild-record.mjs` in the public repository, about 180 lines with viem as its only
+`tools/rebuild-record.mjs` in the public repository, about 200 lines with viem as its only
 dependency; and kay9.io/feed has a **Download as CSV** link that gives the rows the page read, before
 any filter, in the columns the tool writes. KAY9 followed the procedure word for word in an empty
 folder on 2026-09-26: the tool rebuilt batches 0 to 22 (305 shown scans) with every root, count,

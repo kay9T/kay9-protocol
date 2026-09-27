@@ -12,9 +12,12 @@ leaves three things behind:
 
 - **On chain, the batch**: a Merkle root, the number of scans, the engine version and the URI of
   the batch document (`getBatch(batchId)`).
-- **On IPFS, the batch document**: a JSON file listing every scan in the batch. The root on chain
-  is computed from it, so the document cannot be changed after the commit without the root no
-  longer matching.
+- **In the public record, the batch document**: a JSON file listing every scan in the batch. The
+  root on chain is computed from it, so the document cannot be changed after the commit without
+  the root no longer matching. The record is a public GitHub repository,
+  [`kay9T/kay9-record`](https://github.com/kay9T/kay9-record), served at <https://record.kay9.io>.
+  Batches committed since 2026-09-27 point at `https://record.kay9.io/batches/<root>.json`; the
+  earlier ones point at IPFS (`ipfs://…`), and the record holds the same bytes for them.
 - **On chain, one `AssetScanned` event per shown scan**: the numbers the website displays. A scan
   whose headline is withheld, because under 60 % of its weight was measured (flag bit 20), is in
   the document and the root but has no event.
@@ -22,11 +25,16 @@ leaves three things behind:
 The website reads the events. The contract does not check that the events agree with the root;
 this procedure does.
 
+**A known gap.** Batches 27 and 28 (committed on 2026-09-27 at blocks 73,722,772 and 73,792,926)
+were committed while the pinning service was refusing files. The scanner kept their documents on its
+own disk, which does not outlive a run; their `uri` is `kay9://local/<root>` and the documents are
+lost. Their roots and events are on chain, but the events cannot be checked against the roots.
+
 ## 2. What you need
 
 - Node.js 20 or later, and a POSIX shell for step 3 (on Windows, Git Bash or WSL).
 - `rebuild-record.mjs`, from the public repository `kay9T/kay9-protocol` (`tools/`). It is one
-  file of about 180 lines with a single dependency; reading it first is encouraged. Or write your
+  file of about 200 lines with a single dependency; reading it first is encouraged. Or write your
   own from the definitions in §5; nothing in it is specific to KAY9's own code.
 - A public RPC for Robinhood Chain. The script defaults to `https://rpc.mainnet.chain.robinhood.com`;
   `--rpc <url>` uses another.
@@ -36,6 +44,13 @@ mkdir kay9-check && cd kay9-check
 npm install viem@2
 curl -O https://raw.githubusercontent.com/kay9T/kay9-protocol/main/tools/rebuild-record.mjs
 ```
+
+The script fetches each document itself. A `https://record.kay9.io/…` address is read from the site
+and, if that fails, from the same path on `raw.githubusercontent.com/kay9T/kay9-record/main/`. An
+`ipfs://` address is tried on public gateways and then on the record, through its
+`ipfs-mirror.json`. Of the gateways, `gateway.pinata.cloud` and `ipfs.filebase.io` serve scripts;
+`ipfs.io` and `dweb.link` now answer them with HTTP 429 and serve browsers only. To have every
+document locally instead, `git clone https://github.com/kay9T/kay9-record`.
 
 ## 3. The steps
 
@@ -55,7 +70,9 @@ For every batch the script reads the batch from the contract, fetches its docume
 every leaf and the root, and requires root, count and engine version to match the chain. It then
 reads the batch's `AssetScanned` events and requires each to match an entry of the document, field
 by field. It exits with code 0 when everything matched, and with code 2 and a list of every
-mismatch otherwise.
+mismatch otherwise. A document it cannot fetch is listed as a mismatch and the script carries on
+with the next batch, so a range that includes batches 27 and 28 always ends with code 2 and those
+two lines (§1).
 
 **Step 3. Compare.** Every event of a batch is in the one transaction that committed it, so the
 website's file holds whole batches, with one exception: when it holds 200 rows the page stopped at
@@ -72,7 +89,8 @@ diff site-compared.txt rebuilt-compared.txt && echo "identical: $(wc -l < site-c
 
 An empty diff means every score kay9.io showed in those batches is a scan committed under the
 root on chain, with the same asset, score, confidence, flags and block. Any line the diff prints is
-a finding, and so is a non-zero exit in step 2.
+a finding, and so is a non-zero exit in step 2. Batches 27 and 28 are the known exception (§1):
+they cannot be rebuilt, so their rows are printed by the diff whenever the website's file holds them.
 
 **Step 3b. Check the pinned range.** The website's file covers only the last few hours, so two
 people checking on different days compare different batches. The pinned range gives everyone the
@@ -125,7 +143,10 @@ Everything the script does follows from the contract, `KAY9ScanRegistry.scanLeaf
 
 ## 6. Checking the reports behind the scans (optional)
 
-Each entry's `reportURI` points at the full scan report on IPFS, and `reportHash` is the keccak256
-of that report's canonical JSON: keys sorted, no whitespace, UTF-8. The pinning service stores the
-parsed JSON, so the bytes a gateway returns may be formatted differently. Parse the report,
-re-serialise it canonically, and hash that.
+Each entry's `reportURI` points at the full scan report, and `reportHash` is the keccak256 of that
+report's canonical JSON: keys sorted, no whitespace, UTF-8. The record stores those exact bytes, so
+a report fetched from `https://record.kay9.io/reports/<reportHash>.json` (or found under `reports/`
+in a clone) hashes to `reportHash` as it is. A report reached through an `ipfs://` address is
+different: the pinning service stored the parsed JSON, so the bytes a gateway returns may be
+formatted differently. Parse it, re-serialise it canonically, and hash that, or take the record's
+copy of it through `ipfs-mirror.json`.

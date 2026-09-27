@@ -7,7 +7,9 @@
  *
  * For every batch in KAY9ScanRegistry on Robinhood Chain (4663) it:
  *   1. reads the batch from the contract (`getBatch`): root, count, engine version, document URI;
- *   2. fetches the document from IPFS through any public gateway;
+ *   2. fetches the document from where the batch says it is: the KAY9 record (record.kay9.io, or
+ *      the same repository on raw.githubusercontent.com), or IPFS through a public gateway and then
+ *      the record's copy of it;
  *   3. recomputes every leaf and the Merkle root from the document, and requires the root and the
  *      count to equal the contract's;
  *   4. reads the batch's `AssetScanned` events and requires each to match a leaf of the document,
@@ -30,6 +32,8 @@ import { createPublicClient, encodeAbiParameters, encodePacked, http, keccak256,
 
 const REGISTRY = '0x79778723c021386F3C7727289A30716edaa635A1';
 const GATEWAYS = ['https://gateway.pinata.cloud/ipfs/', 'https://ipfs.filebase.io/ipfs/', 'https://ipfs.io/ipfs/', 'https://dweb.link/ipfs/'];
+// The public record: the site first, then the same repository read directly.
+const RECORD = ['https://record.kay9.io/', 'https://raw.githubusercontent.com/kay9T/kay9-record/main/'];
 const WITHHELD_BIT = 20n;
 const ABI = parseAbi([
   'function batchCount() view returns (uint256)',
@@ -59,22 +63,46 @@ async function patiently(fn) {
   }
 }
 
-async function fetchDocument(uri) {
-  const cid = uri.replace('ipfs://', '');
+let mirror;
+/** The record's map from each older ipfs:// CID to its file in the record, read once per run. */
+function ipfsMirror() {
+  mirror ??= fetchFirst(RECORD.map((base) => base + 'ipfs-mirror.json')).catch(() => ({}));
+  return mirror;
+}
+
+async function fetchFirst(urls) {
   let last;
   for (let round = 0; round < 3; round++) {
-    for (const gateway of GATEWAYS) {
+    for (const url of urls) {
       try {
-        const response = await fetch(gateway + cid, { signal: AbortSignal.timeout(30_000) });
+        const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
         if (response.ok) return await response.json();
-        last = new Error(gateway + ' answered ' + response.status);
+        last = new Error(url + ' answered ' + response.status);
       } catch (error) {
         last = error;
       }
     }
     await sleep(2_000);
   }
-  throw new Error('document ' + uri + ' unreachable: ' + last);
+  throw last;
+}
+
+async function fetchDocument(uri) {
+  let urls = [];
+  if (uri.startsWith(RECORD[0])) {
+    urls = RECORD.map((base) => base + uri.slice(RECORD[0].length));
+  } else if (uri.startsWith('ipfs://')) {
+    const cid = uri.slice('ipfs://'.length);
+    const path = (await ipfsMirror())[cid];
+    urls = [...GATEWAYS.map((gateway) => gateway + cid), ...(path ? RECORD.map((base) => base + path) : [])];
+  }
+  // A kay9://local/ address names a copy only the scanner that wrote it ever held.
+  if (urls.length === 0) throw new Error('document ' + uri + ' is not at a public address');
+  try {
+    return await fetchFirst(urls);
+  } catch (error) {
+    throw new Error('document ' + uri + ' unreachable: ' + error);
+  }
 }
 
 function leafOf(entry, engineVersion) {
@@ -122,7 +150,17 @@ async function main() {
   const problems = [];
   for (let id = to; id >= from; id--) {
     const batch = await patiently(() => client.readContract({ address: REGISTRY, abi: ABI, functionName: 'getBatch', args: [id] }));
-    const document = await fetchDocument(batch.uri);
+    let document;
+    try {
+      document = await fetchDocument(batch.uri);
+    } catch (error) {
+      // Batches 27 and 28 were committed while pinning was failing, and their documents are lost.
+      // A batch nobody can open is a finding, not a reason to stop checking the rest.
+      problems.push(`batch ${id}: ${error.message}`);
+      process.stderr.write(`batch ${id}: document not found
+`);
+      continue;
+    }
     const leaves = document.scans.map((entry) => leafOf(entry, document.engineVersion));
     const root = rootOf(leaves);
     if (root.toLowerCase() !== batch.root.toLowerCase()) problems.push(`batch ${id}: recomputed root ${root} is not the root on chain ${batch.root}`);

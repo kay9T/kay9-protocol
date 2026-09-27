@@ -585,6 +585,9 @@ Because the report body is canonical bytes (`docs/AUDIT_PROTOCOL.md` §8.2), two
 pin the same content and therefore derive the same content identifier independently. A reader can
 fetch the body from any of them and check it against the one hash on-chain.
 
+This section is about audit reports. The automatic scans of §11 no longer use IPFS: their batch
+documents and reports are committed to a public GitHub repository (§11.5).
+
 ### 7.5 Sharing signatures
 
 Two agreeing signatures in one `attest` transaction is the ordinary path, so auditors need some way
@@ -762,7 +765,8 @@ asset so a reader sees what changed rather than re-reading a full report.
 A pinned body that nobody serves is a broken link with a valid hash. Arweave alongside IPFS, and a
 public archive of report bodies, so verification does not depend on any single auditor staying
 online. The hash on-chain is already the thing that matters; this is about the body remaining
-fetchable.
+fetchable. For the automatic scans the archive exists: every batch document and scan report is in a
+public repository anyone can clone (§11.5).
 
 ### V2 — auditor independence and set growth
 
@@ -883,6 +887,43 @@ none of them is a recommendation — for the same reason the score is never rend
 
 **What would gate it.** Nothing about the record. It waits on there being enough continuous scan
 history for a change to mean something, which is the same 30 days gate 1 asks for.
+
+### 11.5 Where the batch documents and scan reports live
+
+The discovery worker (`services/discovery-worker`) publishes each batch before it commits the
+batch's root. Since 2026-09-27 it publishes to a public GitHub repository,
+[`kay9T/kay9-record`](https://github.com/kay9T/kay9-record), served by GitHub Pages at
+<https://record.kay9.io>:
+
+- `batches/<root>.json` is the batch document, the exact bytes the root was computed from. The
+  batch's on-chain `uri` is `https://record.kay9.io/batches/<root>.json`.
+- `reports/<reportHash>.json` is a scan report, its canonical bytes, so its keccak256 is the
+  `reportHash` its leaf commits to. Each entry's `reportURI` is
+  `https://record.kay9.io/reports/<reportHash>.json`.
+- `ipfs-mirror.json` maps the `ipfs://` addresses of the earlier documents to the same files here.
+
+A batch is one commit: the document and every report it points at, written through the GitHub Git
+Data API (`src/record.ts`). Before the commit the worker checks every report's bytes against its
+`reportHash`, and after sending them it checks that GitHub stored exactly those bytes, by comparing
+the git tree id GitHub returns with the one computed locally. **Nothing is committed on chain
+without its public copy**: any failure stops the pass before `commitScanBatch`, and the next run
+scans the same tokens again. There is no fallback to the worker's own disk, which does not outlive
+the run. A batch whose publication succeeded and whose commit then failed leaves a document in the
+repository that no root on chain matches; a reader checks every file against the chain, so it is
+simply not part of the record.
+
+Nothing in the repository needs to be trusted: a file that does not match its root or its hash on
+chain is not part of the record, wherever it came from. `git clone https://github.com/kay9T/kay9-record`
+copies all of it. `docs/REBUILD_THE_RECORD.md` is the procedure for checking it against the chain.
+
+**History.** From 2026-09-25 (batch 0) the documents were pinned on IPFS through Pinata, and those
+batches carry `ipfs://` addresses; the pins stay in place and the repository holds the same bytes.
+The free pinning plan holds 500 files in total and the worker writes about 200 a day, so it filled
+on 2026-09-27. **Batches 27 and 28** (committed on 2026-09-27 at blocks 73,722,772 and 73,792,926)
+were published while pinning was failing: the worker fell back to its own disk, their `uri` is
+`kay9://local/<root>`, and their documents and reports are lost. Their roots and their
+`AssetScanned` events are on chain, but the events cannot be checked against the roots, the scans
+with no event (headline withheld) cannot be listed, and the reports behind them cannot be opened.
 
 ---
 
