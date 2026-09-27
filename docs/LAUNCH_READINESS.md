@@ -117,8 +117,8 @@ in the method; each is fixed, tested and written up. The nine rugs with no launc
 discussed token by token; replayed at graduation, six of them were already flagged as holder
 concentration. Most dumps came within minutes of graduation, before the watchdog's committed scan
 (median 1 h 03 min), so the warning in time is the visitor's own browser scan. The browser scan runs
-1.12, and so does the watchdog's scanner job from batch 19 (2026-09-26, block 73,152,542): batches 0
-to 18 carry engine 1.10.
+1.13, and so does the watchdog's scanner job from batch 23 (2026-09-26 22:25 UTC, block
+73,438,977). Batches 19 to 22 carry engine 1.12 and batches 0 to 18 carry 1.10.
 
 ### Gate 5 — no invented statistics anywhere
 

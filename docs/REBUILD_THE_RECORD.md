@@ -34,7 +34,7 @@ this procedure does.
 ```bash
 mkdir kay9-check && cd kay9-check
 npm install viem@2
-# copy tools/rebuild-record.mjs from kay9T/kay9-protocol into this folder
+curl -O https://raw.githubusercontent.com/kay9T/kay9-protocol/main/tools/rebuild-record.mjs
 ```
 
 ## 3. The steps
