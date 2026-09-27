@@ -51,7 +51,7 @@ constructor, and the Azure job `kay9-scanner-run` committing every two hours. Fi
 block 71,926,233, 10 scans, document on IPFS, all 10 proofs verified against the root on chain. The
 gate can close 30 days after that commit if no gap exceeds six hours unexplained.
 
-**2026-09-27: two batch documents lost.** Batches 27 and 28 (blocks 73,722,772 and 73,792,926) were
+**2026-09-27: three batch documents lost.** Batches 27, 28 and 29 (blocks 73,722,772, 73,792,926 and 73,863,382) were
 committed on schedule while the free pinning plan was full: the worker fell back to its own disk,
 and their documents are lost. Their roots and events are on chain; their contents cannot be
 checked. Batch documents and reports now go to the public record, <https://record.kay9.io>, and the

@@ -25,7 +25,7 @@ leaves three things behind:
 The website reads the events. The contract does not check that the events agree with the root;
 this procedure does.
 
-**A known gap.** Batches 27 and 28 (committed on 2026-09-27 at blocks 73,722,772 and 73,792,926)
+**A known gap.** Batches 27, 28 and 29 (committed on 2026-09-27 at blocks 73,722,772, 73,792,926 and 73,863,382)
 were committed while the pinning service was refusing files. The scanner kept their documents on its
 own disk, which does not outlive a run; their `uri` is `kay9://local/<root>` and the documents are
 lost. Their roots and events are on chain, but the events cannot be checked against the roots.
@@ -71,8 +71,8 @@ every leaf and the root, and requires root, count and engine version to match th
 reads the batch's `AssetScanned` events and requires each to match an entry of the document, field
 by field. It exits with code 0 when everything matched, and with code 2 and a list of every
 mismatch otherwise. A document it cannot fetch is listed as a mismatch and the script carries on
-with the next batch, so a range that includes batches 27 and 28 always ends with code 2 and those
-two lines (§1).
+with the next batch, so a range that includes batches 27 to 29 always ends with code 2 and those
+lines (§1).
 
 **Step 3. Compare.** Every event of a batch is in the one transaction that committed it, so the
 website's file holds whole batches, with one exception: when it holds 200 rows the page stopped at
@@ -89,7 +89,7 @@ diff site-compared.txt rebuilt-compared.txt && echo "identical: $(wc -l < site-c
 
 An empty diff means every score kay9.io showed in those batches is a scan committed under the
 root on chain, with the same asset, score, confidence, flags and block. Any line the diff prints is
-a finding, and so is a non-zero exit in step 2. Batches 27 and 28 are the known exception (§1):
+a finding, and so is a non-zero exit in step 2. Batches 27, 28 and 29 are the known exception (§1):
 they cannot be rebuilt, so their rows are printed by the diff whenever the website's file holds them.
 
 **Step 3b. Check the pinned range.** The website's file covers only the last few hours, so two

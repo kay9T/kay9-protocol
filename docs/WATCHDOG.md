@@ -919,7 +919,7 @@ copies all of it. `docs/REBUILD_THE_RECORD.md` is the procedure for checking it 
 **History.** From 2026-09-25 (batch 0) the documents were pinned on IPFS through Pinata, and those
 batches carry `ipfs://` addresses; the pins stay in place and the repository holds the same bytes.
 The free pinning plan holds 500 files in total and the worker writes about 200 a day, so it filled
-on 2026-09-27. **Batches 27 and 28** (committed on 2026-09-27 at blocks 73,722,772 and 73,792,926)
+on 2026-09-27. **Batches 27, 28 and 29** (committed on 2026-09-27 at blocks 73,722,772, 73,792,926 and 73,863,382)
 were published while pinning was failing: the worker fell back to its own disk, their `uri` is
 `kay9://local/<root>`, and their documents and reports are lost. Their roots and their
 `AssetScanned` events are on chain, but the events cannot be checked against the roots, the scans

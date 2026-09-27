@@ -154,7 +154,7 @@ async function main() {
     try {
       document = await fetchDocument(batch.uri);
     } catch (error) {
-      // Batches 27 and 28 were committed while pinning was failing, and their documents are lost.
+      // Batches 27, 28 and 29 were committed while pinning was failing, and their documents are lost.
       // A batch nobody can open is a finding, not a reason to stop checking the rest.
       problems.push(`batch ${id}: ${error.message}`);
       process.stderr.write(`batch ${id}: document not found
