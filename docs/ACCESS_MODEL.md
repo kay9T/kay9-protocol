@@ -206,3 +206,52 @@ KAY9 anything.
 **What beta is for.** Proving the deep and forensic engines produce something worth locking KAY9
 for, before anybody is asked to lock any. If they do not, that is worth finding out before the
 token exists rather than after.
+
+### 8.2 The beta preview: signed, analysed at once, not yet a quorum (2026-09-29)
+
+The owner decided on 2026-09-29 that anyone should be able to try deep and forensic before the
+launch and see the result within about a minute, by connecting a wallet and holding no KAY9. The
+quorum pass of §8.1 cannot do that today, for a reason measured rather than assumed: it pins every
+read to a shared epoch block up to 18,000 blocks (about thirty minutes) behind the head, and the
+public Robinhood endpoint keeps state for roughly 3,000 blocks. Without an archive node, which the
+budget does not cover, most quorum passes cannot read what they need.
+
+So the beta has a second door, and it is labelled as exactly what it is.
+
+**How an ask works.**
+
+1. The visitor enters a Robinhood Chain token and a depth on `/audit`, and signs a fixed text with
+   their wallet (`betaRequestMessage` in `@kay9/chain`: chain, asset, tier, issued-at). It is an
+   off-chain `personal_sign`: no transaction, no gas, no approval of anything, and the text says so.
+2. The intake (`services/audit-worker`, `beta-api` with `BETA_PREVIEW=true`) checks the signature
+   against the hub chain, so a smart-contract wallet (ERC-1271) passes as well as a key; refuses one
+   more than ten minutes old; and holds each wallet to three accepted asks a day. The signer is the
+   queue's rate-limit key and is never published.
+3. The intake runs KAY9's engine on the token at once, at a block 64 behind the head, one analysis
+   at a time in arrival order, and writes the report body to the public record
+   (`https://record.kay9.io/reports/<hash>.json`).
+4. The site follows the entry (`GET /entry/:id`) and draws the result with the same bars every other
+   report uses. A token already asked about at that depth shows the existing analysis.
+
+**What a preview is and is not.**
+
+| | Beta preview (§8.2) | Beta quorum report (§8.1) | Requested audit, after TGE |
+|---|---|---|---|
+| Engine | identical | identical | identical |
+| Who runs it | KAY9's intake, once | two of three auditors | two of three auditors |
+| Signatures | none | two of three | two of three |
+| On-chain, in `KAY9Registry` | **no** | yes | yes |
+| Report body | public record, content-addressed | public record | public record |
+| Needs from the asker | a wallet signature | a wallet signature | a KAY9 lock |
+| Time to a result | about a minute | the next pass | minutes, with the nudge |
+
+Every surface says "Beta preview", and says that it is not signed by the auditor quorum and not
+written on-chain. It is a technical risk reading of one block, like every other result, and never
+a safety guarantee. Requester neutrality holds unchanged: a signature buys a place in line and
+nothing that touches a score.
+
+**What this does not change.** The access model after the launch (§1–§7) is untouched: a request
+is a lock in `KAY9AccessVault`, quota is enforced on chain by `KAY9AuditHub`, and the website is
+never in the authorisation path. The preview grants nothing on chain and consumes no quota, because
+there is none. At TGE the preview door closes and requests open. The §8.1 quorum pass remains the
+way a beta ask becomes an on-chain report, once an operator has archive access.
