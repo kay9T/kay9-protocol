@@ -230,6 +230,12 @@ So the beta has a second door, and it is labelled as exactly what it is.
 3. The intake runs KAY9's engine on the token at once, at a block 64 behind the head, one analysis
    at a time in arrival order, and writes the report body to the public record
    (`https://record.kay9.io/reports/<hash>.json`).
+   The preview, and only the preview, may consult a block explorer (`ROBINHOOD_EXPLORER_API`,
+   the Blockscout PRO API): its list of the largest holders names whose balances to read, and its
+   record of the creating transaction names which receipt to check. Every balance and the
+   deployment itself are then read on chain at the analysis block. A signed report never consults
+   an explorer, because an explorer's database is not chain state and two auditors would sign
+   different bytes (`services/audit-worker/src/analysis.ts`).
 4. The site follows the entry (`GET /entry/:id`) and draws the result with the same bars every other
    report uses. A token already asked about at that depth shows the existing analysis.
 
@@ -237,7 +243,7 @@ So the beta has a second door, and it is labelled as exactly what it is.
 
 | | Beta preview (§8.2) | Beta quorum report (§8.1) | Requested audit, after TGE |
 |---|---|---|---|
-| Engine | identical | identical | identical |
+| Engine | identical, plus a block explorer | identical | identical |
 | Who runs it | KAY9's intake, once | two of three auditors | two of three auditors |
 | Signatures | none | two of three | two of three |
 | On-chain, in `KAY9Registry` | **no** | yes | yes |
