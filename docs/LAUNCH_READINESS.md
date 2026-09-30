@@ -23,7 +23,7 @@ authorisation.
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
-| Testnet rehearsal (gate 8) | run end to end on 2026-09-24 on a stack deployed from `launch-review-5`, the reviewed commit, `migrateAndSettle` included (`docs/STATUS.md` §18.2). Only `renew` and `unlock` remain, executable from **2026-09-30 17:58 UTC** when the 7-day period ends. The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
+| Testnet rehearsal (gate 8) | run end to end on 2026-09-24 on a stack deployed from `launch-review-5`, the reviewed commit, `migrateAndSettle` included (`docs/STATUS.md` §18.2). `unlock` ran on 2026-09-30 at 18:02 UTC and returned exactly the 10,000 KAY9 locked (`docs/STATUS.md` §18.3). Only `renew` remains, on a second depositor's period that ends **2026-10-07 18:02:52 UTC**. The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
 | Last reviewed | 2026-09-25 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
