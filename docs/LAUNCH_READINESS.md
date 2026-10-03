@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's window was broken on 29–30 Sep and 2 Oct, 85 graduations scanned late, and waits on the owner's decision; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -57,6 +57,19 @@ and their documents are lost. Their roots and events are on chain; their content
 checked. Batch documents and reports now go to the public record, <https://record.kay9.io>, and the
 worker does not commit a batch it could not publish there (`docs/WATCHDOG.md` §11.5).
 
+**2026-10-03: passes stopped by the job's timeout, and one gap of 6 h 02 min.** From 2 October
+the same 17 scans took 15 to 25 minutes a pass instead of 5 to 8, with the engine unchanged (1.13.0
+throughout); a single scan costs from about 20 seconds to nearly three minutes depending on the
+token's transfer history. The job's 25-minute replica timeout stopped seven passes, five of them
+before their commit (2 Oct 04:17, 08:17 and 10:17, 3 Oct 12:17 and 16:17 UTC); the 2 Oct 14:17 and
+3 Oct 14:17 passes committed batches 87 and 98 seconds before they were stopped. Earlier, the 30 Sep
+04:17 pass failed differently: the public RPC answered its commit with a Cloudflare challenge page,
+on both attempts. Two stopped passes in a row on 2 Oct left the one gap over six hours, from batch
+85 at 06:29 to batch 86 at 12:30 UTC. Every other gap is under 4 h 10 min. The timeout was raised to
+one hour at about 17:00 UTC on 3 October, still well short of the two-hour interval, so two passes
+still cannot overlap (`services/discovery-worker/deploy/azure/deploy-scanner.sh`).
+That is the only change made to the job in the window; nothing was restarted by hand.
+
 ### Gate 2 — the record covers what people actually buy
 
 **Condition.** Every graduation on the chain for 30 days has a basic scan committed within three
@@ -82,6 +95,28 @@ within three hours and 18 later. None was missed. All 18 fell in the job's first
 batches 0 to 5 worked through graduations from before batch 0. From block 72,173,850, after that
 backlog, all 84 due graduations were scanned within three hours: median 1 h 03 min, longest
 2 h 30 min. The 30 days are counted from there, which ends on 26 October.
+
+**Status (2026-10-03): the condition has been broken twice inside the 30 days, and the owner has to
+decide what that means.** Second reading, `docs/reviews/2026-10-03-gate2-coverage.md`: from block
+72,173,850 to 79,249,531, 579 graduations were due, every one was scanned, 494 within three hours
+and 85 later (median 1 h 19 min, longest 12 h 48 min). The 85 fall in two episodes:
+
+- **76, graduated between 29 Sep 22:19 and 30 Sep 09:56 UTC.** About fifty graduations arrived in
+  eighty minutes, four times what passes of 17 scans every two hours take in that time, and the
+  04:17 pass on 30 September failed when the public RPC answered its commit with a Cloudflare
+  challenge page. The queue took until batch 66 to drain.
+- **9, graduated between 2 Oct 00:53 and 09:10 UTC.** Passes stopped by the timeout before their
+  commit (gate 1's note of 2026-10-03).
+
+Batches 27 to 29, whose documents are lost, are read from their `AssetScanned` events instead; the
+first count of this reading charged their 16 graduations as late until that was added to the script.
+
+So the gate cannot close on 26 October as written. The timeout is fixed; the burst is not, because
+the cap of 17 scans a pass is what keeps a pass inside its slot, and one scan took from 23 seconds to
+2 min 45 s on three tokens of batch 98, measured locally on 3 October. The choices are the owner's:
+keep the condition and restart the 30 days once a pass can absorb a burst (from the first week of
+October that ends in the first week of November, before gate 14), or restate the condition.
+Nothing here changes the condition.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
