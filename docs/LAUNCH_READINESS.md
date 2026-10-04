@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's window was broken on 29–30 Sep and 2 Oct, 85 graduations scanned late, and waits on the owner's decision; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition and its 30 days restarted on 2026-10-04, ending 3 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -68,7 +68,12 @@ on both attempts. Two stopped passes in a row on 2 Oct left the one gap over six
 85 at 06:29 to batch 86 at 12:30 UTC. Every other gap is under 4 h 10 min. The timeout was raised to
 one hour at about 17:00 UTC on 3 October, still well short of the two-hour interval, so two passes
 still cannot overlap (`services/discovery-worker/deploy/azure/deploy-scanner.sh`).
-That is the only change made to the job in the window; nothing was restarted by hand.
+Nothing was restarted by hand.
+
+**2026-10-04: engine 1.15.0 and the pass changes for gate 2 deployed** at about 01:50 UTC (commit
+`2bc69ed`, image `ghcr.io/kay9t/kay9-scanner@sha256:04b9131e…`); like the engine upgrades of
+26 September, a deployment, not a restart. The first pass on it took 8 minutes for 17 scans and
+committed batch 103.
 
 ### Gate 2 — the record covers what people actually buy
 
@@ -117,6 +122,16 @@ the cap of 17 scans a pass is what keeps a pass inside its slot, and one scan to
 keep the condition and restart the 30 days once a pass can absorb a burst (from the first week of
 October that ends in the first week of November, before gate 14), or restate the condition.
 Nothing here changes the condition.
+
+**Status (2026-10-04): the owner kept the condition, and the 30 days restarted.** The fix
+(`2bc69ed`): graduations, which head the queue, may take a pass past its 17 scans up to 60; a pass
+stops starting scans 40 minutes in and commits what it has, instead of being killed at the hour with
+nothing committed; a long pass commits every 17 scans; and engine 1.15.0 bounds the holder fold
+that made one scan take minutes. The new window counts from **batch 103, block 79,579,724,
+2026-10-04 02:24:53 UTC**, and ends on 3 November. The first pass on the new image took 8 minutes
+for 17 scans, so a burst like 29 September's fits one pass. A burst larger than a pass can scan in
+40 minutes would still leave its tail to the next pass two hours later; an hourly cadence would
+close that, at about 0.002 ETH a month more gas, and is the owner's call.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
