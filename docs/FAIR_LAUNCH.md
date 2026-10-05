@@ -23,8 +23,8 @@ Deployment parameters are supplied by the owner at launch time, echoed on-chain 
 | Liquidity reserve | 455,000,000 KAY9 | constant, enforced |
 | Raise currency | native ETH | enforced |
 | Duration | 24 hours ≈ 864,000 blocks, the maximum the vault accepts (owner, 2026-09-25; it was 4 hours) | Counted on the chain's own clock (`ArbSys.arbBlockNumber()`, ≈ 0.10 s), which is what the auction reads; Genesis enforces 36,000–864,000 blocks, one hour to one day, on the same clock |
-| Floor / reference FDV | about USD 1,000 | owner parameter; implied floor price = FDV ÷ 1,000,000,000 |
-| Graduation / target FDV | about USD 10,000 | owner parameter; expressed on-chain as `requiredCurrencyRaised` in ETH |
+| Floor / reference FDV | USD 1,000 (owner's choice, 2026-10-06) | owner parameter; implied floor price = FDV ÷ 1,000,000,000 = USD 0.000001 per KAY9 |
+| Graduation / target FDV | USD 5,000 (owner's choice, 2026-10-06; the reference was 10,000) | owner parameter; expressed on-chain as `requiredCurrencyRaised` in ETH: the auction supply at the graduation price, about USD 2,275 |
 | CCA price tick | 1 % of the floor price | Uniswap SDK default |
 | Emission schedule | 12 convex steps + 30 % in the final block | Uniswap SDK default (`deriveConvexAuctionSteps`) |
 | LP allocation | 100 % of raised ETH | enforced |

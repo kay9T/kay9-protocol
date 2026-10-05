@@ -281,8 +281,8 @@ Fill these in and the relative weeks above become a calendar.
 |---|---|
 | Target TGE, date and time UTC | **Tuesday 10 November 2026, 01:00 UTC** — 12:00 noon in Melbourne (AEDT, UTC+11). The date was set by the owner on 2026-09-11, the time on 2026-10-06. `KAY9Genesis.launch()` is signed then, and the 24-hour auction, counted on the chain's own clock, ends at about 01:17 UTC on 11 November (864,000 blocks at the measured 0.1012 s). A target that moves if a readiness gate is open (§8.1) |
 | Auction duration | 24 hours, about 864,000 blocks on the chain's own clock (owner, 2026-09-25; it was 4 hours) |
-| Floor FDV, USD | to be set, reference 1,000 |
-| Graduation FDV, USD | to be set, reference 10,000 |
+| Floor FDV, USD | **1,000** (owner, 2026-10-06): a floor price of USD 0.000001 per KAY9. Final with gate 9 on 6 November, at that day's ETH price |
+| Graduation FDV, USD | **5,000** (owner, 2026-10-06; the reference was 10,000): the auction graduates once it has credited about USD 2,275 in ETH, 45.5 % of 5,000. Lowered so a small community can carry the launch; the cost is a thinner pool and, with few bidders, a concentrated auction allocation. Final with gate 9 on 6 November |
 | Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. Proposed: 11 November 2026, 02:00 UTC (13:00 in Melbourne); confirmed with the launch parameters (gate 9) before deployment. Nothing releases before `KAY9Genesis.settled()` in any case |
 | Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 11 May 2027, 02:00 UTC with the proposed tranche 1 |
 | Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 11 November 2027, 02:00 UTC with the proposed tranche 1 |

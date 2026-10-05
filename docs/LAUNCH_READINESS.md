@@ -316,6 +316,13 @@ every 12 s. The planned 24 hours is **864,000** blocks. `KAY9Genesis.chainBlockN
 it validates against; `Launch.s.sol` derives from it. `docs/RESEARCH.md` has both measurements and
 the testnet launch that was over before its first bid because the other clock was used.
 
+**Status (2026-10-06): figures chosen, not yet computed or signed off.** Floor FDV USD 1,000 and
+graduation FDV USD 5,000 (the reference was 10,000; lowered so a small community can carry the
+launch, at the cost of a thinner pool and, with few bidders, a concentrated allocation). Launch at
+01:00 UTC on 10 November, a 24-hour auction. The vesting `TGE_TIMESTAMP` proposed for 11 November
+02:00 UTC still needs the owner's confirmation before the 3 November deployment. The gate closes
+when `Launch.s.sol --json` has been run in the launch week and the owner confirms its output.
+
 ---
 
 ## Part C — custody and keys
