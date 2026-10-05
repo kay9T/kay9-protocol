@@ -62,7 +62,7 @@ claim more than it says.
 | Continuous integration and deployment | GitHub Actions |
 | Token discovery | ten verified sources on Robinhood Chain; a live pass over 20,000 blocks found 1,459 tokens in nine requests |
 | `KAY9ScanRegistry` and Merkle batching | live on Robinhood mainnet since 2026-09-25 (`packages/chain/deployments/4663.json`) |
-| Automatic scan pipeline | `services/discovery-worker` runs as the Azure job `kay9-scanner-run` every two hours; batch 0 committed at block 71,926,233 on 2026-09-25 (gate 1) |
+| Automatic scan pipeline | `services/discovery-worker` runs as the Azure job `kay9-scanner-run` every hour (every two hours until 2026-10-06); batch 0 committed at block 71,926,233 on 2026-09-25 (gate 1) |
 | Watchdog deployment script | `DeployWatchdog.s.sol`, no token in it |
 | Deep/forensic beta intake, pre-token | `beta`/`beta-api` written and tested (`services/audit-worker`) — a free, walletless queue feeding the existing `publishWatchdogReport` quorum path; not yet deployed |
 | Score calibration against real tokens | re-run on 2026-09-26 on 84 tokens and a rugged set of 32 dumps and liquidity pulls; eight engine defects found and fixed in engine 1.12 (gate 4) |
@@ -121,12 +121,12 @@ the final launch report in `docs/DEPLOYMENT.md` §6.
 | T-7d | Publish addresses, flip the repository public | anyone |
 | T-2d | Announce the auction window and the floor and graduation figures | owner |
 | T-0 | `KAY9Genesis.launch()`, auction opens | **owner signs** |
-| T-0 + 4h | Auction closes, final clearing price fixed | automatic |
-| T-0 + 4h | `LBPStrategy.migrate()` creates the v4 pool and mints the position | anyone |
-| T-0 + 4h | `KAY9LiquidityLock.lock()` makes the liquidity permanent | anyone |
-| T-0 + 4h | `KAY9Genesis.settle()` turns unsold supply into locked liquidity | anyone |
-| T-0 + 4h | Team tranche 1 unlocks, 10,000,000 KAY9, 1 percent | permissionless release |
-| T-0 + 4h | The Buy panel on kay9.io enables itself: it reads `launchState` 3 and quotes ETH → KAY9 through the Uniswap v4 quoter and Universal Router; the owner checks once that the Uniswap app's deep link opens the right chain and token | automatic; owner checks |
+| T-0 + 24h | Auction closes, final clearing price fixed | automatic |
+| T-0 + 24h | `LBPStrategy.migrate()` creates the v4 pool and mints the position | anyone |
+| T-0 + 24h | `KAY9LiquidityLock.lock()` makes the liquidity permanent | anyone |
+| T-0 + 24h | `KAY9Genesis.settle()` turns unsold supply into locked liquidity | anyone |
+| T-0 + 24h | Team tranche 1 unlocks, 10,000,000 KAY9, 1 percent | permissionless release |
+| T-0 + 24h | The Buy panel on kay9.io enables itself: it reads `launchState` 3 and quotes ETH → KAY9 through the Uniswap v4 quoter and Universal Router; the owner checks once that the Uniswap app's deep link opens the right chain and token | automatic; owner checks |
 
 Everything after the owner's single signature is permissionless. That is the point: no step
 depends on the team being alive, awake or willing.
@@ -279,12 +279,13 @@ Fill these in and the relative weeks above become a calendar.
 
 | Item | Value |
 |---|---|
-| Target TGE, date and time UTC | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; time of day UTC to be confirmed by the owner. A target that moves if a readiness gate is open (§8.1) |
+| Target TGE, date and time UTC | **Tuesday 10 November 2026, 01:00 UTC** — 12:00 noon in Melbourne (AEDT, UTC+11). The date was set by the owner on 2026-09-11, the time on 2026-10-06. `KAY9Genesis.launch()` is signed then, and the 24-hour auction, counted on the chain's own clock, ends at about 01:17 UTC on 11 November (864,000 blocks at the measured 0.1012 s). A target that moves if a readiness gate is open (§8.1) |
 | Auction duration | 24 hours, about 864,000 blocks on the chain's own clock (owner, 2026-09-25; it was 4 hours) |
 | Floor FDV, USD | to be set, reference 1,000 |
 | Graduation FDV, USD | to be set, reference 10,000 |
-| Team unlock, tranche 2 | TGE + 6 calendar months, computed at deployment: 10 May 2027 at the TGE time of day if TGE is 10 November 2026 |
-| Team unlock, tranche 3 | TGE + 12 calendar months, computed at deployment: 10 November 2027 at the TGE time of day if TGE is 10 November 2026 |
+| Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. Proposed: 11 November 2026, 02:00 UTC (13:00 in Melbourne); confirmed with the launch parameters (gate 9) before deployment. Nothing releases before `KAY9Genesis.settled()` in any case |
+| Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 11 May 2027, 02:00 UTC with the proposed tranche 1 |
+| Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 11 November 2027, 02:00 UTC with the proposed tranche 1 |
 | Deep access lock | 5,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below 1 KAY9 |
 | Forensic access lock | 10,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below the deep lock, never above 10,000,000 KAY9 |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
@@ -313,7 +314,7 @@ promise: a slipped line moves the launch, not the gate.
 | Thu 5 Nov 2026 | Timelock operations executed; `owner()` checks pass everywhere | 12 |
 | Fri 6 Nov 2026 | Launch parameters derived, printed and confirmed by the owner in writing; auction window announced | 9 |
 | Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
-| **Tue 10 Nov 2026** | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
+| **Tue 10 Nov 2026, 01:00 UTC** (12:00 Melbourne) | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
 
 What is *not* on this calendar is anything that depends on money the project does not have: the
 independent-operator move in §6 has a precondition, not a date, and stays that way.

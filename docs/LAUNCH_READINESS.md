@@ -22,7 +22,7 @@ authorisation.
 | Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and now count from 5 Oct, ending 4 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
-| Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
+| Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
 | Testnet rehearsal (gate 8) | run end to end on 2026-09-24 on a stack deployed from `launch-review-5`, the reviewed commit, `migrateAndSettle` included (`docs/STATUS.md` §18.2). `unlock` ran on 2026-09-30 at 18:02 UTC and returned exactly the 10,000 KAY9 locked (`docs/STATUS.md` §18.3). Only `renew` remains, on a second depositor's period that ends **2026-10-07 18:02:52 UTC**. The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
 | Last reviewed | 2026-09-25 |
 
@@ -144,6 +144,13 @@ three times, while the run is under ten minutes old (commit `f587810`, image
 `ghcr.io/kay9t/kay9-scanner@sha256:f9db8433…`, deployed 5 Oct 22:30 UTC). Under the condition the
 owner kept, the 30 days now count from **batch 116, 2026-10-05 06:28:33 UTC**, and end on
 4 November.
+
+**2026-10-06: hourly passes (owner).** The job runs at 17 minutes past every hour with 9 scans a
+pass, about the same daily volume as 17 every two hours; graduations still go past the cap up to 60,
+a pass stops starting scans 30 minutes in, commits every 9 scans, and the replica timeout is 50
+minutes, under the hour between runs. A pass the public RPC refuses now costs one hour, not two, so
+a graduation is still committed inside three hours when one pass in a row fails. The extra gas is
+about 0.002 ETH a month at the batch price measured on 3 October.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
