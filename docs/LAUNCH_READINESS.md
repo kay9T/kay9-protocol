@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition and its 30 days restarted on 2026-10-04, ending 3 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and now count from 5 Oct, ending 4 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -132,6 +132,18 @@ that made one scan take minutes. The new window counts from **batch 103, block 7
 for 17 scans, so a burst like 29 September's fits one pass. A burst larger than a pass can scan in
 40 minutes would still leave its tail to the next pass two hours later; an hourly cadence would
 close that, at about 0.002 ETH a month more gas, and is the owner's call.
+
+**2026-10-05: two graduations late by four minutes, and the window restarts again.** Third
+reading, from block 79,579,724 to 81,136,554 (5 Oct 22:24 UTC): 47 graduations due, every one
+scanned, 45 within three hours, longest 3 h 04 min. The two late ones graduated at 03:24 and 03:25
+UTC on 5 October; the 04:17 pass failed in its first request, when the public RPC answered with a
+Cloudflare 403 challenge page, and the platform's one retry 44 seconds later met the same page, so
+they waited for the 06:17 pass (batch 116, 06:28:33 UTC). The capacity change held: passes took 11
+to 32 minutes. The worker now waits two minutes on a challenge page and runs the pass again, up to
+three times, while the run is under ten minutes old (commit `f587810`, image
+`ghcr.io/kay9t/kay9-scanner@sha256:f9db8433…`, deployed 5 Oct 22:30 UTC). Under the condition the
+owner kept, the 30 days now count from **batch 116, 2026-10-05 06:28:33 UTC**, and end on
+4 November.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
