@@ -19,11 +19,11 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **5 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and now count from 5 Oct, ending 4 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 8 (testnet rehearsal, 2026-10-08), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and now count from 5 Oct, ending 4 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
-| Testnet rehearsal (gate 8) | run end to end on 2026-09-24 on a stack deployed from `launch-review-5`, the reviewed commit, `migrateAndSettle` included (`docs/STATUS.md` §18.2). `unlock` ran on 2026-09-30 at 18:02 UTC and returned exactly the 10,000 KAY9 locked (`docs/STATUS.md` §18.3). Only `renew` remains, on a second depositor's period that ends **2026-10-07 18:02:52 UTC**. The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
+| Testnet rehearsal (gate 8) | **complete**, on a stack deployed from `launch-review-5`, the reviewed commit: run end to end on 2026-09-24, `migrateAndSettle` included (`docs/STATUS.md` §18.2); `unlock` on 2026-09-30 returned exactly the 10,000 KAY9 locked (§18.3); `renew` on 2026-10-08 at 00:43 UTC reopened a period with nothing topped up or returned (§18.4, tx `0xe6566497…`). The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
 | Last reviewed | 2026-09-25 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
@@ -301,6 +301,10 @@ one are kept as history and close nothing.
 convention wrong by a factor of 120, which would have made the documented four-hour auction
 impossible to submit — was invisible to unit tests and to a mainnet fork. Only a real deployment on
 the real chain showed it.
+
+**Status (2026-10-08): met.** Every step above ran on chain 46630 on the stack deployed from
+`launch-review-5`, the commit the reviews confirmed: the full path on 2026-09-24, `unlock` on
+2026-09-30 and `renew` on 2026-10-08 (`0xe6566497bce82d72971c57ddda2dc6bf3876efb5b6f4a0ec203509aabbb49667`), hashes in `docs/STATUS.md` §18.
 
 ### Gate 9 — the launch parameters are computed, checked and signed off
 
