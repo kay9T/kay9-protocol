@@ -210,7 +210,7 @@ token exists rather than after.
 ### 8.2 The beta preview: signed, analysed at once, not yet a quorum (2026-09-29)
 
 The owner decided on 2026-09-29 that anyone should be able to try deep and forensic before the
-launch and see the result within about a minute, by connecting a wallet and holding no KAY9. The
+launch and see the result within a few minutes, by connecting a wallet and holding no KAY9. The
 quorum pass of §8.1 cannot do that today, for a reason measured rather than assumed: it pins every
 read to a shared epoch block up to 18,000 blocks (about thirty minutes) behind the head, and the
 public Robinhood endpoint keeps state for roughly 3,000 blocks. Without an archive node, which the
@@ -249,7 +249,7 @@ So the beta has a second door, and it is labelled as exactly what it is.
 | On-chain, in `KAY9Registry` | **no** | yes | yes |
 | Report body | public record, content-addressed | public record | public record |
 | Needs from the asker | a wallet signature | a wallet signature | a KAY9 lock |
-| Time to a result | about a minute | the next pass | minutes, with the nudge |
+| Time to a result | a few minutes | the next pass | minutes, with the nudge |
 
 Every surface says "Beta preview", and says that it is not signed by the auditor quorum and not
 written on-chain. It is a technical risk reading of one block, like every other result, and never

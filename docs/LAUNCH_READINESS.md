@@ -85,9 +85,10 @@ without one refusal; 45 a minute, or about 20 in four seconds, drew the challeng
 to 90 seconds and grew while requests kept arriving, and viem's own fast retries fed it. The fix
 (`2105e42`) spaces every request a process sends to the public endpoint 2.5 s apart, waits 90 s on
 a challenge and sends the refused request again, and batches concurrent reads into one HTTP
-request; it goes to the job as a new image, a deployment like the earlier ones, not a restart. The
-gap runs from batch 191 to the first commit on that image and is longer than six hours. Whether it
-is accepted as explained or the 30 days start again is the owner's decision.
+request. It went to the job as image `ghcr.io/kay9t/kay9-scanner@sha256:8753e977…` at 06:16 UTC on
+9 October, a deployment like the earlier ones, not a restart, and the 06:17 pass committed batch 192
+at 06:45:51 UTC and batch 193 after it, ten scans, none refused. The gap, batch 191 to batch 192, is
+11 h 25 min. Whether it is accepted as explained or the 30 days start again is the owner's decision.
 
 ### Gate 2 — the record covers what people actually buy
 
@@ -169,8 +170,12 @@ about 0.002 ETH a month at the batch price measured on 3 October.
 **2026-10-09: broken again by the RPC outage.** Nothing was committed after batch 191 (19:20:07 UTC
 on 8 October) until the paced image described under gate 1 (`2105e42`), so the graduations of that
 night were not committed within three hours. The condition is the owner's: if the 30 days restart
-from the first commit on the paced image on 9 October, they end on about 8 November, the day before
-the owner's confirmation on the calendar, which leaves no slack for another break.
+from batch 192 (06:45:51 UTC on 9 October), they end on 8 November, the day before the owner's
+confirmation on the calendar, which leaves no slack for another break. Pacing also costs capacity:
+a basic scan is 45 to 50 HTTP requests, about two minutes at one start per 2.5 s, so a pass now
+fits about ten scans in its 30-minute budget, where graduations could take it up to 60 before, and
+a burst of more than about ten graduations an hour waits for the next pass. A dedicated RPC endpoint would remove both
+the challenge and this ceiling; it is a cost decision for the owner.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
