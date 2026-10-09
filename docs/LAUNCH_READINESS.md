@@ -171,11 +171,14 @@ about 0.002 ETH a month at the batch price measured on 3 October.
 on 8 October) until the paced image described under gate 1 (`2105e42`), so the graduations of that
 night were not committed within three hours. The condition is the owner's: if the 30 days restart
 from batch 192 (06:45:51 UTC on 9 October), they end on 8 November, the day before the owner's
-confirmation on the calendar, which leaves no slack for another break. Pacing also costs capacity:
-a basic scan is 45 to 50 HTTP requests, about two minutes at one start per 2.5 s, so a pass now
-fits about ten scans in its 30-minute budget, where graduations could take it up to 60 before, and
-a burst of more than about ten graduations an hour waits for the next pass. A dedicated RPC endpoint would remove both
-the challenge and this ceiling; it is a cost decision for the owner.
+confirmation on the calendar, which leaves no slack for another break. Pacing cost capacity at
+first: a basic scan was 45 to 57 HTTP requests, about two minutes at one start per 2.5 s, so the
+06:17 to 08:17 passes took about 24 minutes for 9 or 10 scans, and a pass could fit only about ten
+of the 60 graduations it may take. Engine 1.15.1 (`1aa368f`, image
+`ghcr.io/kay9t/kay9-scanner@sha256:416b34b7…`, deployed 08:57 UTC) reads the same things in 6 to
+43 requests, every report compared at a pinned block byte-identical; the 09:17 pass took 7 minutes
+for 9 scans, so the 30-minute budget fits about 35 to 40. A dedicated RPC endpoint would remove
+the challenge altogether; it is a cost decision for the owner.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
