@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 8 (testnet rehearsal, 2026-10-08), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and now count from 5 Oct, ending 4 Nov; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 8 (testnet rehearsal, 2026-10-08), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and counted from 5 Oct, ending 4 Nov, until the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct (gates 1 and 2, 2026-10-09; a restart is the owner's decision); gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -74,6 +74,20 @@ Nothing was restarted by hand.
 `2bc69ed`, image `ghcr.io/kay9t/kay9-scanner@sha256:04b9131e…`); like the engine upgrades of
 26 September, a deployment, not a restart. The first pass on it took 8 minutes for 17 scans and
 committed batch 103.
+
+**2026-10-09: no commit for more than six hours.** The last commit is batch 191, block 83,555,104,
+at 19:20:07 UTC on 8 October. From about 20:00 UTC the public RPC answered any burst of requests
+with a Cloudflare 403 challenge page, and every hourly pass from 20:17 on met it: some published
+their batch document to the record and then had the commit refused, others had every scan refused
+(the 22:17 and 04:17 passes report as succeeded with 11 and 15 scans failed and nothing committed).
+Measured on 9 October from a laptop and from Azure: 20 or 30 requests a minute ran for minutes
+without one refusal; 45 a minute, or about 20 in four seconds, drew the challenge, which lasted 60
+to 90 seconds and grew while requests kept arriving, and viem's own fast retries fed it. The fix
+(`2105e42`) spaces every request a process sends to the public endpoint 2.5 s apart, waits 90 s on
+a challenge and sends the refused request again, and batches concurrent reads into one HTTP
+request; it goes to the job as a new image, a deployment like the earlier ones, not a restart. The
+gap runs from batch 191 to the first commit on that image and is longer than six hours. Whether it
+is accepted as explained or the 30 days start again is the owner's decision.
 
 ### Gate 2 — the record covers what people actually buy
 
@@ -151,6 +165,12 @@ a pass stops starting scans 30 minutes in, commits every 9 scans, and the replic
 minutes, under the hour between runs. A pass the public RPC refuses now costs one hour, not two, so
 a graduation is still committed inside three hours when one pass in a row fails. The extra gas is
 about 0.002 ETH a month at the batch price measured on 3 October.
+
+**2026-10-09: broken again by the RPC outage.** Nothing was committed after batch 191 (19:20:07 UTC
+on 8 October) until the paced image described under gate 1 (`2105e42`), so the graduations of that
+night were not committed within three hours. The condition is the owner's: if the 30 days restart
+from the first commit on the paced image on 9 October, they end on about 8 November, the day before
+the owner's confirmation on the calendar, which leaves no slack for another break.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
