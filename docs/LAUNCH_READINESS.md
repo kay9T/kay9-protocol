@@ -180,6 +180,16 @@ of the 60 graduations it may take. Engine 1.15.1 (`1aa368f`, image
 for 9 scans, so the 30-minute budget fits about 35 to 40. A dedicated RPC endpoint would remove
 the challenge altogether; it is a cost decision for the owner.
 
+**2026-10-12: the paced scanner held for three days.** Read with `services/watchdog/scripts/gate2-coverage.ts
+--from 83956057` (batch 192) to block 86,237,769 (12 Oct 00:01 UTC): 67 batches, every document
+fetched and matched to its root; 51 graduations, 49 due, all 49 scanned within three hours, median
+41 min, longest 1 h 11 min; none missed. The 63 hourly passes over the same period committed all
+567 of their scans, with no failure and no challenge page. Engine 1.16.0 (`d27dca3`, image
+`ghcr.io/kay9t/kay9-scanner@sha256:f4651ec4…`) went to the job at 00:36 UTC; it knows Uniswap v3 and
+does not score a pool beside a launchpad curve that still sells the token (`docs/WATCHDOG.md`), a
+deployment, not a restart. Whether gate 2's 30 days count from batch 192 is still the owner's
+decision.
+
 ### Gate 3 — the record is rebuildable by somebody else
 
 **Condition.** A third party, given only the chain and the batch documents, reconstructs the same
