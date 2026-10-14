@@ -17,7 +17,7 @@ The 91 % launch allocation (910,000,000 KAY9) is split exactly in half: 50 % of 
 
 ## Team schedule
 
-The team allocation is released in three steps by `KAY9TeamVesting`. The three timestamps are immutable constructor arguments computed as exact UTC calendar dates from the TGE date (same day of month and time; if the target month is shorter, the last day of that month is used). They are never "180 days". With the owner's target TGE of 10 November 2026, the tranches fall on 10 May 2027 and 10 November 2027 at the TGE's time of day; the exact timestamps are printed by `ComputeVesting.s.sol` before deployment and burned into the contract.
+The team allocation is released in three steps by `KAY9TeamVesting`. The three timestamps are immutable constructor arguments computed as exact UTC calendar dates from the TGE date (same day of month and time; if the target month is shorter, the last day of that month is used). They are never "180 days". With the TGE the owner confirmed on 14 October 2026, 11 November 2026 at 02:00 UTC (after the auction that opens on 10 November), the tranches fall on 11 May 2027 and 11 November 2027 at 02:00 UTC; the exact timestamps are printed by `ComputeVesting.s.sol` before deployment and burned into the contract.
 
 | Step | KAY9 | Share of supply | Cumulative | Unlock |
 |---|---|---|---|---|

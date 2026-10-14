@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 8 (testnet rehearsal, 2026-10-08), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25); gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; its 30 days restarted on 2026-10-04, broke again on 5 Oct by four minutes, and counted from 5 Oct, ending 4 Nov, until the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct (gates 1 and 2, 2026-10-09; a restart is the owner's decision); gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review), 8 (testnet rehearsal, 2026-10-08), 10 (owner key), 11 (auditor keys). Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25) and can close on 25 Oct: the owner accepted its two gaps over six hours, 2 Oct and 8–9 Oct, as explained (2026-10-14). Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -89,6 +89,12 @@ request. It went to the job as image `ghcr.io/kay9t/kay9-scanner@sha256:8753e977
 9 October, a deployment like the earlier ones, not a restart, and the 06:17 pass committed batch 192
 at 06:45:51 UTC and batch 193 after it, ten scans, none refused. The gap, batch 191 to batch 192, is
 11 h 25 min. Whether it is accepted as explained or the 30 days start again is the owner's decision.
+
+**2026-10-14: both gaps accepted as explained (owner).** The two gaps over six hours, 6 h 02 min
+on 2 October (passes stopped by the job's timeout) and 11 h 25 min on 8–9 October (the public RPC's
+challenge), are explained above, and each was ended by a deployment, not a restart. The owner
+accepted both as explained, so the 30 days keep counting from batch 0 and the gate can close on
+25 October if no further gap over six hours goes unexplained.
 
 ### Gate 2 — the record covers what people actually buy
 
@@ -189,6 +195,16 @@ fetched and matched to its root; 51 graduations, 49 due, all 49 scanned within t
 does not score a pool beside a launchpad curve that still sells the token (`docs/WATCHDOG.md`), a
 deployment, not a restart. Whether gate 2's 30 days count from batch 192 is still the owner's
 decision.
+
+**2026-10-14: the 30 days restart from batch 192 (owner).** The owner kept the condition and did
+not count the night of 8–9 October as an exception. The window counts from **batch 192,
+2026-10-09 06:45:51 UTC**, and ends on **8 November** at 06:45:51 UTC, the day before the owner's
+confirmation under gate 14, so there is no slack: a further break moves the launch. Reading of the
+same day (`docs/reviews/2026-10-14-gate2-coverage.md`), from block 83,956,057 to 87,997,211
+(14 Oct 02:06 UTC): 117 batches, every document matched to its root, none lost; 105 graduations,
+103 due, all 103 scanned within three hours, median 44 min, longest 1 h 11 min; none missed. The
+owner chose not to buy a dedicated RPC endpoint for now; the paced public endpoint stays, and the
+question comes back if the challenge returns.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
@@ -364,6 +380,12 @@ launch, at the cost of a thinner pool and, with few bidders, a concentrated allo
 01:00 UTC on 10 November, a 24-hour auction. The vesting `TGE_TIMESTAMP` proposed for 11 November
 02:00 UTC still needs the owner's confirmation before the 3 November deployment. The gate closes
 when `Launch.s.sol --json` has been run in the launch week and the owner confirms its output.
+
+**2026-10-14: the vesting dates confirmed (owner).** `TGE_TIMESTAMP` is 11 November 2026 02:00
+UTC (`1794362400`), after the auction's expected end at about 01:17 UTC; the later tranches follow
+at six and twelve calendar months, 11 May 2027 and 11 November 2027 at 02:00 UTC (`1810000800` and
+`1825898400`), to be produced with `ComputeVesting` at deployment and checked against these. Nothing
+releases before `KAY9Genesis.settled()` in any case. The rest of the gate is unchanged.
 
 ---
 

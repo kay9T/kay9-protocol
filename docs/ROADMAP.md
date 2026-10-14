@@ -283,9 +283,9 @@ Fill these in and the relative weeks above become a calendar.
 | Auction duration | 24 hours, about 864,000 blocks on the chain's own clock (owner, 2026-09-25; it was 4 hours) |
 | Floor FDV, USD | **1,000** (owner, 2026-10-06): a floor price of USD 0.000001 per KAY9. Final with gate 9 on 6 November, at that day's ETH price |
 | Graduation FDV, USD | **5,000** (owner, 2026-10-06; the reference was 10,000): the auction graduates once it has credited about USD 2,275 in ETH, 45.5 % of 5,000. Lowered so a small community can carry the launch; the cost is a thinner pool and, with few bidders, a concentrated auction allocation. Final with gate 9 on 6 November |
-| Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. Proposed: 11 November 2026, 02:00 UTC (13:00 in Melbourne); confirmed with the launch parameters (gate 9) before deployment. Nothing releases before `KAY9Genesis.settled()` in any case |
-| Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 11 May 2027, 02:00 UTC with the proposed tranche 1 |
-| Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 11 November 2027, 02:00 UTC with the proposed tranche 1 |
+| Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. 11 November 2026, 02:00 UTC (13:00 in Melbourne), confirmed by the owner on 14 October 2026 (gate 9). Nothing releases before `KAY9Genesis.settled()` in any case |
+| Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 11 May 2027, 02:00 UTC |
+| Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 11 November 2027, 02:00 UTC |
 | Deep access lock | 5,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below 1 KAY9 |
 | Forensic access lock | 10,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below the deep lock, never above 10,000,000 KAY9 |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
@@ -306,13 +306,13 @@ promise: a slipped line moves the launch, not the gate.
 | **Done** Thu 25 Sep 2026 | Every number on kay9.io traced to its source (`docs/reviews/2026-09-25-gate5-sweep.md`); run again in the launch week | 5 |
 | **Done** Sat 26 Sep 2026 (was Fri 16 Oct) | Calibration re-run against 50+ tokens including 10 known rugs, published: 84 tokens and a rugged set of 32, engine 1.12 (`docs/SCORE_CALIBRATION.md`) | 4 |
 | **Done** Thu 24 Sep 2026 (was Fri 23 Oct) | Every launch-path review finding fixed or accepted in writing; suites green; Slither and fork suite re-run against the final tree (`launch-review-5`). Gate 6 closed for the launch path by the owner on 25 Sep | 6, 7 |
-| Sun 25 Oct 2026 (was Sun 8 Nov) | Gate 1's 30 unattended days complete, counted from batch 0 on 25 Sep at block 71,926,233, provided no gap exceeds six hours unexplained | 1 |
-| Wed 4 Nov 2026 (was Mon 26 Oct) | Gate 2's 30 days complete: every graduation scanned within three hours, counted from batch 116 on 5 Oct 06:28 UTC (a pass that met a Cloudflare challenge on the public RPC made two graduations four minutes late; the worker now retries that). The first window, from block 72,173,850, broke on 29–30 Sep and on 2 Oct, 85 graduations scanned late and none missed (`docs/reviews/2026-10-03-gate2-coverage.md`); the owner kept the condition, and the scanner was changed so a burst fits one pass | 2 |
+| Sun 25 Oct 2026 (was Sun 8 Nov) | Gate 1's 30 unattended days complete, counted from batch 0 on 25 Sep at block 71,926,233, provided no gap exceeds six hours unexplained. The two gaps over six hours so far, 2 Oct (passes stopped by the job's timeout) and 8–9 Oct (the public RPC's Cloudflare challenge), were accepted by the owner as explained on 14 Oct | 1 |
 | Waived Tue 6 Oct 2026 (was Fri 30 Oct) | Third party reconstructs the scan record from the batch documents; diff against kay9.io empty. The owner waived it as a launch condition: the procedure is public and open to anyone, and an outside run is published when one arrives, but the launch does not wait for it | 3 |
 | Mon 2 Nov 2026 | Site sweep: every figure traces to a chain read or a stated measurement | 5 |
 | Tue 3 Nov 2026 | Mainnet token deployment (`Deploy.s.sol` against the live watchdog's timelock, registry and hub), Blockscout verification, `acceptOwnership` and `setAccessVault` scheduled on the 48 h timelock | 12, 13 |
 | Thu 5 Nov 2026 | Timelock operations executed; `owner()` checks pass everywhere | 12 |
 | Fri 6 Nov 2026 | Launch parameters derived, printed and confirmed by the owner in writing; auction window announced | 9 |
+| Sun 8 Nov 2026, 06:45 UTC (was Wed 4 Nov; first Mon 26 Oct) | Gate 2's 30 days complete: every graduation scanned within three hours, counted from batch 192 on 9 Oct 06:45:51 UTC, the owner's choice of 14 Oct. Earlier windows broke on 29–30 Sep and 2 Oct (85 graduations scanned late, none missed, `docs/reviews/2026-10-03-gate2-coverage.md`), on 5 Oct (two graduations four minutes late) and on 8–9 Oct, when the public RPC's Cloudflare challenge stopped every commit for 11 h 25 min; each time the owner kept the condition and the scanner was changed. One day before gate 14, so no slack: a further break moves the launch | 2 |
 | Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
 | **Tue 10 Nov 2026, 01:00 UTC** (12:00 Melbourne) | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
 
