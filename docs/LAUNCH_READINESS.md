@@ -24,7 +24,7 @@ authorisation.
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
 | Testnet rehearsal (gate 8) | **complete**, on a stack deployed from `launch-review-5`, the reviewed commit: run end to end on 2026-09-24, `migrateAndSettle` included (`docs/STATUS.md` §18.2); `unlock` on 2026-09-30 returned exactly the 10,000 KAY9 locked (§18.3); `renew` on 2026-10-08 at 00:43 UTC reopened a period with nothing topped up or returned (§18.4, tx `0xe6566497…`). The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
-| Last reviewed | 2026-09-25 |
+| Last reviewed | 2026-10-19 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
 
@@ -205,6 +205,11 @@ same day (`docs/reviews/2026-10-14-gate2-coverage.md`), from block 83,956,057 to
 103 due, all 103 scanned within three hours, median 44 min, longest 1 h 11 min; none missed. The
 owner chose not to buy a dedicated RPC endpoint for now; the paced public endpoint stays, and the
 question comes back if the challenge returns.
+
+**2026-10-19: ten days in, none missed.** Reading of the same window (`docs/reviews/2026-10-19-gate2-coverage.md`),
+from block 83,956,057 to 92,156,393 (18 Oct 23:23 UTC): 234 batches, every document matched to its
+root, none lost; 172 graduations, 171 due, all 171 scanned within three hours, median 43 min,
+longest 1 h 12 min; none missed. `batchCount()` read 426.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
