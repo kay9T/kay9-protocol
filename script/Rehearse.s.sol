@@ -41,7 +41,13 @@ import {Launch} from "./Launch.s.sol";
 ///        claim            depositor: claim the auction tokens
 ///        lockAccess       depositor: approve, lock a deep period at requirementOf(1)
 ///        request          depositor: one requestAudit
+///        pinCheck         simulation only: a result not analysed at the job's requestedAt must
+///                         revert AnalysisNotPinned (the 21 Oct fix); nothing is broadcast
+///        watchdogReport   auditor A: a quorum-signed watchdog report analysed now, so a job
+///                         requested earlier lands after a newer look
 ///        attestPair       auditor A: two agreeing signatures in one transaction
+///        latestOrder      read only: latest* is the record with the newest analysis, not the
+///                         last one committed
 ///        dispute          auditors A, B, C: three different results, one transaction each
 ///        expire           anyone: markExpired after the SLA
 ///        upgradeAccess    depositor: deep to forensic mid-period
@@ -375,7 +381,7 @@ contract Rehearse is Script {
     /// @notice Two agreeing signatures, A and B, submitted by A in one transaction.
     function attestPair() external {
         uint256 jobId = vm.envUint("JOB_ID");
-        AuditResult memory result = _result(42, "agree");
+        AuditResult memory result = _jobResult(jobId, 42, "agree");
         bytes32 digest = _hub().hashResult(jobId, result);
         bytes[] memory signatures = _sorted2(digest, _auditorKey("A"), _auditorKey("B"));
 
@@ -398,7 +404,7 @@ contract Rehearse is Script {
         string[3] memory names = ["A", "B", "C"];
         for (uint256 i = 0; i < 3; ++i) {
             uint256 key = _auditorKey(names[i]);
-            AuditResult memory result = _result(uint8(10 + 30 * i), string.concat("dissent-", names[i]));
+            AuditResult memory result = _jobResult(jobId, uint8(10 + 30 * i), string.concat("dissent-", names[i]));
             bytes32 digest = _hub().hashResult(jobId, result);
             bytes[] memory one = new bytes[](1);
             one[0] = _sign(key, digest);
@@ -418,6 +424,65 @@ contract Rehearse is Script {
             "dispute: job not disputed; the auditor set must be exactly A, B and C (remove the deployer and stale keys)"
         );
         _printAccess(vm.addr(_userKey()));
+    }
+
+    /// @notice A result not analysed at the job's request time is refused. Simulation only.
+    /// @dev Called outside a broadcast, so the attempt never leaves the machine: forge runs it
+    ///      against the live state and this stage fails unless the hub reverts with exactly
+    ///      `AnalysisNotPinned(requestedAt + 1, requestedAt)`.
+    function pinCheck() external {
+        uint256 jobId = vm.envUint("JOB_ID");
+        KAY9AuditHub hub = _hub();
+        uint64 requestedAt = hub.getJob(jobId).requestedAt;
+        AuditResult memory result = _result(42, "unpinned", requestedAt + 1);
+        bytes[] memory signatures = _sorted2(hub.hashResult(jobId, result), _auditorKey("A"), _auditorKey("B"));
+        address submitter = vm.addr(_auditorKey("A"));
+        vm.prank(submitter);
+        try hub.attest(jobId, result, signatures) {
+            revert("pinCheck: an unpinned result was accepted");
+        } catch (bytes memory reason) {
+            require(
+                keccak256(reason)
+                    == keccak256(
+                        abi.encodeWithSelector(KAY9AuditHub.AnalysisNotPinned.selector, requestedAt + 1, requestedAt)
+                    ),
+                "pinCheck: reverted, but not with AnalysisNotPinned"
+            );
+        }
+        console2.log("AnalysisNotPinned for analyzedAt / requestedAt", requestedAt + 1, requestedAt);
+    }
+
+    /// @notice A quorum-signed watchdog report, analysed now, submitted by auditor A.
+    function watchdogReport() external {
+        AuditResult memory result = _result(77, "watchdog", uint64(block.timestamp));
+        bytes[] memory signatures = _sorted2(_hub().hashResult(0, result), _auditorKey("A"), _auditorKey("B"));
+        vm.startBroadcast(_auditorKey("A"));
+        uint256 reportId = _hub().publishWatchdogReport(result, signatures);
+        vm.stopBroadcast();
+        console2.log("watchdog reportId / analyzedAt", reportId, result.analyzedAt);
+    }
+
+    /// @notice Every latest* read is the record with the newest analysis. Read only.
+    function latestOrder() external view {
+        KAY9Registry registry = _registry();
+        uint256[] memory ids = registry.history(CHAIN_KEY, _assetId(), 0, type(uint256).max);
+        require(ids.length > 0, "latestOrder: no record");
+        uint256 expected = ids[0];
+        uint64 newest = registry.getReport(ids[0]).result.analyzedAt;
+        for (uint256 i = 0; i < ids.length; ++i) {
+            AuditResult memory r = registry.getReport(ids[i]).result;
+            console2.log("history id / analyzedAt / trust", ids[i], r.analyzedAt, r.overallTrust);
+            if (r.analyzedAt >= newest) {
+                newest = r.analyzedAt;
+                expected = ids[i];
+            }
+        }
+        (, uint256 summaryId,,,,) = registry.latestSummary(CHAIN_KEY, _assetId());
+        (, uint256 snapshotId,,,,,, uint64 snapshotAnalyzedAt,) = registry.latestSnapshot(CHAIN_KEY, _assetId());
+        (, uint64 latestAnalyzedAt) = registry.latestAnalyzedAt(CHAIN_KEY, _assetId());
+        require(summaryId == expected && snapshotId == expected, "latestOrder: latest is not the newest analysis");
+        require(snapshotAnalyzedAt == newest && latestAnalyzedAt == newest, "latestOrder: wrong analyzedAt");
+        console2.log("latest id / analyzedAt   ", expected, newest);
     }
 
     /// @notice Anyone expires a job after its SLA.
@@ -479,7 +544,12 @@ contract Rehearse is Script {
         return bytes32(uint256(uint160(address(_genesis().token()))));
     }
 
-    function _result(uint8 trust, string memory tag) internal view returns (AuditResult memory r) {
+    /// @notice A job's result, analysed at the job's request time as `attest` requires.
+    function _jobResult(uint256 jobId, uint8 trust, string memory tag) internal view returns (AuditResult memory) {
+        return _result(trust, tag, _hub().getJob(jobId).requestedAt);
+    }
+
+    function _result(uint8 trust, string memory tag, uint64 analyzedAt) internal view returns (AuditResult memory r) {
         r.chainKey = CHAIN_KEY;
         r.assetId = _assetId();
         r.overallTrust = trust;
@@ -492,7 +562,7 @@ contract Rehearse is Script {
         r.botTrust = trust;
         r.flags = 0;
         r.engineVersion = 1;
-        r.analyzedAt = uint64(vm.envOr("ANALYZED_AT", block.timestamp));
+        r.analyzedAt = analyzedAt;
         r.reportHash = keccak256(abi.encodePacked("kay9 testnet rehearsal ", tag));
         r.reportURI = string.concat("ipfs://rehearsal/", tag);
     }

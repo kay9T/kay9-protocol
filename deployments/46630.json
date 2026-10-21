@@ -1,17 +1,17 @@
 {
   "chainId": 46630,
   "network": "robinhood-testnet",
-  "deployedAt": "2026-09-23T15:40:00Z",
-  "commit": "17c6fec",
+  "deployedAt": "2026-10-21T22:20:00Z",
+  "commit": "c1e4058 (KAY9AccessVault, KAY9Registry, KAY9AuditHub); 17c6fec (the rest)",
   "contracts": {
     "KAY9Token": "0x2D829fC24da0cB4aeAedAF6CA2deD9b02170ef6c",
     "KAY9TeamVesting": "0x5179384e8e9FcF55c7c285e378C6cABCf7ED0e00",
     "KAY9Genesis": "0x232afD59C175d35b16dB54a31009B40e8943d436",
     "KAY9LiquidityLock": "0x23fc8E41191105eCF39Dc56C55D275f369E98Fcc",
     "KAY9AuditorRegistry": "0x519734bf522d9ec37219ec038ccF3B17C01Abb69",
-    "KAY9Registry": "0x6849B62AF3FA1FDA72c2891290cBEd9BBbADadb9",
-    "KAY9AuditHub": "0xab5457f94c8483a42c47Cdc251f4676ff20e0f6D",
-    "KAY9AccessVault": "0x91C8d903841B1AeDd591cAeBfD112dE8BC22a649",
+    "KAY9Registry": "0x0AE753d8384E2F50737c5173758CA7063A1d3161",
+    "KAY9AuditHub": "0xcFaA0aC0e289da555c45cAb68354bC01812b5AC0",
+    "KAY9AccessVault": "0xF5cf0D803d2aAE907013601F81D30b2649aB48aE",
     "Timelock": "0x30BEfcc29B2aA47AC7379fB19B45E3C825577Ff2",
     "KAY9ScanRegistry": "0xA06f45B9Ea4862F5fE61Fd793ecb23Ca3C0E1F6F"
   },

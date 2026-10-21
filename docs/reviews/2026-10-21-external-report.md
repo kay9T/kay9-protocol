@@ -101,3 +101,24 @@ reused; the ABIs carry the new error; no other reader depends on the old order.
 | 9 | **Fixed in the docs** (AUDIT_PROTOCOL §4.1 and the verify recipe, CONTRACTS, AUDITOR_NETWORK). The badge's "Recorded on-chain {date}" is a true statement about `committedAt` and is left; showing `analyzedAt` there is a copy change in thirteen languages, noted for later. |
 | 10 | **Fixed.** `Deploy.s.sol` refuses either superseded address (`test_launchRefusesTheSupersededPair`). `DeployWatchdog.s.sol` is history and is left. |
 | 11 | **Fixed.** The NatSpec and CONTRACT_INTERFACES.md now say the check binds the signed time, and point at `analyzedAtBlock` in the report body. |
+
+## OpenAI GPT-6 review of the fix (21 Oct 2026), round 1
+
+Published as received in `2026-10-21-report-fix-openai-gpt-6.md`. No finding in the two contracts.
+Properties 1 to 4 hold; 5 (the launch deployment) and 7 (the earlier review's properties) "could
+not conclude" for want of execution evidence; 6 broken by R1-03. Four findings, all off-chain:
+
+| ID | Finding | Disposition |
+|---|---|---|
+| R1-01 (medium) | The Telegram poll's lock goes stale after ten minutes and was never refreshed; three two-chain scans of up to 240 s each could outlast it and let a second poll answer the same messages | **Fixed.** The poll refreshes its lock before each piece of work; test `keeps the poll lock fresh across slow scans`. |
+| R1-02 (medium, test fidelity) | The auditor service's fake hub accepted watchdog reports the real hub refuses as stale or future-dated | **Fixed.** The fake applies `StaleWatchdogReport` and `AnalyzedInFuture`; seeded records are now older than the blocks a sweep re-analyses at; test `does not count a report the hub refuses as stale as published, and holds the asset`. |
+| R1-03 (low) | The sweep identified the latest record by report hash; two jobs on one asset and tier requested in the same second carry identical bodies, so the asset could be probed from two pages | **Fixed.** The sweep compares the page record's registry id with `latestSummary`'s, one read instead of `latest`; test `probes only from the page of the registry-selected record when two records share one report hash`, shown to fail on the previous code. |
+| R1-04 (low) | A "no contract code" reply named Robinhood Chain and BNB Chain even when the request named one chain and only that one was read | **Fixed.** `scanResolved` records the chains it read and the reply names only those; tests in `mentions.test.ts`. |
+
+Its three questions are answered by the above and by the testnet rehearsal of 21–22 Oct
+(`docs/STATUS.md` §19): request → attest → dispute → expire on a fresh vault, registry and hub from
+the fix, an unpinned result refused with `AnalysisNotPinned`, and a job record committed after a
+newer watchdog report left `latest` on the watchdog report. The launch configuration itself
+(`Deploy.s.sol` with only `EXISTING_TIMELOCK` and `EXISTING_AUDITOR_REGISTRY`) needs a launched
+token and the Uniswap stack; the rehearsal deployed the same three contracts with the same wiring
+through `Rehearse.s.sol`.

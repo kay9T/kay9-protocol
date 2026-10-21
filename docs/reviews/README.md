@@ -69,13 +69,13 @@ A security firm emailed a report on `KAY9AuditHub` and `KAY9Registry`: a job's `
 on-chain to its `requestedAt`, and a job record analysed earlier became `latest` over a newer
 watchdog report. Neither 25 Sep review had caught the first; both had accepted the second as
 documented. Both are fixed, the two contracts are redeployed at the token launch, and gate 6 is
-reopened for them until a review from each family has read the commit to deploy.
+reopened for them. Both families have now read the fix in fresh contexts (below); the part closes again when the owner closes it.
 
 | Date | Reviewer | Commit | Findings | Status |
 |---|---|---|---|---|
 | 2026-10-21 | a security firm, by email | the deployed `watchdog-review-4` | 1 low, in two parts | both confirmed and fixed; the suggested fix not taken, with the reason; [report and dispositions](2026-10-21-external-report.md) |
 | 2026-10-21 | Claude Opus 5.5, fresh context | the fix, before commit | 4 medium, 4 low, 3 informational | eight fixed, three not taken in writing; [the review, verbatim](2026-10-21-report-fix-anthropic-claude-opus-5.5.md), dispositions in the report |
-| owed | OpenAI family | the commit to deploy | | |
+| 2026-10-21 | OpenAI GPT-6, fresh context | `analysis-pin-review-1` (`fb6c21d6`) | 0 in the contracts; 2 medium, 2 low off-chain | all four fixed; [the review, verbatim](2026-10-21-report-fix-openai-gpt-6.md), dispositions in the report |
 
 ## Independent copies
 
