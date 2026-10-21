@@ -142,3 +142,20 @@ That step and the address graph after it are on the gate 13 post-deploy list; it
 rehearsed without a launched token. The contracts job of the CI run on `2071c6c` was killed during
 its dependency build at ten minutes, the runner limit met once before (`4acf7d5`); no contract
 source changed in that commit.
+
+### Round 3 (22 Oct 2026)
+
+Nothing in the contracts, whose sources it again found unchanged. R2-02 and R2-03 closed; R2-01
+narrowed. Two findings, both in the social bot:
+
+| ID | Finding | Disposition |
+|---|---|---|
+| R3-01 (medium) | An approved X reply that hit the new 30-second deadline was reported to the owner as "Not posted (X refused it)", though X may have published it | **Fixed.** `signedRequest` throws `XApiRefused` only when X answered with an error; anything else is reported as "Outcome unknown", with the link to the post to check, and the draft is not offered again, so nothing posts twice. Test in `hype.test.ts`. |
+| R3-02 (low) | `refresh` could report a lock it no longer held: a successor could take over between its read and its stamp, and a failed stamp was ignored | **Fixed.** A failed stamp returns false, and the token is read again after the stamp. A stamp landing on a successor's file only freshens a live lock. Test `reports a lock it no longer holds, whether replaced or gone`. |
+
+Also fixed in the same commit: a test of concurrent writes to the Telegram state file failed on
+Windows about half the time, before and after these changes, because a rename onto a file another
+process has open fails there with `EPERM`. The X mentions poll and the post scheduler run on the
+Windows host, so the same could fail in service. Every state write now goes through one
+`replaceFile`, which retries that error briefly. The monitor's comment on "identical" reports now
+says what the code does (round 3, "Identical-report analysis").

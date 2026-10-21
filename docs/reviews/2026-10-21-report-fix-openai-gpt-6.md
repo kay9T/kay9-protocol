@@ -775,3 +775,161 @@ This round came back as a downloaded markdown file, reproduced unchanged.
 > closed / narrowed / still open, the property table updated, what you did not verify, and your
 > model name and version. Everything you write is a proposal the session verifies against the
 > repository. This is round 2 of 5.
+
+## Round 3 reply
+
+A downloaded markdown file, reproduced unchanged.
+
+> # KAY9 — Adversarial Review, Round 3 of 5
+> 
+> **Date:** 22 October 2026  
+> **Reviewer/model:** OpenAI GPT-6; a more specific build identifier is not available.  
+> **Review type:** Independent, read-only model code review. This is **not** a professional security audit, a declaration that KAY9 is safe, or launch authorization.
+> 
+> **Pinned source:**
+> 
+> - Private application: [`kay9T/kay9` @ `aabc4a9c8b4336c3c8438d4ab345d69e95840451`](https://github.com/kay9T/kay9/commit/aabc4a9c8b4336c3c8438d4ab345d69e95840451), compared against `2071c6c2f88abb9fc0abc41e23b17aeb62d5c432` (**one commit**).
+> - Public protocol: [`kay9T/kay9-protocol` @ `f21823d5a97a6d1f60ec9d18051c217746b220aa`](https://github.com/kay9T/kay9-protocol/commit/f21823d5a97a6d1f60ec9d18051c217746b220aa), compared against `71f6713c32f53d2566872c1fcef4a07e3dc06272` (**one commit; review documentation only**).
+> 
+> ## 1. Source integrity and short verdict
+> 
+> GitHub's pinned compare response for `71f6713..f21823d` lists **only two review-document files**, not Solidity or deployment code. Independent retrieval of file blob identifiers also confirms that the immutable contracts still match the Round-1 `analysis-pin-review-1` source:
+> 
+> | Public source | Blob SHA at `fb6c21d6` and `f21823d5` |
+> |---|---|
+> | `src/KAY9AuditHub.sol` | `a1b24524e39cbb8e3107609c87250903fdd76cd0` |
+> | `src/KAY9Registry.sol` | `a8b5c43b3736357b367045ce78d7ed5ca999411d` |
+> | `script/Deploy.s.sol` | `c75d0ea2400d56f6ca40cf97b7786027029c867f` |
+> 
+> The private commit changes the three expected fixes and their tests; it also updates `mentions-poll.ts` to accept the changed nullable search type. **R2-02 and R2-03 close. R2-01 substantially narrows, but the lock-renewal implementation still has a concrete false-success race.** A separate operational ambiguity exists when a newly time-limited X POST may have succeeded even though the callback reports it definitively failed. Neither issue affects the unchanged immutable contracts. **The review has not fully converged**, although its remaining findings are confined to the off-chain social bot.
+> 
+> ## 2. Findings, severity ranked
+> 
+> ### K9-E0-R3-01 — Timed-out X approval is reported as definitely unposted after its draft is irreversibly consumed
+> 
+> **Severity: Medium (P2) — publication-state integrity; existing workflow weakness exposed by the new deadline.**  
+> **Pinned locations:** [`services/social-bot/src/x-client.ts:16-18,64-89`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/src/x-client.ts#L64-L89); [`services/social-bot/src/hype.ts:287-325`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/src/hype.ts#L287-L325); [`services/social-bot/src/telegram-scheduler.ts:215-222`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/src/telegram-scheduler.ts#L215-L222).
+> 
+> **Concrete failure scenario:**
+> 
+> 1. The owner taps **Post** on a legitimate Telegram-approved X draft.
+> 2. `handleHypeCallback` deletes `state.pending[tweetId]` **before** calling `replyToTweet` (`hype.ts:297-301,319-320`).
+> 3. X receives and accepts `POST /2/tweets`, but its response is delayed or the connection fails after X's commit.
+> 4. At 30 seconds, the newly added `AbortSignal.timeout` rejects the client request. The callback catches *all* errors as **“X refused the reply”**, edits the Telegram message to **“Not posted (X refused it)”**, and returns without restoring the pending draft (`hype.ts:321-326`). The Telegram poll advances the update cursor.
+> 5. The owner is shown an unsupported assertion of failure and may manually repost the same reply, causing a public duplicate. Alternatively, if X did not publish, the original approval has been consumed and cannot simply be retried.
+> 
+> A client-side deadline bounds waiting; it **cannot establish that the server did not commit a non-idempotent POST**. The pre-send removal existed before this commit, but the new timeout creates a predictable trigger of the ambiguous-outcome branch. This is **not** evidence of unauthorized posting or of duplicate automatic publication.
+> 
+> **Suggested fix:** Keep a durable `posting`/`outcome-unknown` state for approved drafts. Distinguish authoritative X rejection (e.g. an explicit HTTP error) from timeout/network failure. On ambiguous failure, say **“Posting outcome unknown; check X before retrying”**, retain enough metadata to reconcile the reply under the target post, and only mark `posted` or `failed` after evidence. Do not blindly retry a non-idempotent POST. Test a request accepted by X whose response arrives after the deadline; confirm the owner never receives a definitive “not posted” message and the approval is reconcilable.
+> 
+> ### K9-E0-R3-02 — `refresh()` reports retained lease ownership even if the renewal fails or a successor takes over between the two operations
+> 
+> **Severity: Low (P3) — narrow concurrent-takeover window; residual part of R2-01.**  
+> **Pinned locations:** [`services/social-bot/src/lock.ts:53-85`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/src/lock.ts#L53-L85); [`services/social-bot/src/telegram-scheduler.ts:198-210,247-256`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/src/telegram-scheduler.ts#L198-L256); [`services/social-bot/test/telegram-poll.test.ts:198-219`](https://github.com/kay9T/kay9/blob/aabc4a9c8b4336c3c8438d4ab345d69e95840451/services/social-bot/test/telegram-poll.test.ts#L198-L219).
+> 
+> **Concrete failure scenario:**
+> 
+> 1. Poll A holds the lease but is suspended sufficiently long for the ten-minute file-mtime threshold to elapse; it subsequently resumes `release.refresh()`.
+> 2. A reads its own token at `lock.ts:67-68` and is descheduled before the `utimes` call.
+> 3. Poll B observes A's stale lock, ends A's tenure and creates a new lock under the **same path**, carrying B's token (`lock.ts:76-85`).
+> 4. A resumes. Its `utimes(path, ...)` may now update **B's file**, not A's; the function returns `true` unconditionally after the call. If the file is temporarily missing and `utimes` fails, the `.catch(() => undefined)` likewise leads to `true`.
+> 5. The check at `telegram-scheduler.ts:206` treats A as still owning the lock. It may process the next fetched `/scan` while B processes that update, permitting duplicate external replies. A's refresh can also extend B's mtime without actually owning B's lease.
+> 
+> The new test replaces the file token **before** the next `refresh()` begins. That proves the straightforward already-stolen case returns `false`; it does **not** exercise takeover between `readFile` and `utimes`, nor a failed `utimes`. This is a narrow OS-scheduling/file-operation race, not a claim that normal bounded scans routinely overlap.
+> 
+> **Suggested fix:** At minimum, make `utimes` failure return `false`, and re-check the token after renewal before returning success. For a stronger cross-process guarantee, prevent renewal by pathname from touching a successor's lock (for example, verify file identity using an open descriptor and avoid `utimes(path)` after a separate unprotected token read), and consider a per-update durable claim/fencing scheme for side effects. Test an interleaved takeover between identity read and timestamp update, plus `ENOENT` on renewal. A final token re-read reduces this race but cannot make a whole subsequent external API call an atomic lease operation; distinguish mitigation from proof of exactly-once side effects.
+> 
+> ## 3. Round-2 finding dispositions
+> 
+> | Previous finding | Status at `aabc4a9` | Verification and boundary |
+> |---|---|---|
+> | **R2-01 (Medium): callbacks bypassed refresh, unbounded X request, stale poll continues** | **Narrowed; not fully closed** | `signedRequest` uses `AbortSignal.timeout(30_000)` for X calls. `telegramPoll` refreshes **before every update**, including callbacks, and breaks without `done(polled.lastUpdateId)` when the renewal returns `false`. The new test verifies that an already-replaced token stops a later scan. The renewal can still incorrectly return `true` in the `readFile`/`utimes` race or on `utimes` failure (R3-02). Timeout introduces/exposes an ambiguous-posting outcome (R3-01). |
+> | **R2-02 (Low): fixture's pinned-body timestamp differed from on-chain `analyzedAt`** | **Closed** | `seedReport` computes the chosen timestamp first and feeds it as the fake engine's `options.now`, then uses the engine's result without replacing `analyzedAt` after hashing; an assertion checks it. The source of `makeFakeEngine` assigns `now` to both canonical body's and result's `analyzedAt`. The identical-body case now intentionally uses the same epoch timestamp. |
+> | **R2-03 (Low): chain-specific ticker absence and failed search misrepresented** | **Closed** | `searchPools` returns `null` for non-OK responses, exceptions and parse failures, rather than `[]`. `resolveToken` preserves `chain` and `searchFailed`; `scanReply` names only the requested chain when appropriate and uses a non-definitive failure message. `mentions-poll.ts` was adjusted to accept the nullable search type. Tests cover other-chain hits, a successful empty search, and `null`. |
+> 
+> **Round-1 carry-over:** R1-02 (fake watchdog freshness), R1-03 (ID rather than hash in monitoring), and R1-04 (only actually checked chains in no-code replies) remain closed as to their original scenarios. R1-01 is narrowed by successive fixes but is not an unconditional exactly-once guarantee because of R3-02.
+> 
+> ### Identical-report analysis
+> 
+> The change to `seedReport` does not break the worker's genuine `identical` branch. `monitor.ts:712-740` reads a deterministic epoch timestamp, pins the analysis to the epoch block (or equivalent timestamp on a different chain), and compares the **new canonical `reportHash`** to the preceding record's hash **before** constructing the new watchdog result. Since canonical content includes `analyzedAt`, an ordinary later epoch will have a different hash even if all trust scores and flags are unchanged. An identical hash is possible when another auditor already published **the same epoch's** canonical report; the updated test seeds that case deliberately. Across epochs, a material probe that re-analyses to otherwise similar values can append a new report, subject to `MONITOR_MAX_REPUBLISH`, strict watchdog `analyzedAt` freshness, and quorum. That is existing, timestamp-pinned append-only behaviour, **not** an introduced defect. The source comment suggesting that all unchanged content is deduplicated across time would be too broad; the operative comparison is full canonical-body identity.
+> 
+> ### Mid-batch cursor and budget
+> 
+> `telegramPoll` checks retained lease ownership **before** charging a new message against budget (`telegram-scheduler.ts:198-210,231-250`). A normally detected takeover breaks the loop, bypasses its final advance to `polled.lastUpdateId`, and retains the cursor advanced by previous `done()` calls. A sender may have consumed a budget entry for a message already underway when ownership was lost; this was the pre-existing explicit *budget spent when work starts* rule, and not grounds to claim that the new stop logic incorrectly charges **unstarted** messages. If the original process has already sent a reply but crashes before persisting `done`, exactly-once external delivery still cannot be concluded from file cursor mechanics alone.
+> 
+> ## 4. Properties 1–7 after Round 3
+> 
+> | # | Property | Status | Reason |
+> |---|---|---|---|
+> | **1** | Only pinned job results reach the registry | **holds** | Immutable hub and registry blobs are identical to `analysis-pin-review-1`; `attest` checks request-time equality and `finalizeAgreed` settles recorded signed positions. |
+> | **2** | Per-asset latest selects greatest analysis time, later commit on ties, append-only history | **holds** | Same reviewed source as rounds 1–2; `_latestId` represents the running maximum, including ID zero. No changed contract implementation. |
+> | **3** | Watchdog publication rejects non-strictly-newer `analyzedAt` | **holds** | Unchanged `publishWatchdogReport` compares against registry `latestAnalyzedAt`, which follows the maximum-analysis record even after an older job settles. |
+> | **4** | No individual participant controls latest outside quorum-signed values | **holds** | EIP-712 hash and active quorum checks unchanged. `reportURI` cannot change selection. |
+> | **5** | **Exact production `Deploy.s.sol` shape** reuses governance/auditors and correctly binds the fresh vault/hub/registry | **could not conclude** | Static constructor graph and superseded-pair rejection remain consistent. Rehearsal constructed a hub with an already bound vault, whereas the actual launch constructor sets zero vault and relies on timelock `setAccessVault` afterward. The exact Genesis/Uniswap deployment and that governance binding remain unexecuted here. Gate-13 runbook actions are not execution evidence. |
+> | **6** | Monitoring and asset-page latest ordering agree with registry | **holds** | ID-based monitor comparison and `(analyzedAt, reportId)` UI sorting remain unchanged. New fixes affect only monitoring **tests**, not ordering logic. This says nothing about guaranteed delivery during arbitrary RPC failures. |
+> | **7** | Earlier watchdog findings remain preserved across the complete live system | **could not conclude** | The inspected contract paths remain unchanged, and earlier green CI evidence exists; complete preservation across live configuration, all auditor rotations and runtime dependencies was not exhaustively tested. |
+> 
+> ## 5. Test and launch evidence; remaining verification gaps
+> 
+> - **Source and tests read at pinned SHAs.** The `aabc4a9` private diff has one commit. Its `telegram-poll.test.ts` test simulates a stolen token and verifies that the old poll stops after the first scan with `lastUpdateId == 1`; it is **not** a two-process/actual-lock-takeover race test. `mentions.test.ts` tests success, miss and failed cashtag lookup. `monitor.test.ts` now synchronizes normal seeded canonical and on-chain timestamps and tests the same-epoch identical case.
+> - **GitHub CI inspected, not executed locally.** The prior green run at `c1e4058` contains 358 passing contract tests. The [`2071c6c` CI run](https://github.com/kay9T/kay9/actions/runs/39613485725) finished with a failed **Contracts** job, while its other two jobs passed. The user reports exit 143 after a ten-minute dependency-build limit; this review independently verified the job's failure status but did not reproduce the environmental cause. At the time queried, [`aabc4a9` CI](https://github.com/kay9T/kay9/actions/runs/39616865629) was **queued**, not yet evidence of passing tests.
+> - **Testnet evidence remains scoped.** The recorded chain-46630 rehearsal of the analysis-pin/freshness properties and its `Rehearse.s.sol` wiring are useful integration evidence. This round did **not** independently pull transaction receipts, state or bytecode from that RPC. The rehearsal's nonzero-vault constructor and short timelock are not the exact `Deploy.s.sol` mainnet path.
+> - **Not covered/executed:** Actual X and Telegram API calls, the timing/order of an X commit versus a client abort, simulated filesystem `utimes` failure or in-between-operation takeover with two real processes, a complete production launch/fork execution, fresh Forge/TypeScript local test runs, Slither, and the complete historic watchdog-review scope.
+> 
+> ## 6. Questions for Round 4
+> 
+> 1. Can the X callback preserve an **outcome unknown** state when a 30-second timeout occurs after a possible post, and can a test distinguish a real HTTP rejection from that ambiguity without causing an automatic duplicate?
+> 2. Can `lock.refresh()` return false on `utimes` failure and verify it did not stamp a successor's lease when takeover occurs between file read and timestamp write? A controlled interleaving test would distinguish this from the already-stolen-before-read case.
+> 3. When the launch eventually runs, can the session retain the exact deployed hub/registry/asset-vault/timelock/auditor addresses and the executed `setAccessVault` timelock transaction as property-5 evidence rather than treating the prior rehearsal as equivalent?
+> 
+> **Round-3 conclusion:** The three reported code fixes are present and the timestamp/cashtag findings close. There is no new defect found in the immutable contracts. The review has **not yet fully converged** because of one residual file-lease race and one ambiguous X posting outcome. Both are proposals for engineering-session reproduction and disposition, not approvals or instructions to deploy.
+
+## Round 3 request
+
+> # Round 3 of 5 — verification of the round-2 fixes
+> 
+> ## What to read
+> 
+> - `https://github.com/kay9T/kay9`, branch `main`, commit `aabc4a9c8b4336c3c8438d4ab345d69e95840451`,
+>   range `2071c6c..aabc4a9` (one commit).
+> - `https://github.com/kay9T/kay9-protocol` at `f21823d5a97a6d1f60ec9d18051c217746b220aa`: docs only
+>   since `71f6713`; the two contracts are still the `analysis-pin-review-1` blobs.
+> 
+> ## How each round-2 finding was handled (all accepted, fixed in `aabc4a9`)
+> 
+> - **R2-01** — `services/social-bot/src/x-client.ts`: `signedRequest` passes
+>   `AbortSignal.timeout(30_000)`. `src/lock.ts`: `Release.refresh` now returns `Promise<boolean>`,
+>   false when the file no longer holds this holder's token. `src/telegram-scheduler.ts`: the poll
+>   calls `refresh` at the top of every update (callbacks included, before any budget is spent) and,
+>   on false, logs, sets `stopped` and breaks, so `done(polled.lastUpdateId)` is skipped and the
+>   cursor stays where this poll left it. Test `stops when a later poll has taken its lock over, and
+>   leaves the rest to that poll`.
+> - **R2-02** — `services/audit-worker/test/monitor.test.ts` `seedReport` passes the seeded time to
+>   the fake engine as `options.now` and asserts the engine's result carries it, so body and record
+>   agree; the post-hash override is gone. This exposed that `publish()`'s "identical report" branch
+>   compares hashes of bodies that include `analyzedAt`, so it can only fire for an analysis at the
+>   same epoch block as the latest record — a second auditor sweeping an epoch a peer has already
+>   published. The test `does not re-publish when a fresh analysis produces the identical report`
+>   now seeds that case. Across epochs, a material delta whose re-analysis yields the same scores
+>   and flags is published as a new record (bounded by `MONITOR_MAX_REPUBLISH`); that is unchanged
+>   behaviour, stated here so you can judge it.
+> - **R2-03** — `services/social-bot/src/scan.ts`: `searchPools` returns `null` on failure;
+>   `resolveToken` returns `{ missing, chain, searchFailed }`; `scanReply` names only the requested
+>   chain on a miss and says the lookup could not be made on a failed search. Tests in
+>   `test/mentions.test.ts`.
+> 
+> Property 5's exact launch shape stays out of reach until launch: `Deploy.s.sol` builds the fresh hub
+> with no vault and the timelock binds it with `setAccessVault`; that step and the resulting address
+> graph are on the gate-13 post-deploy list in `docs/DEPLOYMENT.md`. CI note: the contracts job on
+> `2071c6c` was killed at ten minutes inside its dependency build (exit 143), a runner limit met once
+> before (commit `4acf7d5`); that commit changed no contract source.
+> 
+> ## What to do this round
+> 
+> Verify the three fixes at the pinned commit and look for defects they introduced (for example: a
+> poll that stops mid-batch after spending budget, a callback whose draft was removed but whose X
+> call timed out, `null` from search reaching a caller that expects an array, the identical-report
+> reasoning). If this round finds nothing not already seen, say plainly that the review has
+> converged. Return one markdown file: findings, the round-2 findings as closed / narrowed / open,
+> the property table, what you did not verify, and your model name and version. Everything you write
+> is a proposal the session verifies against the repository. This is round 3 of 5.
