@@ -61,7 +61,7 @@ struct ReportRecord {
 ///      recently; every `latest*` read returns the record with the largest `analyzedAt`, and a tie
 ///      goes to the later commit. Until 21 Oct 2026 it was the last committed record, which let a
 ///      one-call reader such as a wallet badge show an older analysis as the current one, with
-///      nothing in `latestSummary` to warn it (reported by KupiaSec).
+///      nothing in `latestSummary` to warn it (reported by email on 21 Oct 2026).
 /// @custom:security-contact security@kay9.io
 contract KAY9Registry is BlockNumberish {
     /// @notice Emitted for every appended report.

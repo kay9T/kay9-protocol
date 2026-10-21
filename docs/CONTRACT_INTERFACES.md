@@ -706,7 +706,7 @@ the log with it.
 - A job's result must be analysed exactly at the job's `requestedAt`, or `attest` reverts
   `AnalysisNotPinned`. Every auditor pins its analysis there so that independent runs agree, and
   until 21 Oct 2026 that was enforced only by the auditor software: a quorum could have settled a
-  job with a result dated any other moment (reported by KupiaSec). The check binds the time the
+  job with a result dated any other moment (reported by email on 21 Oct 2026). The check binds the time the
   quorum signs, not the chain state each auditor read; the block is in the report body
   (`analyzedAtBlock`) for a verifier to check. `finalizeAgreed` only settles positions `attest`
   recorded, so it needs no check of its own.

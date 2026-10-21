@@ -534,7 +534,7 @@ contract KAY9RegistryTest is Test {
     /// @dev A job pinned to the moment it was requested can land after a watchdog report that
     ///      looked at the asset more recently. Until 21 Oct 2026 it then *was* the latest record,
     ///      which every `latest*` read showed as current, including `latestSummary`, whose callers
-    ///      see no `analyzedAt` at all (KupiaSec). `latest` is now the newest look.
+    ///      see no `analyzedAt` at all (external report, 21 Oct 2026). `latest` is now the newest look.
     function test_anOlderLookCommittedLaterIsNotLatest() public {
         AuditResult memory recentLook = _result(ASSET_A, 20);
         recentLook.analyzedAt = 1_789_500_000;

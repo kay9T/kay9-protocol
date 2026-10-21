@@ -235,7 +235,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @notice Thrown when a job's result was not analysed at the moment the job was requested.
     /// @dev Every auditor pins its analysis to `requestedAt` so that independent runs agree. The
     ///      auditor software always did; until this check, nothing here stopped a quorum settling a
-    ///      job with a result dated any other moment (reported by KupiaSec, 2026-10-21). It binds
+    ///      job with a result dated any other moment (reported by email, 2026-10-21). It binds
     ///      the time the quorum signs, not the chain state each auditor read: which block that was
     ///      is recorded in the report body (`analyzedAtBlock`), where anyone can check it.
     /// @param analyzedAt The rejected analysis time.

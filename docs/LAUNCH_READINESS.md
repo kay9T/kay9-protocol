@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **4 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the KupiaSec fix changed both (`docs/reviews/2026-10-21-kupiasec-report.md`): gate 6 needs the two-family review of the new hub and registry, gate 8 the request → attest → dispute → expire steps on a testnet stack redeployed from the fix. Whether gate 1's clock restarts (gate 6's text says a watchdog-stack finding after deployment restarts it) is the owner's decision, not yet made: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25) and can close on 25 Oct: the owner accepted its two gaps over six hours, 2 Oct and 8–9 Oct, as explained (2026-10-14). Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **4 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`): gate 6 needs the two-family review of the new hub and registry, gate 8 the request → attest → dispute → expire steps on a testnet stack redeployed from the fix. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25) and can close on 25 Oct: the owner accepted its two gaps over six hours, 2 Oct and 8–9 Oct, as explained (2026-10-14). Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -337,12 +337,12 @@ both confirmed the result for deployment. The commit to deploy is `watchdog-revi
 Slither found nothing new there. Every review and confirmation is published verbatim in
 `docs/reviews/`. The owner closed this part of the gate on 2026-09-25, so gate 6 is closed in full.
 
-**Reopened (2026-10-21) for `KAY9AuditHub` and `KAY9Registry`.** KupiaSec reported by email that a
+**Reopened (2026-10-21) for `KAY9AuditHub` and `KAY9Registry`.** An external report by email said that a
 job's `analyzedAt` was not bound to its `requestedAt` on-chain and that a late job record became
 `latest` over a newer watchdog report. Both were confirmed and fixed (`attest` reverts
 `AnalysisNotPinned`; `latest` is the newest analysis), and both contracts are redeployed at the
 token launch. One fresh-context review has read the fix so far, by Claude Opus 5.5 (Anthropic),
-published with its dispositions in `docs/reviews/2026-10-21-kupiasec-report.md`; a review from the
+published with its dispositions in `docs/reviews/2026-10-21-external-report.md`; a review from the
 other family, of the commit to deploy, is still owed before this part closes again.
 
 ### Gate 7 — the full suite passes, including the parts that are inconvenient
@@ -373,7 +373,7 @@ the real chain showed it.
 `launch-review-5`, the commit the reviews confirmed: the full path on 2026-09-24, `unlock` on
 2026-09-30 and `renew` on 2026-10-08 (`0xe6566497bce82d72971c57ddda2dc6bf3876efb5b6f4a0ec203509aabbb49667`), hashes in `docs/STATUS.md` §18.
 
-**Reopened (2026-10-21) for request → attest → dispute → expire.** The KupiaSec fix changed
+**Reopened (2026-10-21) for request → attest → dispute → expire.** The 21 Oct analysis-pin fix changed
 `KAY9AuditHub.attest` and `KAY9Registry`, both on that path. Those steps run again on a testnet
 stack deployed from the fix (owner-signed, like every deployment); the other steps' evidence stands.
 

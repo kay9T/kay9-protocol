@@ -13,11 +13,11 @@ since has reported anything above Medium.
 Every earlier revision of this file described contracts that no longer exist (the payment split,
 `submitResult`, `TreasuryUpdated`). Nothing below is carried over unread.
 
-## Hub and registry after the KupiaSec fix (2026-10-21)
+## Hub and registry after the analysis-pin fix (2026-10-21)
 
 Re-run with `src/KAY9AuditHub.sol` as the entry point (it reaches `KAY9Registry`), slither 0.11.6,
 same command as below, after `attest` began pinning `analyzedAt` to `requestedAt` and the registry
-began choosing `latest` by analysis time (docs/reviews/2026-10-21-kupiasec-report.md): 24 results
+began choosing `latest` by analysis time (docs/reviews/2026-10-21-external-report.md): 24 results
 in six classes, none above Low.
 
 One class is new: `cyclomatic-complexity` on `KAY9AuditHub.attest`, 12, Informational. The new

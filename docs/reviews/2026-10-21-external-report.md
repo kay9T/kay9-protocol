@@ -1,6 +1,6 @@
-# KupiaSec report, 21 Oct 2026
+# External report, 21 Oct 2026
 
-An unsolicited email to the project mailbox from Nordin Sabli of KupiaSec (sec.kupia.io), sent
+An unsolicited email to the project mailbox from a security firm, sent
 21 Oct 2026 03:12 and filed by Gmail as spam. Most of it offers a paid private audit, which the
 owner has not taken up. It also reported one issue, quoted here as received:
 
@@ -51,7 +51,7 @@ case below.
 
 A separate session with no part in writing the fix read the uncommitted change, read-only, and was
 asked only for what is wrong or missing. Its output is published in full in
-`2026-10-21-kupiasec-fix-anthropic-claude-opus-5.5.md`; below, each finding in one line, then the
+`2026-10-21-report-fix-anthropic-claude-opus-5.5.md`; below, each finding in one line, then the
 dispositions.
 
 1. Medium — `services/audit-worker/src/monitor.ts`: the sweep chose each asset's page-newest record
@@ -92,7 +92,7 @@ reused; the ABIs carry the new error; no other reader depends on the old order.
 |---|---|
 | 1 | **Fixed.** The window picks by `analyzedAt`, a tie to the later record. New test `still probes an asset whose late job record describes an earlier moment than its watchdog report`, shown to fail on the old code. The fake hub now applies the registry's rule for `latest` and the hub's `AnalysisNotPinned`. AUDITOR_NETWORK.md §5 updated. |
 | 2 | **Fixed.** `useAssetHistory` sorts newest analysis first, ties by report id; the headline date under "Latest report" and the chart use `analyzedAt`. Per-row lines still say when each record was committed, which they label as such. |
-| 3 | **Recorded; the owner decides.** Gates 6 and 8 are marked reopened for the hub and registry in LAUNCH_READINESS.md; gate 1 is written down as an open owner decision. |
+| 3 | **Recorded.** Gates 6 and 8 are marked reopened for the hub and registry in LAUNCH_READINESS.md. Gate 1's clock does not restart, by the owner's decision of 21 Oct: the scanner path it measures is untouched and the replaced pair never held a record. |
 | 4 | **Fixed.** A post-deploy list in DEPLOYMENT.md, referenced from gate 13. |
 | 5 | **Not done here.** `run()` needs the live Uniswap stack; the reopened gate 8 rehearsal on a fresh testnet stack exercises this exact path. |
 | 6 | **Not taken.** The existing launch plan already includes the `setAccessVault` proposal, and changing the launch flow three weeks out for 48 hours of requests is not worth a new path. |

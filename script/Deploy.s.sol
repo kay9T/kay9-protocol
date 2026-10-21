@@ -66,7 +66,7 @@ contract Deploy is Script {
 
     /// @notice The mainnet hub `DeployWatchdog.s.sol` deployed on 25 Sep 2026, superseded on 21 Oct.
     /// @dev It does not pin a job's analysis to its request time, and its registry calls the last
-    ///      write `latest` (docs/reviews/2026-10-21-kupiasec-report.md). It never recorded anything,
+    ///      write `latest` (docs/reviews/2026-10-21-external-report.md). It never recorded anything,
     ///      and the launch replaces it, so passing it as the live protocol is always a mistake.
     address internal constant SUPERSEDED_AUDIT_HUB = 0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA;
 

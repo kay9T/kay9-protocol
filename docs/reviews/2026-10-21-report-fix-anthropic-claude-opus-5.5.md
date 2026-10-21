@@ -1,12 +1,12 @@
-# Review of the KupiaSec fix — Claude Opus 5.5 (Anthropic), 21 Oct 2026
+# Review of the analysis-pin fix — Claude Opus 5.5 (Anthropic), 21 Oct 2026
 
 A fresh session with no part in writing the fix, read-only, on the uncommitted working tree that
-became the fix commit. It was told what KupiaSec reported and how the change meant to fix it, and
+became the fix commit. It was told what the external report said and how the change meant to fix it, and
 asked only for what is wrong or missing, with specific areas to check: other paths that write the
 registry or settle a job, whether equality is right on every chain the auditors serve, the watchdog
 freshness rule, `_latestId` edge cases, readers that relied on the old order, the launch wiring in
 `Deploy.s.sol`, docs that still state the old meaning, and missing tests. It made no edits and ran
-no tests. Its output follows unchanged. Dispositions are in `2026-10-21-kupiasec-report.md`.
+no tests. Its output follows unchanged. Dispositions are in `2026-10-21-external-report.md`.
 
 ---
 

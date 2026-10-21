@@ -1646,7 +1646,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         uint256 jobReport = hub.attest(jobId, job, jobSigs);
 
         // The job's record is written last but describes the earlier moment, so it joins the
-        // history without becoming what `latest` shows (KupiaSec, 2026-10-21).
+        // history without becoming what `latest` shows (external report, 2026-10-21).
         assertEq(reportRegistry.historyCount(chainKey, assetId), 2, "both records are kept");
         (, uint256 latestId,,,,) = reportRegistry.latestSummary(chainKey, assetId);
         assertEq(latestId, newReport, "latest is still the newer watchdog analysis");
@@ -1663,7 +1663,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
     }
 
     // -------------------------------------------------------------------------------------------
-    // KupiaSec report (2026-10-21)
+    // External report by email (2026-10-21)
     // -------------------------------------------------------------------------------------------
 
     /// @notice A job's result must describe the moment the job was requested, not any other.
