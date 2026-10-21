@@ -13,6 +13,22 @@ since has reported anything above Medium.
 Every earlier revision of this file described contracts that no longer exist (the payment split,
 `submitResult`, `TreasuryUpdated`). Nothing below is carried over unread.
 
+## Hub and registry after the KupiaSec fix (2026-10-21)
+
+Re-run with `src/KAY9AuditHub.sol` as the entry point (it reaches `KAY9Registry`), slither 0.11.6,
+same command as below, after `attest` began pinning `analyzedAt` to `requestedAt` and the registry
+began choosing `latest` by analysis time (docs/reviews/2026-10-21-kupiasec-report.md): 24 results
+in six classes, none above Low.
+
+One class is new: `cyclomatic-complexity` on `KAY9AuditHub.attest`, 12, Informational. The new
+`AnalysisNotPinned` guard is the twelfth branch; every branch is one guard with its own error, the
+same shape as `KAY9Genesis._validate`. Accepted.
+
+An intermediate version wrote the per-asset history through a storage pointer, and slither then
+reported `uninitialized-state` on `KAY9Registry._history`, a false positive: the detector does not
+follow a write through a pointer. The registry pushes directly again and the finding is gone; the
+code comment at that push says why.
+
 ## Watchdog stack at `watchdog-review-4` (2026-09-25)
 
 Re-run on the four watchdog contracts after both model reviews' fixes, same command as below.

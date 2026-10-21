@@ -329,6 +329,22 @@ contract DeployWatchdogTest is Test {
         new DeployHarness().validateExistingAuditProtocol(d.reportRegistry, d.auditHub);
     }
 
+    /// @notice The 25 Sep mainnet pair is refused by address, either half, with the reason named.
+    function test_launchRefusesTheSupersededPair() public {
+        DeployHarness harness = new DeployHarness();
+        bytes memory superseded = abi.encodeWithSelector(
+            Deploy.AuditProtocolMismatch.selector, "superseded on 2026-10-21; leave both unset to deploy a fresh pair"
+        );
+        vm.expectRevert(superseded);
+        harness.validateExistingAuditProtocol(
+            0x3bD24351532274b7ea026d408Ba6bFB0922f5068, 0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA
+        );
+        vm.expectRevert(superseded);
+        harness.validateExistingAuditProtocol(address(0xBEEF), 0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA);
+        vm.expectRevert(superseded);
+        harness.validateExistingAuditProtocol(0x3bD24351532274b7ea026d408Ba6bFB0922f5068, address(0));
+    }
+
     /// @notice A registry and hub that do not belong to each other are refused.
     function test_launchRefusesAMismatchedRegistryAndHub() public {
         WatchdogDeployment memory a = _deployWatchdog();

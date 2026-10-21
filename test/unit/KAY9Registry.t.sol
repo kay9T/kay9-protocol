@@ -529,30 +529,101 @@ contract KAY9RegistryTest is Test {
         assertEq(watchdogKind, 0, "which nobody requested and nobody declared anything about");
     }
 
-    /// @notice A record committed later can describe an earlier moment, and the read says so.
-    /// @dev Records are kept in commitment order. A job pinned to the moment it was requested can
-    ///      land after a watchdog report that looked at the asset more recently, and it then *is*
-    ///      the latest record. Nothing here reorders history; the point is that the age of the
-    ///      look is visible, so a reader cannot mistake a late commitment for a fresh one.
-    function test_latestSnapshotShowsAnOlderLookCommittedLater() public {
+    /// @notice A record committed later that describes an earlier moment joins the history without
+    ///         becoming `latest`.
+    /// @dev A job pinned to the moment it was requested can land after a watchdog report that
+    ///      looked at the asset more recently. Until 21 Oct 2026 it then *was* the latest record,
+    ///      which every `latest*` read showed as current, including `latestSummary`, whose callers
+    ///      see no `analyzedAt` at all (KupiaSec). `latest` is now the newest look.
+    function test_anOlderLookCommittedLaterIsNotLatest() public {
         AuditResult memory recentLook = _result(ASSET_A, 20);
         recentLook.analyzedAt = 1_789_500_000;
         vm.warp(1_789_500_100);
         vm.prank(hub);
-        registry.recordReport(_watchdogMeta(), recentLook, _signers());
+        uint256 recentId = registry.recordReport(_watchdogMeta(), recentLook, _signers());
 
         AuditResult memory olderLook = _result(ASSET_A, 90);
         olderLook.analyzedAt = 1_789_000_000;
         vm.warp(1_789_600_000);
         vm.prank(hub);
-        registry.recordReport(_meta(3), olderLook, _signers());
+        uint256 olderId = registry.recordReport(_meta(3), olderLook, _signers());
 
-        (,, uint8 overallTrust,,, uint8 tier,, uint64 analyzedAt, uint64 committedAt) =
+        (, uint256 reportId, uint8 overallTrust,,, uint8 tier,, uint64 analyzedAt,) =
             registry.latestSnapshot(CHAIN, ASSET_A);
-        assertEq(overallTrust, 90, "the latest record is the one committed last");
-        assertEq(tier, 1);
-        assertLt(analyzedAt, recentLook.analyzedAt, "and it says it describes an earlier moment");
-        assertGt(committedAt, analyzedAt);
+        assertEq(reportId, recentId, "the latest record is the most recent look");
+        assertEq(overallTrust, 20);
+        assertEq(tier, 0);
+        assertEq(analyzedAt, recentLook.analyzedAt);
+
+        (, uint256 summaryId, uint8 summaryTrust,,,) = registry.latestSummary(CHAIN, ASSET_A);
+        assertEq(summaryId, recentId, "the one-call read agrees");
+        assertEq(summaryTrust, 20);
+        (, ReportRecord memory record) = registry.latest(CHAIN, ASSET_A);
+        assertEq(record.result.analyzedAt, recentLook.analyzedAt, "and so does the full record");
+        (, uint64 newest) = registry.latestAnalyzedAt(CHAIN, ASSET_A);
+        assertEq(newest, recentLook.analyzedAt);
+
+        assertEq(registry.historyCount(CHAIN, ASSET_A), 2, "the older look is still in the history");
+        assertEq(registry.getReport(olderId).result.overallTrust, 90, "and readable by id");
+    }
+
+    /// @notice Over any interleaving of two assets' records, every `latest*` read returns, per
+    ///         asset, the last-committed record among those with the largest `analyzedAt`.
+    /// @dev Report id 0 goes to whichever asset the first draw picks, so an asset whose latest is
+    ///      id 0, and one whose ids all follow the other's, are both covered.
+    function testFuzz_latestIsTheNewestAnalysisPerAsset(uint64[12] memory times, uint256 assetBits) public {
+        uint256[2] memory expected;
+        uint64[2] memory best;
+        bool[2] memory seen;
+        for (uint256 i = 0; i < times.length; ++i) {
+            uint256 which = (assetBits >> i) & 1;
+            // A narrow range, so ties are common rather than astronomically rare.
+            uint64 analyzedAt = 1_789_000_000 + (times[i] % 8);
+            AuditResult memory result = _result(which == 0 ? ASSET_A : ASSET_B, uint8(i));
+            result.analyzedAt = analyzedAt;
+            vm.prank(hub);
+            uint256 reportId = registry.recordReport(_watchdogMeta(), result, _signers());
+            if (!seen[which] || analyzedAt >= best[which]) {
+                seen[which] = true;
+                best[which] = analyzedAt;
+                expected[which] = reportId;
+            }
+        }
+        for (uint256 which = 0; which < 2; ++which) {
+            bytes32 assetId = which == 0 ? ASSET_A : ASSET_B;
+            (bool exists, uint256 summaryId,,,,) = registry.latestSummary(CHAIN, assetId);
+            assertEq(exists, seen[which]);
+            if (!seen[which]) continue;
+            assertEq(summaryId, expected[which], "latestSummary");
+            (, uint256 snapshotId,,,,,,,) = registry.latestSnapshot(CHAIN, assetId);
+            assertEq(snapshotId, expected[which], "latestSnapshot");
+            (, ReportRecord memory record) = registry.latest(CHAIN, assetId);
+            assertEq(record.result.overallTrust, uint8(expected[which]), "latest");
+            (, uint64 newest) = registry.latestAnalyzedAt(CHAIN, assetId);
+            assertEq(newest, best[which], "latestAnalyzedAt");
+        }
+    }
+
+    /// @notice A newer look committed after an older one becomes `latest`, and so does a tie.
+    function test_aNewerOrEqualLookBecomesLatest() public {
+        AuditResult memory first = _result(ASSET_A, 20);
+        first.analyzedAt = 1_789_000_000;
+        vm.prank(hub);
+        registry.recordReport(_watchdogMeta(), first, _signers());
+
+        AuditResult memory sameMoment = _result(ASSET_A, 55);
+        sameMoment.analyzedAt = first.analyzedAt;
+        vm.prank(hub);
+        uint256 tieId = registry.recordReport(_meta(3), sameMoment, _signers());
+        (, uint256 reportId,,,,) = registry.latestSummary(CHAIN, ASSET_A);
+        assertEq(reportId, tieId, "a tie goes to the later commit");
+
+        AuditResult memory newer = _result(ASSET_A, 70);
+        newer.analyzedAt = first.analyzedAt + 1;
+        vm.prank(hub);
+        uint256 newerId = registry.recordReport(_watchdogMeta(), newer, _signers());
+        (, reportId,,,,) = registry.latestSummary(CHAIN, ASSET_A);
+        assertEq(reportId, newerId, "a newer look is latest");
     }
 
     /// @notice An asset nobody has reported reads as absent, never as a score of zero.

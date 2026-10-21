@@ -54,7 +54,14 @@ struct ReportRecord {
 /// @dev Assets are identified across chains by a CAIP-2 chain key hash plus a 32-byte asset id, so
 ///      the same structure holds EVM contracts and Solana mints. A re-audit of an asset appends;
 ///      it never replaces. `latest` therefore means "most recent snapshot", and every reader is
-///      expected to render `committedAt` next to it.
+///      expected to render when it was taken next to it.
+///
+///      "Most recent" is by analysis, not by commitment. A job is analysed at the moment it was
+///      requested and may land hours later, after a watchdog report that looked at the asset more
+///      recently; every `latest*` read returns the record with the largest `analyzedAt`, and a tie
+///      goes to the later commit. Until 21 Oct 2026 it was the last committed record, which let a
+///      one-call reader such as a wallet badge show an older analysis as the current one, with
+///      nothing in `latestSummary` to warn it (reported by KupiaSec).
 /// @custom:security-contact security@kay9.io
 contract KAY9Registry is BlockNumberish {
     /// @notice Emitted for every appended report.
@@ -111,8 +118,9 @@ contract KAY9Registry is BlockNumberish {
     /// @notice Report ids per asset, in commitment order.
     mapping(bytes32 assetKeyHash => uint256[] reportIds) private _history;
 
-    /// @notice The largest `analyzedAt` recorded per asset. See `latestAnalyzedAt`.
-    mapping(bytes32 assetKeyHash => uint64 analyzedAt) private _maxAnalyzedAt;
+    /// @notice Per asset, the report with the largest `analyzedAt`; meaningful only once the asset
+    ///         has a history. See the contract's own notes on what `latest` means.
+    mapping(bytes32 assetKeyHash => uint256 reportId) private _latestId;
 
     /// @notice Binds the registry to its audit hub.
     /// @param auditHub_ The hub allowed to append reports.
@@ -162,8 +170,12 @@ contract KAY9Registry is BlockNumberish {
             })
         );
         bytes32 key = assetKey(result.chainKey, result.assetId);
+        // Pushed directly, not through a storage pointer: slither's uninitialized-state detector
+        // does not see a write through a pointer and reports the mapping as never written.
         _history[key].push(reportId);
-        if (result.analyzedAt > _maxAnalyzedAt[key]) _maxAnalyzedAt[key] = result.analyzedAt;
+        if (_history[key].length == 1 || result.analyzedAt >= _reports[_latestId[key]].result.analyzedAt) {
+            _latestId[key] = reportId;
+        }
 
         emit ReportRecorded(
             reportId, result.chainKey, result.assetId, meta.jobId, result.overallTrust, result.reportHash
@@ -235,23 +247,23 @@ contract KAY9Registry is BlockNumberish {
         }
     }
 
-    /// @notice The most recent report about one asset.
+    /// @notice The most recent report about one asset: the newest analysis, not the newest write.
     /// @param chainKey The CAIP-2 chain key hash.
     /// @param assetId The asset identifier.
     /// @return exists Whether any report exists for the asset.
     /// @return record The latest record, or a zeroed struct.
     function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record) {
-        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
-        uint256 total = ids.length;
-        if (total == 0) return (false, record);
-        return (true, _reports[ids[total - 1]]);
+        (bool found, uint256 reportId) = _latest(chainKey, assetId);
+        if (!found) return (false, record);
+        return (true, _reports[reportId]);
     }
 
     /// @notice The newest analysis time ever recorded for one asset, by either report path.
-    /// @dev A high-water mark, not the last record's value. A requested job can land a result
-    ///      analysed earlier than a watchdog report already on record; reading the last record
-    ///      would let the comparison move backwards and let an older watchdog report through
-    ///      (watchdog review, round two). The hub's freshness rule reads this.
+    /// @dev The latest record's own `analyzedAt`, which is the largest the asset has, since that
+    ///      is how the latest record is chosen. A requested job can land a result analysed earlier
+    ///      than a watchdog report already on record without moving it backwards, so an older
+    ///      watchdog report cannot get through after one (watchdog review, round two). The hub's
+    ///      freshness rule reads this.
     /// @param chainKey The CAIP-2 chain key hash.
     /// @param assetId The asset identifier.
     /// @return exists Whether any report exists.
@@ -261,9 +273,9 @@ contract KAY9Registry is BlockNumberish {
         view
         returns (bool exists, uint64 analyzedAt)
     {
-        bytes32 key = assetKey(chainKey, assetId);
-        if (_history[key].length == 0) return (false, 0);
-        return (true, _maxAnalyzedAt[key]);
+        (bool found, uint256 reportId) = _latest(chainKey, assetId);
+        if (!found) return (false, 0);
+        return (true, _reports[reportId].result.analyzedAt);
     }
 
     /// @notice The headline numbers of the most recent report about one asset.
@@ -291,10 +303,8 @@ contract KAY9Registry is BlockNumberish {
             uint64 committedAt
         )
     {
-        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
-        uint256 total = ids.length;
-        if (total == 0) return (false, 0, 0, 0, 0, 0);
-        reportId = ids[total - 1];
+        (exists, reportId) = _latest(chainKey, assetId);
+        if (!exists) return (false, 0, 0, 0, 0, 0);
         ReportRecord storage record = _reports[reportId];
         return (
             true,
@@ -309,9 +319,9 @@ contract KAY9Registry is BlockNumberish {
     /// @notice The latest record's headline numbers together with both of its clocks.
     /// @dev `latestSummary` returns when a record was *written*. That is not when the asset was
     ///      *looked at*: a job pins its analysis to the moment it was requested and may be committed
-    ///      hours later, and records are kept in the order they were committed, so the latest record
-    ///      is not necessarily the most recent look. A reader that shows a score as current needs
-    ///      `analyzedAt`, and needs to know what kind of record it is: `tier` is 0 for an
+    ///      hours later. The latest record is the most recent look, but it may have been written
+    ///      before records that describe earlier moments. A reader that shows a score as current
+    ///      needs `analyzedAt`, and needs to know what kind of record it is: `tier` is 0 for an
     ///      unsolicited watchdog report, 1 for a requested deep audit and 2 for a forensic one.
     ///      It also needs `declaredRequesterKind`, because who commissioned a report is context a
     ///      reader is entitled to and a one-line summary is where most readers stop. The value is
@@ -348,10 +358,8 @@ contract KAY9Registry is BlockNumberish {
             uint64 committedAt
         )
     {
-        uint256[] storage ids = _history[assetKey(chainKey, assetId)];
-        uint256 total = ids.length;
-        if (total == 0) return (false, 0, 0, 0, 0, 0, 0, 0, 0);
-        reportId = ids[total - 1];
+        (exists, reportId) = _latest(chainKey, assetId);
+        if (!exists) return (false, 0, 0, 0, 0, 0, 0, 0, 0);
         ReportRecord storage record = _reports[reportId];
         return (
             true,
@@ -416,6 +424,17 @@ contract KAY9Registry is BlockNumberish {
             committedAt[i - offset] = record.committedAt;
             overallTrust[i - offset] = record.result.overallTrust;
         }
+    }
+
+    /// @notice The id of an asset's latest record, if it has one.
+    /// @param chainKey The CAIP-2 chain key hash.
+    /// @param assetId The asset identifier.
+    /// @return exists Whether any report exists.
+    /// @return reportId The latest record's id, or zero.
+    function _latest(bytes32 chainKey, bytes32 assetId) private view returns (bool exists, uint256 reportId) {
+        bytes32 key = assetKey(chainKey, assetId);
+        if (_history[key].length == 0) return (false, 0);
+        return (true, _latestId[key]);
     }
 
     /// @notice The saturating end index of a page.

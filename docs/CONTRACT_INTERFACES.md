@@ -488,8 +488,8 @@ contract KAY9Registry {
     function getReports(uint256 offset, uint256 limit) external view returns (ReportRecord[] memory);    // newest-first paging handled by caller; returns [offset, offset+limit) clamped to the end of the log
     function historyCount(bytes32 chainKey, bytes32 assetId) external view returns (uint256);
     function history(bytes32 chainKey, bytes32 assetId, uint256 offset, uint256 limit) external view returns (uint256[] memory reportIds); // same clamping as getReports
-    function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);
-    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint64 analyzedAt);  // the largest analyzedAt ever recorded for the asset; the hub's freshness rule for watchdog reports
+    function latest(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, ReportRecord memory record);  // the record with the newest analyzedAt; a tie goes to the later commit
+    function latestAnalyzedAt(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint64 analyzedAt);  // the latest record's analyzedAt, i.e. the largest ever recorded for the asset; the hub's freshness rule for watchdog reports
     function latestSummary(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSummaryForToken(bytes32 chainKey, address token) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint64 committedAt);
     function latestSnapshot(bytes32 chainKey, bytes32 assetId) external view returns (bool exists, uint256 reportId, uint8 overallTrust, uint64 flags, uint32 engineVersion, uint8 tier, uint8 declaredRequesterKind, uint64 analyzedAt, uint64 committedAt);
@@ -502,13 +502,19 @@ structs, no report body. `scoreHistory` is the read a risk-over-time chart makes
 that consuming KAY9 risk data never requires an off-chain API or a KAY9-operated frontend.
 
 A report is **never** overwritten. A new audit of the same asset appends a new record, and
-`history` keeps every one of them in commitment order. `latest` therefore means "most recent
-snapshot", not "current truth", and every surface that renders it also renders `committedAt`.
+`history` keeps every one of them in commitment order. `latest` means "most recent snapshot", not
+"current truth", and every surface that renders it also renders when it was taken.
 
-**`committedAt` is when a record was written, not when the asset was looked at.** A requested
-audit is pinned to the moment it was requested and may be committed hours later, and because the
-log is in commitment order, the latest record can describe an earlier moment than the one before
-it. `latestSnapshot` is `latestSummary` with both clocks, the kind of record and its provenance:
+**`latest` is the newest analysis, not the newest write.** `committedAt` is when a record was
+written, `analyzedAt` the moment it describes, and the two orders differ: a requested audit is
+pinned to the moment it was requested and may be committed hours later, after a watchdog report
+that looked at the asset more recently. Every `latest*` read therefore returns the record with the
+largest `analyzedAt`, and a tie goes to the later commit. The older-but-later record is still in
+`history`, still readable by id, and still the answer to the job that asked for it; it simply does
+not become what a one-call reader such as a wallet badge shows, since `latestSummary` carries no
+`analyzedAt` that could warn it. (Until 21 Oct 2026 `latest` meant the last committed record. That
+registry, deployed on mainnet on 25 Sep, holds no report and is replaced at the token launch.)
+`latestSnapshot` is `latestSummary` with both clocks, the kind of record and its provenance:
 `analyzedAt`, the moment the analysis describes; `tier` (0 an unsolicited watchdog report, 1 a
 requested deep audit, 2 a forensic one); and `declaredRequesterKind`, what the requester said it
 was (0 nothing, 1 independent, 2 the asset's creator, 3 an integration). A surface that presents a
@@ -579,7 +585,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     uint256 public jobCount;
 
     function requestAudit(bytes32 chainKey, bytes32 assetId, uint8 tier, uint8 declaredRequesterKind) external returns (uint256 jobId);
-    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; reportId is 0 until quorum lands; reverts JobExpired at or after jobExpiresAt
+    function attest(uint256 jobId, AuditResult calldata result, bytes[] calldata signatures) external returns (uint256 reportId);  // caller must be an active auditor; result.analyzedAt must equal job.requestedAt; reportId is 0 until quorum lands; reverts JobExpired at or after jobExpiresAt
     function markExpired(uint256 jobId) external;                                    // permissionless at or after jobExpiresAt; restores the quota unit
     function finalizeAgreed(uint256 jobId, AuditResult calldata result) external returns (uint256 reportId);  // caller must be an active auditor; settles a recorded position that meets the current threshold, or disputes if another position meets it too
     function checkDispute(uint256 jobId) external returns (bool disputed);           // permissionless; disputes a job whose agreement a membership change made impossible
@@ -617,6 +623,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard {
     error JobExpired(uint256 jobId, uint64 expiresAt);
     error InvalidSla();
     error DuplicateWatchdogReport(bytes32 digest);
+    error StaleWatchdogReport(uint64 analyzedAt, uint64 latestAnalyzedAt);
+    error AnalyzedInFuture(uint64 analyzedAt);
+    error AnalysisNotPinned(uint64 analyzedAt, uint64 requestedAt);
 }
 ```
 
@@ -694,6 +703,13 @@ the log with it.
   watchdog report must also be newer, by `analyzedAt`, than every record the asset has, so no
   single auditor can publish an older signed snapshot over a newer one, even after a job result
   analysed earlier has landed in between.
+- A job's result must be analysed exactly at the job's `requestedAt`, or `attest` reverts
+  `AnalysisNotPinned`. Every auditor pins its analysis there so that independent runs agree, and
+  until 21 Oct 2026 that was enforced only by the auditor software: a quorum could have settled a
+  job with a result dated any other moment (reported by KupiaSec). The check binds the time the
+  quorum signs, not the chain state each auditor read; the block is in the report body
+  (`analyzedAtBlock`) for a verifier to check. `finalizeAgreed` only settles positions `attest`
+  recorded, so it needs no check of its own.
 - A `Disputed` or `Expired` job restores its quota unit to the period it came from, so a caller is
   never charged a quota for an audit that produced no result.
 

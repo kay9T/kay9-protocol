@@ -232,6 +232,16 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     /// @param analyzedAt The rejected analysis time.
     error AnalyzedInFuture(uint64 analyzedAt);
 
+    /// @notice Thrown when a job's result was not analysed at the moment the job was requested.
+    /// @dev Every auditor pins its analysis to `requestedAt` so that independent runs agree. The
+    ///      auditor software always did; until this check, nothing here stopped a quorum settling a
+    ///      job with a result dated any other moment (reported by KupiaSec, 2026-10-21). It binds
+    ///      the time the quorum signs, not the chain state each auditor read: which block that was
+    ///      is recorded in the report body (`analyzedAtBlock`), where anyone can check it.
+    /// @param analyzedAt The rejected analysis time.
+    /// @param requestedAt The job's request time, which it must equal.
+    error AnalysisNotPinned(uint64 analyzedAt, uint64 requestedAt);
+
     /// @notice Thrown by `renounceOwnership`: an ownerless hub could never bind its access vault.
     error RenounceDisabled();
 
@@ -484,6 +494,7 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
         uint64 expiresAt = job.requestedAt + job.slaSeconds;
         if (block.timestamp >= expiresAt) revert JobExpired(jobId, expiresAt);
         if (result.chainKey != job.chainKey || result.assetId != job.assetId) revert ResultAssetMismatch();
+        if (result.analyzedAt != job.requestedAt) revert AnalysisNotPinned(result.analyzedAt, job.requestedAt);
 
         uint256 count = signatures.length;
         if (count == 0) revert NoSignatures();
@@ -533,7 +544,9 @@ contract KAY9AuditHub is Ownable2Step, EIP712, ReentrancyGuard, BlockNumberish {
     ///      threshold, a position recorded earlier can come to meet the quorum with no auditor able
     ///      to add to it, since each holds one position per job. This settles it. Like `attest` it
     ///      needs an auditor submitter, because `reportURI` is not signed, and it applies the same
-    ///      deadline and the same active-holder filter.
+    ///      deadline and the same active-holder filter. It repeats none of `attest`'s checks on the
+    ///      result itself (scores, `analyzedAt`): it only settles a position `attest` recorded, and
+    ///      a result that hashes to that position is the one `attest` already checked.
     /// @param jobId The job.
     /// @param result The result the recorded position signed.
     /// @return reportId The registry index of the recorded report.

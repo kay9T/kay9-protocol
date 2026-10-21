@@ -64,6 +64,15 @@ contract Deploy is Script {
     /// @notice The minimum governance delay, matching the published admin surface.
     uint256 internal constant TIMELOCK_DELAY = 48 hours;
 
+    /// @notice The mainnet hub `DeployWatchdog.s.sol` deployed on 25 Sep 2026, superseded on 21 Oct.
+    /// @dev It does not pin a job's analysis to its request time, and its registry calls the last
+    ///      write `latest` (docs/reviews/2026-10-21-kupiasec-report.md). It never recorded anything,
+    ///      and the launch replaces it, so passing it as the live protocol is always a mistake.
+    address internal constant SUPERSEDED_AUDIT_HUB = 0x3d5Dac2bd018ba499c83E44da485C5E6ec5136dA;
+
+    /// @notice The registry bound to `SUPERSEDED_AUDIT_HUB`.
+    address internal constant SUPERSEDED_REPORT_REGISTRY = 0x3bD24351532274b7ea026d408Ba6bFB0922f5068;
+
     /// @notice Thrown when the mainnet confirmation is missing.
     error MainnetNotConfirmed();
 
@@ -157,7 +166,9 @@ contract Deploy is Script {
         // The audit protocol is normally already live: the watchdog deploys the registry and the
         // hub before the token exists, and `KAY9Registry` binds to its hub immutably, so there is
         // no second chance to move it. Deploying a fresh pair here would strand every report the
-        // watchdog had already committed.
+        // watchdog had already committed. The November 2026 launch deploys one on purpose: the
+        // 25 Sep pair predates the 21 Oct hub and registry fix and never recorded anything (see
+        // docs/DEPLOYMENT.md, "Except at the November 2026 launch").
         KAY9Registry reportRegistry;
         KAY9AuditHub auditHub;
         if (cfg.existingAuditHub != address(0)) {
@@ -298,6 +309,10 @@ contract Deploy is Script {
     /// @param auditHub The hub it is bound to, or zero.
     function _validateExistingAuditProtocol(address reportRegistry, address auditHub) internal view {
         if (reportRegistry == address(0) && auditHub == address(0)) return;
+        // Before anything else, so the reason given is the real one rather than a later mismatch.
+        if (reportRegistry == SUPERSEDED_REPORT_REGISTRY || auditHub == SUPERSEDED_AUDIT_HUB) {
+            revert AuditProtocolMismatch("superseded on 2026-10-21; leave both unset to deploy a fresh pair");
+        }
         if (reportRegistry == address(0)) revert MissingAddress("EXISTING_REPORT_REGISTRY");
         if (auditHub == address(0)) revert MissingAddress("EXISTING_AUDIT_HUB");
         if (reportRegistry.code.length == 0) revert NotDeployed("EXISTING_REPORT_REGISTRY");

@@ -324,12 +324,14 @@ paginated walk over `getReports` can see in one invocation, not literally every 
 ever had (R16 in KAY9-REVIEW.md). A forensic audit that has scrolled out of the current window and a
 later monitoring report both exist permanently in the append-only history, but a sweep that only
 sees the recent one in isolation has no way to notice the older, deeper one without a persistent
-per-asset index this service does not keep. The same bound applies to which record is "latest": it
-is the newest one *this window* holds, not necessarily the newest that exists.
+per-asset index this service does not keep. Within a window the sweep picks, per asset, the record
+with the newest `analyzedAt` (a tie going to the later one), the registry's own rule for `latest`,
+and probes the asset only when that record is what `latest` returns; otherwise its latest record is
+on another page and is monitored from there.
 
 Because the registry appends, the result is a genuine history: an asset that scored 89 in September
 and 42 in October has both records, both signed, both permanent. No surface may render the latest
-score without its `committedAt`, and none may describe an old audit as current safety.
+score without its date, and none may describe an old audit as current safety.
 
 ## 6. Open, and proprietary
 

@@ -210,7 +210,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         hub.requestAudit(chainKey, assetId, TIER_DEEP, KIND_INDEPENDENT);
 
         // The already-open job still settles while paused.
-        AuditResult memory result = _result();
+        AuditResult memory result = _resultFor(jobId);
         bytes[] memory hoistedSignatures2 = _sign(jobId, result, 2);
         vm.prank(auditorAddresses[0]);
         hub.attest(jobId, result, hoistedSignatures2);
@@ -436,7 +436,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         address[] memory signers = _signerSet(3);
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
 
-        AuditResult memory result = _result();
+        AuditResult memory result = _resultFor(jobId);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = _signDigest(_keyOf(signers[0]), _hash(jobId, result));
 
@@ -774,7 +774,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         uint256 jobId = _openJob();
 
         // The first holder votes, then is replaced.
-        AuditResult memory resultX = _result();
+        AuditResult memory resultX = _resultFor(jobId);
         resultX.overallTrust = 10;
         resultX.reportHash = keccak256(abi.encode("rotation", "x"));
         _attestAlone(jobId, resultX, _keyOf(signers[0]), _hash(jobId, resultX));
@@ -783,7 +783,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (extra)));
 
         // The second original auditor votes a different result.
-        AuditResult memory resultY = _result();
+        AuditResult memory resultY = _resultFor(jobId);
         resultY.overallTrust = 40;
         resultY.reportHash = keccak256(abi.encode("rotation", "y"));
         _attestAlone(jobId, resultY, _keyOf(signers[1]), _hash(jobId, resultY));
@@ -793,7 +793,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         // quorum.
 
         // The replacement votes a third, different result.
-        AuditResult memory resultZ = _result();
+        AuditResult memory resultZ = _resultFor(jobId);
         resultZ.overallTrust = 70;
         resultZ.reportHash = keccak256(abi.encode("rotation", "z"));
         _attestAlone(jobId, resultZ, extraKey, _hash(jobId, resultZ));
@@ -828,7 +828,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         uint256 jobId = _openJob();
 
-        AuditResult memory resultX = _result();
+        AuditResult memory resultX = _resultFor(jobId);
         resultX.overallTrust = 10;
         resultX.reportHash = keccak256(abi.encode("rotation-full", "x"));
         _attestAlone(jobId, resultX, _keyOf(signers[0]), _hash(jobId, resultX));
@@ -836,19 +836,19 @@ contract KAY9AuditHubTest is Kay9TestBase {
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.addAuditor, (extra)));
 
-        AuditResult memory resultY = _result();
+        AuditResult memory resultY = _resultFor(jobId);
         resultY.overallTrust = 40;
         resultY.reportHash = keccak256(abi.encode("rotation-full", "y"));
         _attestAlone(jobId, resultY, _keyOf(signers[1]), _hash(jobId, resultY));
 
-        AuditResult memory resultZ = _result();
+        AuditResult memory resultZ = _resultFor(jobId);
         resultZ.overallTrust = 70;
         resultZ.reportHash = keccak256(abi.encode("rotation-full", "z"));
         _attestAlone(jobId, resultZ, _keyOf(signers[2]), _hash(jobId, resultZ));
 
         // Now the extra auditor votes a fourth, distinct result — every currently active auditor
         // (signers[1], signers[2], extra) has spoken, and no two of them agree.
-        AuditResult memory resultW = _result();
+        AuditResult memory resultW = _resultFor(jobId);
         resultW.overallTrust = 90;
         resultW.reportHash = keccak256(abi.encode("rotation-full", "w"));
         _attestAlone(jobId, resultW, extraKey, _hash(jobId, resultW));
@@ -1534,7 +1534,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         address[] memory signers = _signerSet(3);
         uint256 jobId = _openJob();
 
-        AuditResult memory x = _result();
+        AuditResult memory x = _resultFor(jobId);
         x.reportHash = keccak256("x");
         _attestAlone(jobId, x, _keyOf(signers[0]), _hash(jobId, x));
         _attestAlone(jobId, x, _keyOf(signers[1]), _hash(jobId, x));
@@ -1542,7 +1542,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[0])));
         _governanceCall(address(auditorRegistry), abi.encodeCall(KAY9AuditorRegistry.removeAuditor, (signers[1])));
 
-        AuditResult memory y = _result();
+        AuditResult memory y = _resultFor(jobId);
         y.reportHash = keccak256("y");
         bytes[] memory one = new bytes[](1);
         one[0] = _signDigest(_keyOf(signers[2]), _hash(jobId, y));
@@ -1550,7 +1550,7 @@ contract KAY9AuditHubTest is Kay9TestBase {
         hub.attest(jobId, y, one);
         assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Requested), "two silent auditors could still agree");
 
-        AuditResult memory z = _result();
+        AuditResult memory z = _resultFor(jobId);
         z.reportHash = keccak256("z");
         one[0] = _signDigest(dKey, _hash(jobId, z));
         vm.prank(signers[2]);
@@ -1639,11 +1639,20 @@ contract KAY9AuditHubTest is Kay9TestBase {
 
         bytes[] memory newSigs = _sign(0, wNew, 2);
         vm.prank(auditorAddresses[0]);
-        hub.publishWatchdogReport(wNew, newSigs);
+        uint256 newReport = hub.publishWatchdogReport(wNew, newSigs);
 
         bytes[] memory jobSigs = _sign(jobId, job, 2);
         vm.prank(auditorAddresses[0]);
-        hub.attest(jobId, job, jobSigs);
+        uint256 jobReport = hub.attest(jobId, job, jobSigs);
+
+        // The job's record is written last but describes the earlier moment, so it joins the
+        // history without becoming what `latest` shows (KupiaSec, 2026-10-21).
+        assertEq(reportRegistry.historyCount(chainKey, assetId), 2, "both records are kept");
+        (, uint256 latestId,,,,) = reportRegistry.latestSummary(chainKey, assetId);
+        assertEq(latestId, newReport, "latest is still the newer watchdog analysis");
+        (, ReportRecord memory latestRecord) = reportRegistry.latest(chainKey, assetId);
+        assertEq(latestRecord.result.analyzedAt, wNew.analyzedAt, "latest describes the newest moment");
+        assertEq(reportRegistry.getReport(jobReport).jobId, jobId, "the job's own record is readable by id");
 
         bytes[] memory oldSigs = _sign(0, wOld, 2);
         vm.prank(auditorAddresses[0]);
@@ -1651,6 +1660,64 @@ contract KAY9AuditHubTest is Kay9TestBase {
             abi.encodeWithSelector(KAY9AuditHub.StaleWatchdogReport.selector, wOld.analyzedAt, wNew.analyzedAt)
         );
         hub.publishWatchdogReport(wOld, oldSigs);
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // KupiaSec report (2026-10-21)
+    // -------------------------------------------------------------------------------------------
+
+    /// @notice A job's result must describe the moment the job was requested, not any other.
+    /// @dev The auditor software always pinned it there; nothing on-chain did, so a quorum could
+    ///      have settled a job with an analysis taken long before the request, or after it.
+    function test_aJobResultMustBeAnalysedAtItsRequestTime() public {
+        uint256 jobId = _openJob();
+        uint64 requestedAt = hub.getJob(jobId).requestedAt;
+        vm.warp(block.timestamp + 1 hours);
+
+        AuditResult memory later = _result();
+        bytes[] memory laterSigs = _sign(jobId, later, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(abi.encodeWithSelector(KAY9AuditHub.AnalysisNotPinned.selector, later.analyzedAt, requestedAt));
+        hub.attest(jobId, later, laterSigs);
+
+        AuditResult memory earlier = _result();
+        earlier.analyzedAt = requestedAt - 30 days;
+        bytes[] memory earlierSigs = _sign(jobId, earlier, 2);
+        vm.prank(auditorAddresses[0]);
+        vm.expectRevert(
+            abi.encodeWithSelector(KAY9AuditHub.AnalysisNotPinned.selector, earlier.analyzedAt, requestedAt)
+        );
+        hub.attest(jobId, earlier, earlierSigs);
+
+        AuditResult memory pinned = _resultFor(jobId);
+        bytes[] memory pinnedSigs = _sign(jobId, pinned, 2);
+        vm.prank(auditorAddresses[0]);
+        hub.attest(jobId, pinned, pinnedSigs);
+        assertEq(uint8(hub.getJob(jobId).status), uint8(JobStatus.Fulfilled), "the pinned result settles");
+    }
+
+    /// @notice When a job and a watchdog report describe the same second, the later commit is latest.
+    function test_aTieInAnalysisTimeGoesToTheLaterCommit() public {
+        AuditResult memory watchdog = _result();
+        watchdog.reportHash = keccak256("watchdog");
+        bytes[] memory watchdogSigs = _sign(0, watchdog, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 watchdogReport = hub.publishWatchdogReport(watchdog, watchdogSigs);
+
+        uint256 jobId = _openJob();
+        assertEq(hub.getJob(jobId).requestedAt, watchdog.analyzedAt, "same second");
+        vm.warp(block.timestamp + 1 hours);
+        AuditResult memory deep = _resultFor(jobId);
+        deep.reportHash = keccak256("deep");
+        bytes[] memory deepSigs = _sign(jobId, deep, 2);
+        vm.prank(auditorAddresses[0]);
+        uint256 deepReport = hub.attest(jobId, deep, deepSigs);
+
+        assertGt(deepReport, watchdogReport, "the job was committed second");
+        (,, uint8 overallTrust,,, uint8 tier,, uint64 analyzedAt,) = reportRegistry.latestSnapshot(chainKey, assetId);
+        assertEq(tier, TIER_DEEP, "the later commit of the same moment is latest");
+        assertEq(analyzedAt, watchdog.analyzedAt, "and it describes that moment");
+        assertEq(overallTrust, deep.overallTrust, "with its own score");
     }
 
     /// @notice Two contradictory positions that both meet a lowered threshold dispute the job.
@@ -1825,6 +1892,14 @@ contract KAY9AuditHubTest is Kay9TestBase {
             reportHash: keccak256("report"),
             reportURI: "ipfs://bafybeigdyrztktx5b5m2y4sog6f6cnbxvhc7g4rl6vzqxk2xk6xk6xk6xk"
         });
+    }
+
+    /// @notice A representative result for a job, analysed at the job's request time as `attest` requires.
+    /// @param jobId The job.
+    /// @return result The result.
+    function _resultFor(uint256 jobId) internal view returns (AuditResult memory result) {
+        result = _result();
+        result.analyzedAt = hub.getJob(jobId).requestedAt;
     }
 
     /// @notice Signs a result with the lowest `count` auditor addresses, in ascending order.

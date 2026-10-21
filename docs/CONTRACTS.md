@@ -367,7 +367,10 @@ requester was actually shown on-chain to be the asset's deployer.
 record; it never replaces the old one. So an asset that scored 89 in September and 42 in October has
 both records, both signed, both permanent, and a reader can see risk change over time.
 Consequently `latest` means "most recent snapshot", never "current truth", and every surface that
-renders it also renders `committedAt`.
+renders it also renders when it was taken (`analyzedAt`, from `latestSnapshot`) or at least when it
+was written (`committedAt`). "Most recent" is by analysis: the record with the largest
+`analyzedAt`, so a job pinned to an earlier request time that lands after a newer watchdog report
+stays in the history without becoming `latest`.
 
 **Reads.**
 
@@ -375,7 +378,7 @@ renders it also renders `committedAt`.
 |---|---|
 | `reportCount`, `getReport`, `getReports` | The whole log, newest-first paging handled by the caller |
 | `historyCount`, `history` | Every report id for one asset, in commitment order |
-| `latest` | The most recent full record for an asset |
+| `latest` | The full record of an asset's newest analysis (a tie goes to the later commit) |
 | `latestSummary`, `latestSummaryForToken` | One call, no arrays of structs, no report body: the read a wallet, DEX, launchpad or badge makes |
 | `scoreHistory` | Paired `committedAt` and `overallTrust` arrays: the read a trust-over-time chart makes |
 

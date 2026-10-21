@@ -262,7 +262,10 @@ them in commitment order, so an asset that scored 89 in September and 42 in Octo
 records, both signed, both permanent, and a reader can watch risk change over time.
 
 `latest` therefore means **most recent snapshot**, never **current safety**, and every surface that
-renders it also renders `committedAt`. `latestSummary`, `latestSummaryForToken` and `scoreHistory`
+renders it also renders `committedAt`. Most recent by analysis, not by commitment: a job's result
+describes the moment it was requested (`analyzedAt` = `requestedAt`, enforced by the hub) and can
+land after a watchdog report that looked more recently, so `latest` is the record with the largest
+`analyzedAt`. `latestSummary`, `latestSummaryForToken` and `scoreHistory`
 exist so that a wallet, DEX, launchpad or badge can consume that data with one contract call and no
 KAY9-operated API.
 
@@ -683,8 +686,9 @@ cast call $REGISTRY "scoreHistory(bytes32,bytes32,uint256,uint256)(uint64[],uint
 ```
 
 Then fetch `reportURI`, run `kay9-watchdog hash report.json`, and compare with `reportHash`. Render
-`committedAt` with anything you render from `latestSummary`; a score without its date is a claim
-about the present that nobody made.
+a date with anything you render from the latest record; a score without its date is a claim about
+the present that nobody made. `latestSnapshot` returns both `analyzedAt`, the moment the score
+describes, and `committedAt`; prefer it to `latestSummary`, which returns only the second.
 
 ### Expire a job nobody answered
 

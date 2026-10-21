@@ -141,7 +141,8 @@ thing from a proof.
 
 `recordReport` is callable only by the bound `KAY9AuditHub`, which binds it immutably at
 deployment. Reports are appended. `latest` means *most recent snapshot*, never *current safety* —
-a token can become dangerous one block after a clean report, which is what monitoring is for.
+a token can become dangerous one block after a clean report, which is what monitoring is for. It is
+the record with the newest `analyzedAt`, not the last one written.
 
 Each record carries the `AuditResult`, the `ReportMeta`, and the **signer set** that attested to
 it. The signers are part of the record because the claim being made is "these operators agreed",
