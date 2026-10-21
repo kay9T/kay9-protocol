@@ -343,7 +343,8 @@ job's `analyzedAt` was not bound to its `requestedAt` on-chain and that a late j
 `AnalysisNotPinned`; `latest` is the newest analysis), and both contracts are redeployed at the
 token launch. Both families have read the fix in fresh contexts: Claude Opus 5.5 (Anthropic) the
 uncommitted change, and OpenAI GPT-6 the contracts at `kay9-protocol` tag `analysis-pin-review-1`
-(`fb6c21d6`), finding nothing in them and four off-chain issues, all fixed. Both are published
+(`fb6c21d6`), over four rounds that converged on 22 Oct, finding nothing in them and nine off-chain
+issues, all fixed. Both are published
 verbatim with dispositions (`docs/reviews/2026-10-21-external-report.md`). The commit to deploy
 for the two contracts is `analysis-pin-review-1`; this part closes again when the owner closes it.
 

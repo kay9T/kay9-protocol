@@ -933,3 +933,150 @@ A downloaded markdown file, reproduced unchanged.
 > converged. Return one markdown file: findings, the round-2 findings as closed / narrowed / open,
 > the property table, what you did not verify, and your model name and version. Everything you write
 > is a proposal the session verifies against the repository. This is round 3 of 5.
+
+## Round 4 reply
+
+A downloaded markdown file, reproduced unchanged.
+
+> # KAY9 — Adversarial Code Review, Round 4 of 5
+> 
+> **Session:** `kay9-e0`  
+> **Date:** 22 October 2026  
+> **Reviewer/model:** OpenAI **GPT-6**; no more specific model build identifier is available.  
+> **Scope:** Independent, read-only model review of the pinned changes. This is **not** a professional security audit, an assertion that KAY9 or any token is safe, or an authorization to launch. Findings, if any, are proposals for engineering verification.
+> 
+> ## 1. Pinned source and overall verdict
+> 
+> | Repository | Exact reviewed commit | Comparison | Verified change scope |
+> |---|---|---|---|
+> | [`kay9T/kay9`](https://github.com/kay9T/kay9/commit/275d234a060209320b93613c3d65f6b9043f6f9b) | `275d234a060209320b93613c3d65f6b9043f6f9b` | `aabc4a9c8b4336c3c8438d4ab345d69e95840451..275d234a060209320b93613c3d65f6b9043f6f9b` | **One commit**; social-bot error handling, file locking/state-write helper and callers, tests; monitor comment and review docs. |
+> | [`kay9T/kay9-protocol`](https://github.com/kay9T/kay9-protocol/commit/a4f1d49b3de82220f189c116922ae194da9e957a) | `a4f1d49b3de82220f189c116922ae194da9e957a` | `f21823d5a97a6d1f60ec9d18051c217746b220aa..a4f1d49b3de82220f189c116922ae194da9e957a` | **One commit; two review-document files only.** |
+> 
+> The public repository's comparison contains no contract or deployment-script edits. Directly fetched Git blob identifiers also match the original `analysis-pin-review-1` commit `fb6c21d6b1de4bdb26ecef95bdc228b415e09eac`:
+> 
+> | Public file | Identical blob SHA at the original and current pinned commits |
+> |---|---|
+> | `src/KAY9AuditHub.sol` | `a1b24524e39cbb8e3107609c87250903fdd76cd0` |
+> | `src/KAY9Registry.sol` | `a8b5c43b3736357b367045ce78d7ed5ca999411d` |
+> | `script/Deploy.s.sol` | `c75d0ea2400d56f6ca40cf97b7786027029c867f` |
+> 
+> **Verdict: The scoped code review has converged.** Both Round-3 findings are **closed as to their reported failure scenarios**. I found **no new reproducible defect introduced by `275d234`** and no confirmed regression in the unchanged immutable contracts. “Converged” means no further actionable finding from this scoped source review; it does **not** establish complete runtime correctness, exactly-once network side effects, or fulfillment of launch gate 13.
+> 
+> ## 2. New findings, ranked by severity
+> 
+> **None confirmed.** I am not assigning speculative severities or relabelling acknowledged operational limitations as newly introduced defects.
+> 
+> The principal adversarial checks and their boundaries are as follows.
+> 
+> ### X HTTP refusal versus ambiguous posting outcome
+> 
+> - At [`services/social-bot/src/x-client.ts:64-98`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/src/x-client.ts#L64-L98), the client throws `XApiRefused(status, reason)` **only after receiving a non-2xx HTTP response**. Failed parsing of that response body falls back to `{}` and still throws the typed refusal using the HTTP status. Network exceptions, timeouts and unparseable successful responses are *not* classified as explicit refusal.
+> - At [`services/social-bot/src/hype.ts:296-345`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/src/hype.ts#L296-L345), an owner-approved draft is consumed **before** posting. A typed HTTP refusal produces “Not posted (X refused it)”; other failures produce an explicit **“Outcome unknown”** message with the original X-post link for manual verification. The draft is **not automatically restored or reposted**.
+> - A concrete *successful X post followed by a `200` response containing malformed JSON* therefore lands in the **unknown-outcome** branch, not the false “not posted” branch. Likewise, a timeout after X has committed is not called a refusal. This addresses R3-01 without a paid reconciliation read.
+> - A definitive HTTP rejection can be treated as refusal for this workflow. A network error cannot. The new [`hype.test.ts:192-215`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/test/hype.test.ts#L192-L215) covers the two error classes using injected failures, although it does **not** emulate a live X server committing before an aborted response.
+> 
+> **Residual limitation, not a new finding:** With a consumed draft and no stored `posting` reconciliation state, an owner may lose a legitimate opportunity to post if the request never reached X. This is an explicit fail-closed tradeoff in a manually approved, non-idempotent workflow. The unknown-outcome message gives the operator the target post to inspect; no confirmed scenario establishes an automatic duplicate or an incorrect claim of definite failure in the revised implementation. A live response/commit race was not exercised.
+> 
+> ### Lock renewal and takeover
+> 
+> - [`services/social-bot/src/lock.ts:66-78`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/src/lock.ts#L66-L78) now checks the holder token, returns **`false` if `utimes` fails**, and checks the token **again** after stamping the file. It therefore no longer reports retained ownership in either precise case from R3-02: the lock disappeared/changed before renewal, or a successor replaced it during the token-read-to-stamp interval and remains holder when checked afterward.
+> - [`services/social-bot/src/telegram-scheduler.ts:198-210`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/src/telegram-scheduler.ts#L198-L210) still fences **subsequent** fetched updates: a failed renewal breaks the loop without advancing the final batch cursor. Previously completed updates remain checkpointed. A budget unit already spent on an in-flight message is not rolled back, by design; an update that the stopped poll never began is not charged.
+> - [`telegram-poll.test.ts:341-362`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/test/telegram-poll.test.ts#L341-L362) tests refresh against both a changed token and a missing lock, but **does not** deterministically interleave a real second process between both reads or inject an `utimes` exception. This limits test strength; it does not contradict the implementation's source-level checks.
+> 
+> **Residual limitation, not a new finding:** No path-based lease plus a later external HTTP side effect can prove atomic, exactly-once behaviour if the process is suspended after its final ownership check or if an external send succeeds before local cursor persistence. Such timing limits predate the current revision and were not demonstrated as a new regression. The 10-minute stale lease with per-update refresh and bounded normal operations materially reduces that exposure.
+> 
+> ### New `replaceFile` helper and six callers
+> 
+> - [`services/social-bot/src/lock.ts:121-148`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/social-bot/src/lock.ts#L121-L148) retries **only** `EPERM`, `EACCES` and `EBUSY`; it makes at most **21 rename attempts** (initial call plus 20 retries) with **2.1 seconds of cumulative scheduled backoff**, then rethrows the last error. Other errors are rethrown immediately. This is a bounded delay, **not** swallowing a permanent permission denial indefinitely.
+> - All changed state-save callers keep their write-to-staging-then-replace structure; the helper does not write partial JSON to the destination. The replacements include the Telegram state, hype state, X mention state, scheduled-post state, mention-post state and settings state. The hype/Telegram state paths retain their surrounding short state locks.
+> - A permanent `EACCES` now fails after a short delay instead of immediately. A failed rename may leave its staging file behind. Neither is shown here to corrupt the previously committed destination file, suppress the final exception, or bypass a posting gate. A simultaneous read/write on Windows is a plausible reason for the specified retry.
+> 
+> **Residual test gap:** No independently executed fault-injection test established that a persistent `EACCES` reaches the caller after the retry bound, or that the exact Windows concurrency failure is fixed across machines. That is appropriate follow-up hardening, **not** a confirmed new defect.
+> 
+> ### Monitoring comment and existing readers
+> 
+> [`services/audit-worker/src/monitor.ts:688-698`](https://github.com/kay9T/kay9/blob/275d234a060209320b93613c3d65f6b9043f6f9b/services/audit-worker/src/monitor.ts#L688-L698) now accurately describes the existing full canonical-body hash comparison. The executable equality test remains at `monitor.ts:737-741`: same-epoch byte-identical reports can be skipped; later-epoch canonical reports can differ even with the same trust scores/flags. No monitoring behaviour changed in this commit.
+> 
+> The new typed X error is an `Error` subclass; the inspected other client callers continue handling rejected requests through generic exceptions or messages. No incompatible handler dependent on the former untyped error was identified within the reviewed call paths.
+> 
+> ## 3. Round-3 finding dispositions
+> 
+> | Finding | Current disposition | Evidence and exact closure boundary |
+> |---|---|---|
+> | **R3-01 — timeout or malformed successful X response misreported as “Not posted”** (Medium) | **Closed** | `x-client.ts:78-98` distinguishes explicit HTTP refusal from unknown transport/response failures; `hype.ts:321-339` presents the correct distinction, retains a link to inspect and never automatically retries a consumed draft. The test asserts the two messages. It does not prove whether a live X POST committed. |
+> | **R3-02 — `refresh()` returns success despite failed stamp or replacement during renewal** (Low) | **Closed for the reported race** | `lock.ts:66-78` returns false on stamp failure and re-reads the token after the stamp; `telegram-scheduler.ts:206-210` stops on false. The tests check already-lost/missing leases. The check is not an atomic fence across a subsequently executed network call. |
+> 
+> Round-1 and Round-2 monitoring-ID, watchdog-fake, timestamp-fixture and chain-specific scan-output findings remain closed in their original scope; this commit did not modify those runtime paths. The earlier Telegram-lock finding is substantially addressed by cumulative fixes, subject to ordinary limits of a filesystem lease.
+> 
+> ## 4. Required properties 1–7
+> 
+> | # | Property | Status | Reason at the pinned commits |
+> |---|---|---|---|
+> | **1** | Only request-time-pinned job results can reach the registry | **holds** | Immutable `attest` enforces `analyzedAt == requestedAt`; `finalizeAgreed` settles already-attested signed digests. Public source blob is unchanged. |
+> | **2** | Per-asset latest is largest analysis time, later commitment on ties, while history stays append-only | **holds** | Registry `_latestId` and `_latest` implementation unchanged, including first record, report ID 0 and interleaved asset histories. |
+> | **3** | Watchdog publication requires an analysis time strictly newer than every prior record for that asset | **holds** | Hub's strict check reads the registry's maximum-analysis selection; a late old job cannot reopen freshness. Both contracts unchanged. |
+> | **4** | Neither requester, submitter nor one auditor can independently select latest outside quorum-signed data | **holds** | EIP-712 binds analysis time and scored result; current-auditor quorum and job pin checks are unchanged. |
+> | **5** | Exact production `Deploy.s.sol` path correctly deploys and binds the new stack with only existing timelock and auditor registry | **could not conclude** | Source wiring and refusal of the superseded addresses remain consistent. The documented testnet rehearsal used `Rehearse.s.sol` with a vault already passed to the hub, rather than the actual fresh hub with a zero vault subsequently bound by the timelock. No verified executed launch-path address graph or `setAccessVault` transaction was available. |
+> | **6** | Off-chain monitor and history page use the registry's latest ordering | **holds** | The ID-based sweep and `(analyzedAt, reportId)` history sort from earlier rounds are untouched. The only monitor change is a comment; this does not guarantee arbitrary RPC availability or perfectly-once delivery. |
+> | **7** | All earlier watchdog-review properties remain satisfied end to end | **could not conclude** | The scrutinized contract source remains unchanged and previous test/rehearsal evidence covers important paths. Exhaustive production configuration, real auditor rotation, end-to-end replay and all historical findings were not freshly exercised in this round. |
+> 
+> ## 5. CI and execution evidence
+> 
+> - GitHub Actions **CI for `aabc4a9`** completed successfully: run [`39616865629`](https://github.com/kay9T/kay9/actions/runs/39616865629), with **Package, services and site** and **What changed, and the cheap checks** successful; **Contracts** skipped because contract source did not change. This verifies the preceding source snapshot's reported CI state, not the present commit's run.
+> - At the time queried, **CI for pinned `275d234`** was **in progress**, run [`39618810022`](https://github.com/kay9T/kay9/actions/runs/39618810022): cheap checks successful, services job still running, contracts skipped. **Do not report this run as green yet.**
+> - A prior pinned CI job on `c1e4058` had **358 passing Forge tests**, and the chain-46630 rehearsal was documented and inspected in earlier rounds. Neither substitutes for the unexecuted precise launch configuration.
+> 
+> ## 6. What this review did not verify
+> 
+> No local TypeScript/Forge tests, Windows filesystem contention experiment, injected permanent-rename-error test, two-process lease interleaving, real X/Telegram calls, externally confirmed X post after response loss, fresh testnet-chain state retrieval, or production `Deploy.s.sol`/timelock execution were performed in this round. No fresh whole-repository or professional audit was performed. The tests and relevant call paths were read rather than run locally. GitHub's pending latest CI result must be checked separately.
+> 
+> ## Questions for the next round
+> 
+> No further code-fix question is required for R3-01 or R3-02. The remaining evidence request is **property 5**: after the real launch, capture the exact hub/registry/vault/timelock/auditor address graph and the successful timelock `setAccessVault` execution. Separately, confirm the pinned `275d234` CI run finishes successfully; these are evidentiary checks, not findings against the unchanged contracts.
+> 
+> **Round-4 conclusion:** **Converged within the specified change scope, with zero new confirmed findings.** Both Round-3 issues close for the cases they reported. Property 5 and complete end-to-end property 7 are still **could not conclude**. This review is a verification proposal, not a safety certification or release approval.
+
+## Round 4 request
+
+> # Round 4 of 5 — verification of the round-3 fixes
+> 
+> ## What to read
+> 
+> - `https://github.com/kay9T/kay9`, branch `main`, commit `275d234a060209320b93613c3d65f6b9043f6f9b`,
+>   range `aabc4a9..275d234` (one commit).
+> - `https://github.com/kay9T/kay9-protocol` at `a4f1d49b3de82220f189c116922ae194da9e957a`: review docs
+>   only since `f21823d`; the contracts are still the `analysis-pin-review-1` blobs.
+> - CI on `aabc4a9` passed (contracts job skipped as no contract source changed).
+> 
+> ## How each round-3 finding was handled (both accepted, fixed in `275d234`)
+> 
+> - **R3-01** — `services/social-bot/src/x-client.ts`: a non-OK HTTP response throws
+>   `XApiRefused(status, reason)`; a deadline, network failure or unparsable success body throws
+>   something else. `src/hype.ts` `handleHypeCallback`: `XApiRefused` → "Not posted (X refused it)";
+>   anything else → "Outcome unknown (no answer from X). Check the replies under <post link> before
+>   posting this again", logged as outcome unknown. In both cases the draft stays consumed, so no
+>   path posts it twice automatically. I chose not to keep a reconcilable "posting" state: the owner
+>   is the only one who can approve, the message names the post to check, and a later automatic
+>   reconciliation would need an X read the owner pays for per call. Challenge that if you see a
+>   concrete loss.
+> - **R3-02** — `src/lock.ts` `refresh`: false if the token is not ours before the stamp, false if
+>   `utimes` throws, and the token is re-read after the stamp. Test `reports a lock it no longer
+>   holds, whether replaced or gone`. A stamp that lands on a successor's file in the window only
+>   freshens a live lock.
+> - **Also in this commit** — `src/lock.ts` `replaceFile`: every state write (six call sites) now
+>   retries a rename that fails with EPERM/EACCES/EBUSY, up to 20 times with a growing short wait.
+>   Windows refuses a rename onto a file another process has open; these files are read without a
+>   lock, and the X mentions poll and the post scheduler run on the Windows host. A concurrency test
+>   failed there about half the time before and after the round-3 fixes, and passes since. And
+>   `services/audit-worker/src/monitor.ts`: the `publish()` comment now describes the byte-identity
+>   comparison as it is.
+> 
+> ## What to do this round
+> 
+> Verify both fixes and the extra change at the pinned commit, and look for defects they introduced
+> (for example: a `200` from X with a body that fails to parse after X has posted; a
+> `replaceFile` retry that masks a real permission error for up to its bounded wait; anything that
+> relied on the old untyped error). If nothing new is found, say plainly that the review has
+> converged. Return one markdown file: findings, the round-3 findings as closed / narrowed / open,
+> the property table, what you did not verify, your model name and version. Everything you write is
+> a proposal the session verifies. This is round 4 of 5.

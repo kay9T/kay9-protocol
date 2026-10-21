@@ -75,7 +75,7 @@ reopened for them. Both families have now read the fix in fresh contexts (below)
 |---|---|---|---|---|
 | 2026-10-21 | a security firm, by email | the deployed `watchdog-review-4` | 1 low, in two parts | both confirmed and fixed; the suggested fix not taken, with the reason; [report and dispositions](2026-10-21-external-report.md) |
 | 2026-10-21 | Claude Opus 5.5, fresh context | the fix, before commit | 4 medium, 4 low, 3 informational | eight fixed, three not taken in writing; [the review, verbatim](2026-10-21-report-fix-anthropic-claude-opus-5.5.md), dispositions in the report |
-| 2026-10-21 | OpenAI GPT-6, fresh context | `analysis-pin-review-1` (`fb6c21d6`) | 0 in the contracts; 2 medium, 2 low off-chain | all four fixed; [the review, verbatim](2026-10-21-report-fix-openai-gpt-6.md), dispositions in the report |
+| 2026-10-21 | OpenAI GPT-6, fresh context | `analysis-pin-review-1` (`fb6c21d6`) | 0 in the contracts in four rounds; 9 off-chain (4 medium, 5 low) | all nine fixed; converged at round 4; [the review, verbatim](2026-10-21-report-fix-openai-gpt-6.md), dispositions in the report |
 
 ## Independent copies
 

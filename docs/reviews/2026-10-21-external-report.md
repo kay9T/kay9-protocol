@@ -159,3 +159,12 @@ process has open fails there with `EPERM`. The X mentions poll and the post sche
 Windows host, so the same could fail in service. Every state write now goes through one
 `replaceFile`, which retries that error briefly. The monitor's comment on "identical" reports now
 says what the code does (round 3, "Identical-report analysis").
+
+### Round 4 (22 Oct 2026): converged
+
+No new finding. R3-01 and R3-02 closed; the contracts' sources again unchanged. The review closed
+here, one round before its cap. In all four rounds it found nothing in `KAY9AuditHub` or
+`KAY9Registry`; nine off-chain findings, all fixed. Properties 1–4 and 6 hold. Two stay "could not
+conclude", and only the launch can settle them: 5, the exact `Deploy.s.sol` launch shape with the
+timelock's `setAccessVault`, whose address graph and transaction are recorded at launch under gate
+13; and 7, the earlier review's properties across the live system end to end.
