@@ -590,3 +590,188 @@ Round 1 conclusion: The analysis-pin and registry-latest changes appear internal
 > 
 > Do not soften a finding and do not invent one. Everything you write is a proposal the session
 > verifies against the repository. This is round 1 of 5.
+
+## Round 2 reply
+
+This round came back as a downloaded markdown file, reproduced unchanged.
+
+> # KAY9 — Adversarial Review, Round 2 of 5
+> 
+> **Date:** 22 October 2026  
+> **Reviewer:** OpenAI GPT-6 (no more specific model build/version exposed)  
+> **Type:** Independent, read-only model review; **not** a professional security audit or launch authorization.  
+> **Private repository:** [`kay9T/kay9` @ `2071c6c2f88abb9fc0abc41e23b17aeb62d5c432`](https://github.com/kay9T/kay9/commit/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432) (`c1e4058..2071c6c`, one commit).  
+> **Public protocol:** [`kay9T/kay9-protocol` @ `71f6713c32f53d2566872c1fcef4a07e3dc06272`](https://github.com/kay9T/kay9-protocol/commit/71f6713c32f53d2566872c1fcef4a07e3dc06272) (one commit after `fb6c21d6`).
+> 
+> ## 1. Immutable-source verification and overall verdict
+> 
+> GitHub's compare results show **no changes to `src/KAY9AuditHub.sol` or `src/KAY9Registry.sol`** in `fb6c21d6..71f6713c`; that public commit changes `script/Rehearse.s.sol`, the testnet deployment manifest and review/readiness documentation. I also independently compared Git blob IDs at the two revisions:
+> 
+> | File | Blob SHA at **both** public commits |
+> |---|---|
+> | `src/KAY9AuditHub.sol` | `a1b24524e39cbb8e3107609c87250903fdd76cd0` |
+> | `src/KAY9Registry.sol` | `a8b5c43b3736357b367045ce78d7ed5ca999411d` |
+> | `script/Deploy.s.sol` | `c75d0ea2400d56f6ca40cf97b7786027029c867f` |
+> 
+> The private repository's one-commit diff changes the monitoring worker, its fake and tests, the social-bot scan/Telegram code and tests, and documentation/rehearsal artifacts. **There is no confirmed new defect in the two immutable contracts in this round.** The primary record-selection and scan-output fixes close their original scenarios. The Telegram lease issue is **narrowed, not fully closed**; two lower-severity issues concerning test realism and a related cashtag response are also described below.
+> 
+> ## 2. Findings, most severe first
+> 
+> ### K9-E0-R2-01 — An unbounded X callback can outlive the Telegram poll lease; a stolen lease is not detected
+> 
+> **Severity:** Medium (P2), residual part of R1-01.  
+> **Pinned locations:** [`services/social-bot/src/telegram-scheduler.ts:178-210,235-252`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/telegram-scheduler.ts#L178-L252), [`services/social-bot/src/x-client.ts:68-75,107-114`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/x-client.ts#L68-L114), [`services/social-bot/src/lock.ts:62-66`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/lock.ts#L62-L66), [`services/social-bot/src/hype.ts:287-331`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/hype.ts#L287-L331).
+> 
+> **Concrete scenario.** A poll acquires the 10-minute-stale lock and receives an owner's X draft-approval callback followed by a `/scan` message. Callback handling is processed *before* the new `release.refresh()` point. `handleHypeCallback` removes the pending draft, then awaits `replyToTweet`; the underlying `signedRequest` calls `fetch()` **without any `AbortSignal` or timeout**. If that request hangs for over ten minutes, a second scheduled poll can reclaim the stale lock and process the same fetched batch, including the `/scan`. When the first X request finally returns, the original poll still iterates its locally fetched updates and can also scan and reply to that message. Its next `release.refresh()` silently does nothing if another holder owns the file; it neither throws nor stops work. The shared cursor and answer-budget state do not fence the already-fetched work of the first poll. The second callback will generally find its draft already removed, so **duplicate X publication is not the established consequence**; duplicated scans/replies and overlapping poll processing are.
+> 
+> The new test in [`telegram-poll.test.ts`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/test/telegram-poll.test.ts) backdates a lock during one scan and proves it is refreshed before the next one; it does **not** exercise callback handling, a genuinely stolen lease, or a stalled outbound X call.
+> 
+> **Suggested fix.** Enforce an actual deadline on `signedRequest`/X posting and refresh or heartbeat the poll lock during potentially lengthy callbacks. Have a refresh/lease-check report lost ownership rather than silently succeeding, and fence remaining message processing when ownership is lost. Regression test: block a callback's X request past lock expiry, start another poll and confirm the original cannot process a later `/scan` after the takeover. This is a still-existing gap in the original global poll-lock concern; it does not establish a new Solidity regression.
+> 
+> ### K9-E0-R2-02 — Updated monitor fixtures disagree with their pinned canonical report timestamps
+> 
+> **Severity:** Low (P3), newly introduced test-fidelity defect.  
+> **Pinned locations:** [`services/audit-worker/test/monitor.test.ts:78-113`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/audit-worker/test/monitor.test.ts#L78-L113), [`services/audit-worker/test/helpers/fake-engine.ts:50-95`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/audit-worker/test/helpers/fake-engine.ts#L50-L95).
+> 
+> **Concrete scenario.** `seedReport` asks the fake engine to produce a canonical body with `options.now = 1_780_000_000` and pins the resulting JSON and hash. It then overwrites **only** the registry-facing `result.analyzedAt` with `1_779_913_600` by default (or another supplied value). The fake engine's canonical report still contains `analyzedAt = 1_780_000_000`. A test can therefore treat the record as an honest earlier analysis while the content-addressed body names a different time. This discrepancy would not pass the honest worker's normal `runPinnedAnalysis` consistency/pinning expectations; the Solidity registry itself does not validate off-chain canonical-body equality. In particular, the newly expanded monitoring tests can pass while never exercising a baseline whose on-chain analysis time matches its actual report body.
+> 
+> **Suggested fix.** Pass `options.analyzedAt ?? 1_779_913_600n` as the fake engine's `options.now` *before* creating the canonical JSON/hash, and use the engine-produced result without post-hash timestamp mutation. For tests intentionally constructing inconsistent or adversarial metadata, name that fixture explicitly. Assert parsed canonical-body `analyzedAt` equals the seeded `result.analyzedAt` for normal monitoring fixtures.
+> 
+> This finding does **not** invalidate the new fake hub's on-chain freshness comparison or show that it incorrectly accepts a stale result; it limits how realistic the surrounding tests are.
+> 
+> ### K9-E0-R2-03 — Chain-specific cashtag miss is reported as absence on every supported chain
+> 
+> **Severity:** Low (P3), pre-existing and newly noticed in this round.  
+> **Pinned locations:** [`services/social-bot/src/scan.ts:123-135,154-162`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/scan.ts#L123-L162), [`services/social-bot/src/mentions.ts:93-106`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/services/social-bot/src/mentions.ts#L93-L106).
+> 
+> **Concrete scenario.** A user sends `/scan $ABC on solana`. `pickCashtagToken` filters GeckoTerminal results to the explicitly requested chain. Suppose the search yields a matching BNB token but no Solana match. `resolveToken` returns `{ missing: 'ABC' }`; `scanReply` announces that KAY9 found no `$ABC` pool on **Robinhood Chain, BNB Chain or Solana**. That is false about BNB and was not established by the Solana-specific filter. An external search failure also returns an empty result and receives the same definitive absence wording.
+> 
+> **Suggested fix.** On a miss, name only the requested chain, or say that no matching pool **could be resolved** for the requested chain rather than asserting universal absence. Distinguish API failure from a successful empty search if feasible. Add cashtag tests for explicitly selected Solana/BNB with a match on another chain and for search failures.
+> 
+> This is **not** a regression from `2071c6c` and does not undo R1-04's correction of the separate `noCode` message.
+> 
+> ## 3. Disposition of the four round-1 findings
+> 
+> | Round-1 ID | Status | Verification |
+> |---|---|---|
+> | **R1-01 — poll lease expires during sequential work** | **narrowed** | `await release.refresh()` before each scan/AI answer protects normal sequential scans under their per-operation bounds. The new test checks renewed mtime between scans. Callback approvals still bypass refresh and include an X `fetch` without a deadline; refresh also fails to signal lost ownership (R2-01). |
+> | **R1-02 — fake accepts stale/future watchdog report** | **closed for the reported stale/future checks** | `fake-hub.ts` now compares against the maximum per-asset `analyzedAt` and rejects future timestamps. `monitor.test.ts` asserts zero broadcasts/publications and a skipped/unfinished asset after a stale rejection. The fake remains simplified (e.g. it does not fully reproduce watchdog signer validation), and normal seeded report-body timestamps are now inconsistent (R2-02). |
+> | **R1-03 — same hash, different registry IDs** | **closed** | `reportId = BigInt(fromOffset + index)` and `latestSummary`'s returned ID are compared directly, not by hash. The two-page identical-hash regression test exercises both pages. A partial `getReports` page advances by `records.length`, so it does not shift later IDs; the next pass starts at the actual next record. At end-of-log, the cursor wraps only after `advanced >= reportCount`. A zero-length response while count is positive would stall, not skip, the cursor; no new bug in the ID calculation was identified. |
+> | **R1-04 — no-code wording overclaims checked chains** | **closed** | `scanResolved` records the actual successfully returned chain reads. Explicit EVM and Solana chain requests, cashtags resolved to a chain, and fallback Robinhood → BNB follow the same list rule. Tests cover explicit BNB and both EVM chains. A separate no-pool-on-all-chains claim remains in the unresolved-cashtag branch (R2-03). |
+> 
+> ## 4. Updated assessment of properties 1–7
+> 
+> | # | Property | Status | Reason |
+> |---|---|---|---|
+> | **1** | Job result reaches registry only pinned to job request time | **holds** | Immutable hub and registry blobs match round 1. `attest` enforces equality; `finalizeAgreed` uses recorded signed positions and cannot bypass it. |
+> | **2** | Per-asset `latest*` chooses maximum analysis time, tie to later commitment; append-only history | **holds** | Contract code unchanged; `_latestId` and the existing property/fuzz tests handle ID zero and interleaved assets. Rehearsal documentation records a late job that did not displace a fresher watchdog. |
+> | **3** | Watchdog always requires strictly greater `analyzedAt` | **holds** | Contract unchanged; `latestAnalyzedAt` is drawn from the maximal-analysis record. The fake now reflects the relevant time comparison. |
+> | **4** | Single auditor/submitter/requester cannot choose latest outside quorum-approved values | **holds** | EIP-712 result digest and quorum pathways unchanged, and job result analysis time remains pinned. Ties use signed timestamps plus deterministic commitment order. |
+> | **5** | **Exact `Deploy.s.sol` mainnet launch shape** correctly wires reused timelock/auditors, fresh hub/registry, vault | **could not conclude** | Static source shows the correct predicted registry↔hub binding, timelock owner and reused auditors; the superseded pair is rejected. The testnet rehearsal tests a *different* script and constructs the hub with a bound vault, whereas `Deploy.s.sol` constructs it with **zero vault** and relies on a subsequent **timelock `setAccessVault`** action. It also does not exercise the mainnet Genesis/Uniswap launch branch. This is still unexecuted for the exact production shape. |
+> | **6** | Monitor and asset UI use the registry's same record ordering; no permanent skipped asset | **holds** | Monitor chooses page maximum `analyzedAt` (ties by later index), compares actual registry report IDs and preserves the cursor on unfinished publication; UI sorts by `(analyzedAt desc, reportId desc)`. The identical-hash two-page case now selects only the correct page. This is a source-level ordering conclusion, not a proof of liveness under arbitrary RPC failures or continuous writes. |
+> | **7** | Earlier watchdog-review properties remain intact in the full system | **could not conclude** | The immutable contract source and inspected quorum/replay/neutrality/ArbSys paths remain unchanged, and CI supplies strong passing regression evidence. A complete proof across all live deployments, environmental configuration and future auditor-set transitions is beyond the executed evidence. No new contradiction was identified. |
+> 
+> ## 5. Forge, CI and testnet evidence
+> 
+> **CI independently inspected.** GitHub Actions **CI run [`39599065994`](https://github.com/kay9T/kay9/actions/runs/39599065994)** is marked successful on private commit `c1e405836e69699c1751499cb0fb2bb2a76c3848`. Its **Contracts** job (`119218725925`) log includes the exact line **“Ran 24 test suites … 358 tests passed, 0 failed, 0 skipped”**. The package/services/site job also passed. This confirms the stated **358-test CI result at `c1e4058`**, not execution of the production launch or a guarantee for every changed file at `2071c6c`. When checked during this review, the new commit's CI run [`39613485725`](https://github.com/kay9T/kay9/actions/runs/39613485725) was **in progress**, so this review does not label it green.
+> 
+> **Testnet evidence inspected in the repository.** [`docs/STATUS.md` §19 at `2071c6c`](https://github.com/kay9T/kay9/blob/2071c6c2f88abb9fc0abc41e23b17aeb62d5c432/docs/STATUS.md) records the rehearsal on Robinhood testnet chain **46630**, deploying:
+> 
+> - Vault: `0xF5cf0D803d2aAE907013601F81D30b2649aB48aE`
+> - Registry: `0x0AE753d8384E2F50737c5173758CA7063A1d3161`
+> - Hub: `0xcFaA0aC0e289da555c45cAb68354bC01812b5AC0`
+> 
+> The recorded sequence covers an unpinned A+B-signed job result **simulated** to revert `AnalysisNotPinned(1792587356,1792587355)`; a watchdog report 0 with `analyzedAt=1792587392`; then a fulfilled job report 1 committed later but analyzed at `1792587355`; all `latest*` reads choosing report 0; three separate pinned dissents disputing another job and restoring quota; and a separate expiration restoring quota. [`script/Rehearse.s.sol`](https://github.com/kay9T/kay9-protocol/blob/71f6713c32f53d2566872c1fcef4a07e3dc06272/script/Rehearse.s.sol) contains dedicated `pinCheck`, `watchdogReport`, `latestOrder` and pinned-job-result paths consistent with the recorded steps. The updated `deployments/46630.json` names the same addresses.
+> 
+> **Evidence limit:** I inspected the committed rehearsal code, record, selected transaction identifiers and manifest, but did **not** independently retrieve testnet transaction receipts, bytecode or storage from the supplied RPC: direct RPC access was unavailable in this environment. The file prints transaction hashes in abbreviated form, rather than enough bytes to submit a receipt query directly from the report. Consequently I can confirm the *documented* testnet sequence and that its script exercises the intended paths, **not** independently attest that the listed receipts and contract state match chain 46630.
+> 
+> The testnet stack also differs from production in two material respects: `Rehearse.deployAuditStack` bypasses `Deploy.run()` and constructs the hub with an already bound vault; it uses a 60-second timelock rather than the production timelock and does not reproduce the full new token/Uniswap launch flow. Its result is useful **gate-8 workflow evidence**, but does **not** close the exact-shape portion of property 5 or substitute for the separately required launch checks.
+> 
+> ## 6. Regressions and coverage limitations
+> 
+> **Newly introduced by `2071c6c`:** R2-02 is a test-fixture consistency defect. No regression in the immutable Solidity contracts was found; Git blobs are identical. The hash-to-ID change itself is correct for the stated paging boundary and tie cases. The new `checked` metadata correctly lists actually read chains; R2-03 is older, separate missing-pool wording. The Telegram refresh helps normal scans, but R2-01 is the remaining previously exposed lease failure, not a newly created vulnerability.
+> 
+> I did **not** run Forge or local TypeScript tests myself, execute the exact mainnet `Deploy.run` branch, independently query the rehearsal's on-chain state, exercise the real X/Telegram APIs, or reproduce the callback takeover with a deliberately stalled HTTP connection. I verified prior CI logs and read source/test implementations at the pinned commits. Claims concerning live deployment, future schedules or full preservation of all historical safety properties should not be upgraded to proven merely from this model review.
+> 
+> ## 7. Suggested verification for round 3
+> 
+> 1. Reproduce R2-01 with a pending X-approval callback and a stalled `replyToTweet` call; after lock takeover, verify that the old poll cannot send or process later scan updates.
+> 2. Repair R2-02 so that an ordinary seeded report's on-chain `analyzedAt` and the timestamp inside its canonical pinned body agree, and retain the stale-publication and late-job regression assertions.
+> 3. Test the unresolved *chain-specific cashtag* path in R2-03, including a pool on a different chain and an API search failure. If deferred, ensure copy does not overstate what was checked.
+> 4. Preserve an explicit launch-time check for `hub.accessVault()`: it remains zero after the fresh production constructor until the timelock executes `setAccessVault`; ensure the configured new hub, registry and all auditor deployments agree afterward.
+> 
+> **Round-2 conclusion:** The core Solidity analysis-pin and registry selection changes remain unchanged and source-consistent. R1-02, R1-03 and R1-04 close their original scenarios; R1-01 is narrowed by the new refresh but is not closed for callback-driven lease loss. The available CI and recorded testnet rehearsal substantially improve evidence for the tested paths without proving the precise future mainnet launch configuration. This is a model review, **not** an audit, a statement that KAY9 or a token is safe, or authorization to launch.
+
+## Round 2 request
+
+> # Round 2 of 5 — verification of the round-1 fixes, and the testnet evidence
+> 
+> ## What to read
+> 
+> - `https://github.com/kay9T/kay9`, branch `main`, commit `2071c6c2f88abb9fc0abc41e23b17aeb62d5c432`,
+>   range `c1e4058..2071c6c` (one commit).
+> - `https://github.com/kay9T/kay9-protocol`, branch `main`, commit
+>   `71f6713c32f53d2566872c1fcef4a07e3dc06272`. **The two contracts are unchanged since tag
+>   `analysis-pin-review-1`** (`fb6c21d6`); only `script/Rehearse.s.sol`, `deployments/46630.json`
+>   and docs changed. Please confirm that from the diff rather than from this sentence.
+> 
+> ## How each round-1 finding was handled (all accepted, all fixed in `2071c6c`)
+> 
+> - **R1-01** — `services/social-bot/src/telegram-scheduler.ts`: `await release.refresh()` before each
+>   scan or answer, after the budget is spent. Test `keeps the poll lock fresh across slow scans, so
+>   a later poll cannot take it over` in `test/telegram-poll.test.ts` (it backdates the lock inside
+>   the first scan and checks the second scan starts with a fresh one).
+> - **R1-02** — `services/audit-worker/test/helpers/fake-hub.ts`: the fake `publishWatchdogReport`
+>   now refuses `AnalyzedInFuture` and `StaleWatchdogReport` against the asset's latest record
+>   (same rule as the registry). Seeded records in `test/monitor.test.ts` default to an
+>   `analyzedAt` one day before the fake chain's blocks, since every real record is older than the
+>   block a sweep re-analyses at. New test `does not count a report the hub refuses as stale as
+>   published, and holds the asset`. The worker's actual outcome after the revert: not counted as
+>   published, the asset reported in `skipped` with the revert, and held in `unfinished`, so the
+>   rotation stays on it and the next sweep re-analyses at a later epoch block.
+> - **R1-03** — `services/audit-worker/src/monitor.ts`: each window record gets its registry id
+>   (`fromOffset + index`); `latestRecord`/`latest` is replaced by `latestReportId`, which reads
+>   `latestSummary` (one read per asset instead of one) and the asset is probed only when that id is
+>   the page record's id; the probed asset is built from the page record. New test `probes only
+>   from the page of the registry-selected record when two records share one report hash`, which
+>   fails on the previous code.
+> - **R1-04** — `services/social-bot/src/scan.ts` `scanResolved` returns `checked` (every chain
+>   read, in order); `formatScanReply` names only those in the no-code sentence. Tests in
+>   `test/mentions.test.ts`.
+> 
+> ## Your three questions
+> 
+> 1. Stale publication during a worker race: R1-02 above.
+> 2. Two report ids with one hash across pages: R1-03 above.
+> 3. Forge and testnet evidence: Forge 358 tests pass locally and in CI on `c1e4058` (the contracts
+>    job, which runs on contract changes). The testnet rehearsal is recorded in `docs/STATUS.md` §19
+>    of `kay9T/kay9` with every transaction hash, on chain 46630: a fresh vault
+>    `0xF5cf0D803d2aAE907013601F81D30b2649aB48aE`, registry `0x0AE753d8384E2F50737c5173758CA7063A1d3161`
+>    and hub `0xcFaA0aC0e289da555c45cAb68354bC01812b5AC0`, deployed by `Rehearse.s.sol`
+>    `deployAuditStack` next to the existing testnet token, auditor registry (3 auditors, threshold
+>    2) and a 60-second timelock. Observed: an unpinned A+B-signed result reverted
+>    `AnalysisNotPinned(1792587356, 1792587355)` (simulated); watchdog report 0 analysed at
+>    1792587392, then job 1's record (analysed 1792587355) committed after it as report 1, and
+>    `latestSummary`/`latestSnapshot`/`latest`/`latestAnalyzedAt` all name report 0; job 2 disputed
+>    by three pinned dissents with its unit returned; job 3 expired with its unit returned. You can
+>    read all of this on the chain yourself if your tools reach it (RPC
+>    `https://rpc.testnet.chain.robinhood.com`). It is **not** the launch configuration:
+>    `Deploy.s.sol` with only `EXISTING_TIMELOCK` + `EXISTING_AUDITOR_REGISTRY` needs a launched
+>    token and the Uniswap stack; the rehearsal deploys the same three contracts with the same
+>    wiring, except that the hub is constructed with the vault rather than bound later by
+>    `setAccessVault`.
+> 
+> ## What to do this round
+> 
+> - Verify each fix at the pinned commit: does it close the finding, and did it introduce anything
+>   new (lock refresh semantics when the lock was taken over; the id arithmetic when the window
+>   wraps or `getReports` returns fewer records; the fake now diverging from the real hub in a new
+>   way; a `checked` list wrong for cashtag or Solana requests)?
+> - Re-assess properties 5, 6 and 7 from round 1 with the evidence above, and say plainly what
+>   still cannot be concluded and why.
+> - Any new finding, ranked as before, with file:line at the pinned commits.
+> 
+> Return one markdown file: findings (most severe first), a table of the round-1 findings as
+> closed / narrowed / still open, the property table updated, what you did not verify, and your
+> model name and version. Everything you write is a proposal the session verifies against the
+> repository. This is round 2 of 5.

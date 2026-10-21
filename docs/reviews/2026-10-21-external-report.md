@@ -122,3 +122,23 @@ newer watchdog report left `latest` on the watchdog report. The launch configura
 (`Deploy.s.sol` with only `EXISTING_TIMELOCK` and `EXISTING_AUDITOR_REGISTRY`) needs a launched
 token and the Uniswap stack; the rehearsal deployed the same three contracts with the same wiring
 through `Rehearse.s.sol`.
+
+### Round 2 (22 Oct 2026)
+
+Again nothing in the two contracts; it confirmed from the diff that their sources are unchanged
+since `analysis-pin-review-1`, and that CI ran 358 contract tests green on `c1e4058`. R1-02, R1-03
+and R1-04 closed; R1-01 narrowed. Properties 1–4 and 6 hold; 5 (the exact `Deploy.s.sol` launch
+shape) and 7 could not be concluded from source and a rehearsal through a different script.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| R2-01 (medium, rest of R1-01) | A draft-approval callback posted to X with no deadline, before the lock refresh, so it could outlast the lock; and `refresh` did not report a lock lost to a later poll | **Fixed.** Every X call has a 30-second deadline; the poll refreshes before every update, callbacks included; `refresh` returns false when the lock is no longer this poll's, and the poll then stops without moving the cursor. Test `stops when a later poll has taken its lock over`. |
+| R2-02 (low, test fidelity) | Seeded monitor records named one `analyzedAt` on-chain and another inside their pinned body | **Fixed.** The fake engine is given the seeded time, so body and record agree, asserted in `seedReport`. This exposed that the "identical report, not republished" branch can only fire for an analysis at the same epoch block, since the body carries its analysis time; that is the case it exists for (a second auditor sweeping an epoch a peer already published), and the test now seeds exactly that. |
+| R2-03 (low) | A ticker not found on the chain a request named, or a failed pool search, was reported as absent on all three chains | **Fixed.** The reply names only the chain searched, and a failed search says the lookup could not be made. Tests in `mentions.test.ts`. |
+
+On property 5: the testnet rehearsal builds the hub with its vault already bound, where
+`Deploy.s.sol` builds it with none and binds it through the timelock's `setAccessVault` at launch.
+That step and the address graph after it are on the gate 13 post-deploy list; it cannot be
+rehearsed without a launched token. The contracts job of the CI run on `2071c6c` was killed during
+its dependency build at ten minutes, the runner limit met once before (`4acf7d5`); no contract
+source changed in that commit.
