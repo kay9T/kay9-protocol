@@ -69,7 +69,7 @@ A security firm emailed a report on `KAY9AuditHub` and `KAY9Registry`: a job's `
 on-chain to its `requestedAt`, and a job record analysed earlier became `latest` over a newer
 watchdog report. Neither 25 Sep review had caught the first; both had accepted the second as
 documented. Both are fixed, the two contracts are redeployed at the token launch, and gate 6 is
-reopened for them. Both families have now read the fix in fresh contexts (below); the part closes again when the owner closes it.
+reopened for them. Both families have now read the fix in fresh contexts (below); the owner closed the part again on 2026-10-22.
 
 | Date | Reviewer | Commit | Findings | Status |
 |---|---|---|---|---|

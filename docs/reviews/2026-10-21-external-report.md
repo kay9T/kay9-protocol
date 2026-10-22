@@ -168,3 +168,10 @@ here, one round before its cap. In all four rounds it found nothing in `KAY9Audi
 conclude", and only the launch can settle them: 5, the exact `Deploy.s.sol` launch shape with the
 timelock's `setAccessVault`, whose address graph and transaction are recorded at launch under gate
 13; and 7, the earlier review's properties across the live system end to end.
+
+## Gate 6
+
+The owner closed gate 6 again for `KAY9AuditHub` and `KAY9Registry` on 22 Oct 2026, having read the
+dispositions above, including every finding not taken and the two properties the OpenAI review
+could not conclude. The commit to deploy for the two contracts is `kay9-protocol` tag
+`analysis-pin-review-1` (`fb6c21d6`).
