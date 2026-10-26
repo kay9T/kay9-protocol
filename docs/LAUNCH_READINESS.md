@@ -19,12 +19,12 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **6 of 14**: 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review, closed again by the owner 2026-10-22), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is running (day 0 = 2026-09-25) and can close on 25 Oct: the owner accepted its two gaps over six hours, 2 Oct and 8–9 Oct, as explained (2026-10-14). Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **7 of 14**: 1 (30 days unattended on mainnet, met 2026-10-25), 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review, closed again by the owner 2026-10-22), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is met (2026-10-25): thirty days from batch 0, its only two gaps over six hours the two the owner accepted on 2026-10-14. Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
 | Testnet rehearsal (gate 8) | **complete again 2026-10-22**: request → attest → dispute → expire on a hub and registry deployed from the 21 Oct fix (`docs/STATUS.md` §19); before that **complete**, on a stack deployed from `launch-review-5`, the reviewed commit: run end to end on 2026-09-24, `migrateAndSettle` included (`docs/STATUS.md` §18.2); `unlock` on 2026-09-30 returned exactly the 10,000 KAY9 locked (§18.3); `renew` on 2026-10-08 at 00:43 UTC reopened a period with nothing topped up or returned (§18.4, tx `0xe6566497…`). The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
-| Last reviewed | 2026-10-22 |
+| Last reviewed | 2026-10-26 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
 
@@ -95,6 +95,13 @@ on 2 October (passes stopped by the job's timeout) and 11 h 25 min on 8–9 Octo
 challenge), are explained above, and each was ended by a deployment, not a restart. The owner
 accepted both as explained, so the 30 days keep counting from batch 0 and the gate can close on
 25 October if no further gap over six hours goes unexplained.
+
+**Status (2026-10-25): met.** Thirty days after batch 0 (2026-09-25 04:01 UTC) ended on
+2026-10-25 04:01 UTC. `batchCount()` read 594, the last at 2026-10-25 23:26 UTC, every one
+committed by the Azure job with no manual intervention. The `committedAt` of all 594 batches, read
+from the registry: two gaps over six hours in the whole window, the two the owner accepted on
+2026-10-14 (batch 85 to 86, 6 h 02 min on 2 October; batch 191 to 192, 11 h 25 min on 8–9
+October), and since batch 192 no gap longer than 2 h 01 min.
 
 ### Gate 2 — the record covers what people actually buy
 
@@ -210,6 +217,11 @@ question comes back if the challenge returns.
 from block 83,956,057 to 92,156,393 (18 Oct 23:23 UTC): 234 batches, every document matched to its
 root, none lost; 172 graduations, 171 due, all 171 scanned within three hours, median 43 min,
 longest 1 h 12 min; none missed. `batchCount()` read 426.
+
+**2026-10-25: sixteen days in, none missed.** Reading of the same window (`docs/reviews/2026-10-25-gate2-coverage.md`),
+from block 83,956,057 to 97,607,885 (25 Oct 13:06 UTC): 391 batches, every document matched to its
+root, none lost; 282 graduations, all due, all 282 scanned within three hours, median 41 min,
+longest 1 h 12 min; none missed.
 
 ### Gate 3 — the record is rebuildable by somebody else
 
