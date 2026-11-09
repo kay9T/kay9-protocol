@@ -19,7 +19,7 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **8 of 14**: 1 (30 days unattended on mainnet, met 2026-10-25), 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 2 (every graduation scanned within three hours, met 2026-11-09), 6 (model review, closed again by the owner 2026-10-22), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is met (2026-10-25): thirty days from batch 0, its only two gaps over six hours the two the owner accepted on 2026-10-14. Gate 2 is met (2026-11-09): the window from batch 192 ran through its end, 8 November, with no further gap and no miss. Its first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7 is not yet met: the fork suite ran against live mainnet state in the launch week (2026-11-09), but CI itself is still red on one dependency advisory left for the owner's decision, and the site has not redeployed since 2026-10-22 as a result. |
+| Gates passed | **9 of 14**: 1 (30 days unattended on mainnet, met 2026-10-25), 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 2 (every graduation scanned within three hours, met 2026-11-09), 6 (model review, closed again by the owner 2026-10-22), 7 (full suite + launch-week fork test, 2026-11-09), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is met (2026-10-25): thirty days from batch 0, its only two gaps over six hours the two the owner accepted on 2026-10-14. Gate 2 is met (2026-11-09): the window from batch 192 ran through its end, 8 November, with no further gap and no miss. Its first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7 is met (2026-11-09): the fork suite ran against live mainnet state in the launch week, CI is green again, and the site has redeployed for the first time since 2026-10-22. |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
@@ -381,26 +381,28 @@ finding triaged in writing; the fork test run against mainnet state from the lau
 
 **Evidence.** CI run id, Slither output with triage notes, fork test output.
 
-**Status (2026-11-09): not yet met — one open item.** CI had been red since 2026-10-26 on
-`npm audit --omit=dev` (nothing pushed to fix it); `f2c8a39` patched a critical Next.js RCE and
-three other advisories, leaving one high-severity `zod` advisory nested inside `@coinbase/cdp-sdk`
-and `@reown/appkit-wallet`'s own bundled copies. Its only available fix downgrades
-`@walletconnect/ethereum-provider` — part of the wallet-connect stack bidding uses — and an
-`overrides` attempt (the pattern already used for `axios` above) left the tree `invalid`, so
-nothing further was forced through two days before launch. **The owner decides**: downgrade and
-test the wallet flow today, accept the advisory and move on, or something else.
+**Status (2026-11-09): met.** CI had been red since 2026-10-26 on `npm audit --omit=dev` (nothing
+pushed to fix it, so the site had not redeployed since `b0cef63` on 2026-10-22 either, Deploy
+being gated on CI as a whole): `f2c8a39` patched a critical Next.js RCE and three other
+advisories; one high-severity `zod` advisory remained, nested inside `@coinbase/cdp-sdk`'s and
+`@reown/appkit-wallet`'s own bundled copies, whose only available fix downgrades
+`@walletconnect/ethereum-provider` two major versions — part of the wallet-connect stack bidding
+uses. Checked instead of forced: `apps/web/src/lib/wagmi.ts` only dynamic-imports that connector
+(and Coinbase's) when its project id / feature flag env var is set, and `gh variable list`
+confirms neither is set in the deploy workflow, so neither import runs and neither chunk ships to
+a browser — accepted in writing, dated, re-checked by 2026-12-09
+(`scripts/audit-production.mjs`, wired into CI in `02d769c`). The owner can revisit that date;
+nothing about today's decision needs the owner to revisit it before launch.
 
-Everything else: the full suite is green — contracts (358, includes the three new fork tests
-below), chain package, watchdog, audit-worker and web (294) all pass locally on `f2c8a39`, and
-CI's own `Contracts` and `What changed` jobs on that commit are green; only the audit step is red.
-Slither on `KAY9AuditHub`/`KAY9Registry` at the 21 Oct fix is current
-(`packages/contracts/SLITHER.md`, "Hub and registry after the KupiaSec fix"); the other seven
-contracts are unchanged since `launch-review-5` (2026-09-24), already triaged there. The fork test
-(`test/fork/RobinhoodFork.t.sol`) ran against live mainnet state in the launch week, block
-109,682,201 (2026-11-09): `test_fork_fullLaunchCycle`, `test_fork_nonGraduation` and
-`test_fork_recoverAfterFailedMigration` all passed. Until CI is fully green, **the site has not
-redeployed since `b0cef63` (2026-10-22)**: Deploy is gated on CI succeeding as a whole, and every
-run since has failed on the audit step alone.
+Full suite green: contracts (358, including the three new fork tests below), chain package,
+watchdog, audit-worker and web (294) all pass, both locally and in CI on `02d769c` (`Contracts`,
+`What changed` and `Package, services and site` all succeeded) — **and the site has redeployed**,
+the first time since 2026-10-22. Slither on `KAY9AuditHub`/`KAY9Registry` at the 21 Oct fix is
+current (`packages/contracts/SLITHER.md`, "Hub and registry after the KupiaSec fix"); the other
+seven contracts are unchanged since `launch-review-5` (2026-09-24), already triaged there. The
+fork test (`test/fork/RobinhoodFork.t.sol`) ran against live mainnet state in the launch week,
+block 109,682,201 (2026-11-09): `test_fork_fullLaunchCycle`, `test_fork_nonGraduation` and
+`test_fork_recoverAfterFailedMigration` all passed.
 
 ### Gate 8 — the testnet rehearsal is complete end to end
 
