@@ -19,12 +19,12 @@ authorisation.
 
 | | |
 |---|---|
-| Gates passed | **7 of 14**: 1 (30 days unattended on mainnet, met 2026-10-25), 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 6 (model review, closed again by the owner 2026-10-22), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is met (2026-10-25): thirty days from batch 0, its only two gaps over six hours the two the owner accepted on 2026-10-14. Gate 2's first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7's Slither and fork suite were re-run on 2026-09-24 at `launch-review-5`, and the fork run against launch-week state remains |
+| Gates passed | **8 of 14**: 1 (30 days unattended on mainnet, met 2026-10-25), 4 (calibration, 2026-09-26), 5 (no invented statistics, re-run in the launch week), 2 (every graduation scanned within three hours, met 2026-11-09), 6 (model review, closed again by the owner 2026-10-22), 8 (testnet rehearsal, met again 2026-10-22), 10 (owner key), 11 (auditor keys). **Gates 6 and 8 reopened on 2026-10-21** for `KAY9AuditHub` and `KAY9Registry` only, by this document's own rules, after the 21 Oct analysis-pin fix changed both (`docs/reviews/2026-10-21-external-report.md`). Gate 8 is met again: request → attest → dispute → expire ran on a testnet hub and registry deployed from the fix (`docs/STATUS.md` §19). Gate 6 has both families' reviews of the fix, and the owner closed it again on 2026-10-22. Gate 1's clock does **not** restart, by the owner's decision of 2026-10-21, although gate 6's text says a watchdog-stack finding after deployment restarts it: the scanner path gate 1 measures (`KAY9ScanRegistry`, the discovery worker) is untouched, and the replaced pair never held a record. Gate 3 is waived by the owner (2026-10-06): not passed, no longer holding the launch. Gate 1 is met (2026-10-25): thirty days from batch 0, its only two gaps over six hours the two the owner accepted on 2026-10-14. Gate 2 is met (2026-11-09): the window from batch 192 ran through its end, 8 November, with no further gap and no miss. Its first window broke on 29–30 Sep and 2 Oct (85 graduations scanned late); the owner kept the condition; it restarted on 2026-10-04, broke on 5 Oct by four minutes and again when the public RPC's Cloudflare challenge stopped every commit from 19:20 UTC on 8 Oct; on 2026-10-14 the owner restarted its 30 days from batch 192 (9 Oct 06:45:51 UTC), ending 8 Nov, the day before gate 14, so a further break moves the launch. Gate 9's vesting `TGE_TIMESTAMP` was confirmed by the owner on 2026-10-14; gate 7 is not yet met: the fork suite ran against live mainnet state in the launch week (2026-11-09), but CI itself is still red on one dependency advisory left for the owner's decision, and the site has not redeployed since 2026-10-22 as a result. |
 | Watchdog live on mainnet | **yes**, since 2026-09-25 (batch 0 at block 71,926,233; addresses in `packages/chain/deployments/4663.json`) |
 | Token launch | **blocked** — gates 1–14 |
 | Target launch date | **Tuesday 10 November 2026**, set by the owner on 2026-09-11; `launch()` at 01:00 UTC, 12:00 noon in Melbourne, set on 2026-10-06. A target, not an authorisation: if any gate is open on the date, the date moves. The working calendar is `docs/ROADMAP.md` §8.1 |
 | Testnet rehearsal (gate 8) | **complete again 2026-10-22**: request → attest → dispute → expire on a hub and registry deployed from the 21 Oct fix (`docs/STATUS.md` §19); before that **complete**, on a stack deployed from `launch-review-5`, the reviewed commit: run end to end on 2026-09-24, `migrateAndSettle` included (`docs/STATUS.md` §18.2); `unlock` on 2026-09-30 returned exactly the 10,000 KAY9 locked (§18.3); `renew` on 2026-10-08 at 00:43 UTC reopened a period with nothing topped up or returned (§18.4, tx `0xe6566497…`). The earlier stacks' hashes (`docs/STATUS.md` §12–§17) stay as the record of what those runs found |
-| Last reviewed | 2026-10-26 |
+| Last reviewed | 2026-11-09 |
 
 Update this block when a gate closes. A gate is closed by evidence, not by intention.
 
@@ -223,6 +223,13 @@ from block 83,956,057 to 97,607,885 (25 Oct 13:06 UTC): 391 batches, every docum
 root, none lost; 282 graduations, all due, all 282 scanned within three hours, median 41 min,
 longest 1 h 12 min; none missed.
 
+**Status (2026-11-09): met.** The window ran through its end, 8 November 06:45:51 UTC, with no
+further gap and no miss. Reading through and past the deadline
+(`docs/reviews/2026-11-09-gate2-coverage.md`), from block 83,956,057 to 109,677,941 (9 Nov 01:32
+UTC): 737 batches, every document matched to its root, none lost; 441 graduations, 439 due, all
+439 scanned within three hours, median 42 min, longest 1 h 12 min; 2 not yet due. `batchCount()`
+read 929.
+
 ### Gate 3 — the record is rebuildable by somebody else
 
 **Condition.** A third party, given only the chain and the batch documents, reconstructs the same
@@ -373,6 +380,27 @@ closed this part. Gate 6 is closed in full again.
 finding triaged in writing; the fork test run against mainnet state from the launch week.
 
 **Evidence.** CI run id, Slither output with triage notes, fork test output.
+
+**Status (2026-11-09): not yet met — one open item.** CI had been red since 2026-10-26 on
+`npm audit --omit=dev` (nothing pushed to fix it); `f2c8a39` patched a critical Next.js RCE and
+three other advisories, leaving one high-severity `zod` advisory nested inside `@coinbase/cdp-sdk`
+and `@reown/appkit-wallet`'s own bundled copies. Its only available fix downgrades
+`@walletconnect/ethereum-provider` — part of the wallet-connect stack bidding uses — and an
+`overrides` attempt (the pattern already used for `axios` above) left the tree `invalid`, so
+nothing further was forced through two days before launch. **The owner decides**: downgrade and
+test the wallet flow today, accept the advisory and move on, or something else.
+
+Everything else: the full suite is green — contracts (358, includes the three new fork tests
+below), chain package, watchdog, audit-worker and web (294) all pass locally on `f2c8a39`, and
+CI's own `Contracts` and `What changed` jobs on that commit are green; only the audit step is red.
+Slither on `KAY9AuditHub`/`KAY9Registry` at the 21 Oct fix is current
+(`packages/contracts/SLITHER.md`, "Hub and registry after the KupiaSec fix"); the other seven
+contracts are unchanged since `launch-review-5` (2026-09-24), already triaged there. The fork test
+(`test/fork/RobinhoodFork.t.sol`) ran against live mainnet state in the launch week, block
+109,682,201 (2026-11-09): `test_fork_fullLaunchCycle`, `test_fork_nonGraduation` and
+`test_fork_recoverAfterFailedMigration` all passed. Until CI is fully green, **the site has not
+redeployed since `b0cef63` (2026-10-22)**: Deploy is gated on CI succeeding as a whole, and every
+run since has failed on the audit step alone.
 
 ### Gate 8 — the testnet rehearsal is complete end to end
 
