@@ -8,7 +8,7 @@ protocol, token, trust model, status, and limitations.
 
 The watchdog stack has been live on Robinhood Chain mainnet since 25 September
 2026 (block 71,926,233). The token, the auction and the access vault are not
-deployed yet; the target launch date is 10 November 2026, gated on the
+deployed yet; the target launch date is 12 November 2026, gated on the
 conditions in the whitepaper.
 
 | Contract | Address | Source |

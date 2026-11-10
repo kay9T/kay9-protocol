@@ -216,7 +216,7 @@ a deployed, trading token. Specifically, as of this writing:
   code, and have **not yet been rehearsed on testnet**.
 - $KAY9 itself is **not deployed on any network.** The website renders "not deployed yet" wherever
   it would otherwise show a live figure, because that is the true statement.
-- The owner has set a **target launch date of Tuesday 10 November 2026**. It is a target and not a
+- The owner has set a **target launch date of Thursday 12 November 2026** (moved 48 hours on 2026-11-10 from the original 10 November target, which passed with no deployment transaction sent and no gate actually open). It is a target and not a
   promise: the launch is gated on fourteen checkable conditions (`docs/LAUNCH_READINESS.md` in the
   main project), four of which need the watchdog to have run unattended on mainnet for thirty days,
   and if any of them is open on the date, the date moves. The working calendar is in the roadmap.
@@ -234,7 +234,7 @@ all. A product asking to be trusted should be checkable first.
    access-lock cycle (in progress 2026-09-11), an external review of the launch path, the watchdog
    live on mainnet by 9 October so it has thirty unattended days before the target, and calibration
    against fifty-plus tokens.
-2. **Launch week (target Tuesday 10 November 2026):** contracts deploy and are verified publicly
+2. **Launch week (target Thursday 12 November 2026):** contracts deploy and are verified publicly
    the week before; the auction opens for a fixed four-hour window on the owner's single
    signature; migration, liquidity lock, and unsold-supply settlement are all permissionless
    afterwards. If a readiness gate is open on the date, the date moves.

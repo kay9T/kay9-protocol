@@ -10,7 +10,7 @@ the target TGE and burned into `KAY9TeamVesting` when the contracts are deployed
 and cannot move afterwards. If the launch slips past them, the calendar does not pay the team
 early: the vesting contract releases nothing until the launch has settled (`KAY9Genesis.settled()`),
 and from then on it follows those fixed dates to the second. The owner has set a
-**target TGE of Tuesday 10 November 2026** (§8), so the relative weeks below also read as the
+**target TGE of Thursday 12 November 2026** (§8), so the relative weeks below also read as the
 calendar in §8.1. It is a target, not a promise: `docs/LAUNCH_READINESS.md` is explicit that a
 marketing date never overrides an open gate, and if a gate is open on the date, the date moves.
 
@@ -279,22 +279,26 @@ Fill these in and the relative weeks above become a calendar.
 
 | Item | Value |
 |---|---|
-| Target TGE, date and time UTC | **Tuesday 10 November 2026, 01:00 UTC** — 12:00 noon in Melbourne (AEDT, UTC+11). The date was set by the owner on 2026-09-11, the time on 2026-10-06. `KAY9Genesis.launch()` is signed then, and the 24-hour auction, counted on the chain's own clock, ends at about 01:17 UTC on 11 November (864,000 blocks at the measured 0.1012 s). A target that moves if a readiness gate is open (§8.1) |
+| Target TGE, date and time UTC | **Thursday 12 November 2026, 01:00 UTC** — 12:00 noon in Melbourne (AEDT, UTC+11). The date was set by the owner on 2026-09-11, the time on 2026-10-06, moved 48 hours by the owner on 2026-11-10 (the original target passed with no deployment transaction sent and no gate actually open). `KAY9Genesis.launch()` is signed then, and the 24-hour auction, counted on the chain's own clock, ends at about 01:17 UTC on 13 November (864,000 blocks at the measured 0.1012 s). A target that moves if a readiness gate is open (§8.1) |
 | Auction duration | 24 hours, about 864,000 blocks on the chain's own clock (owner, 2026-09-25; it was 4 hours) |
 | Floor FDV, USD | **1,000** (owner, 2026-10-06): a floor price of USD 0.000001 per KAY9. Final with gate 9 on 6 November, at that day's ETH price |
 | Graduation FDV, USD | **5,000** (owner, 2026-10-06; the reference was 10,000): the auction graduates once it has credited about USD 2,275 in ETH, 45.5 % of 5,000. Lowered so a small community can carry the launch; the cost is a thinner pool and, with few bidders, a concentrated auction allocation. Final with gate 9 on 6 November |
-| Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. 11 November 2026, 02:00 UTC (13:00 in Melbourne), confirmed by the owner on 14 October 2026 (gate 9). Nothing releases before `KAY9Genesis.settled()` in any case |
-| Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 11 May 2027, 02:00 UTC |
-| Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 11 November 2027, 02:00 UTC |
+| Team unlock, tranche 1 | `TGE_TIMESTAMP` in `KAY9TeamVesting`, set no earlier than the planned migration (`docs/DEPLOYMENT.md`), so after the auction ends, not at the signature. 13 November 2026, 02:00 UTC (13:00 in Melbourne), confirmed by the owner on 14 October 2026 (gate 9) and moved 48 hours with the launch date on 2026-11-10. Nothing releases before `KAY9Genesis.settled()` in any case |
+| Team unlock, tranche 2 | Tranche 1 + 6 calendar months, computed at deployment with `ComputeVesting`: 13 May 2027, 02:00 UTC |
+| Team unlock, tranche 3 | Tranche 1 + 12 calendar months: 13 November 2027, 02:00 UTC |
 | Deep access lock | 5,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below 1 KAY9 |
 | Forensic access lock | 10,000 KAY9, changeable only through the 48 hour timelock (`setRequirement`), never below the deep lock, never above 10,000,000 KAY9 |
 | Access period | 30 days, changeable only through the 48 hour timelock, within 7 and 365 days |
 
-### 8.1 The calendar, working back from 10 November 2026
+### 8.1 The calendar, working back from 12 November 2026
 
-Set on 2026-09-11. Every line is a precondition from `docs/LAUNCH_READINESS.md` with the latest
-date it can close and still leave the gate after it enough room. Nothing here is a launch-day
-promise: a slipped line moves the launch, not the gate.
+Set on 2026-09-11, moved 48 hours on 2026-11-10 with the launch date. Every line is a precondition
+from `docs/LAUNCH_READINESS.md` with the latest date it can close and still leave the gate after
+it enough room. Nothing here is a launch-day promise: a slipped line moves the launch, not the
+gate. **The rows below Sun 25 Oct 2026 were never updated when gates 9, 12, 13 and 14 became the
+sequential actions of launch day itself (`docs/LAUNCH_READINESS.md`'s own gate list) rather than
+separate dates in late October; `docs/LAUNCH_READINESS.md` is the current source for what those
+four gates need and when, not the specific days named here.**
 
 | By | What must be true | Gate |
 |---|---|---|
@@ -314,7 +318,7 @@ promise: a slipped line moves the launch, not the gate.
 | Fri 6 Nov 2026 | Launch parameters derived, printed and confirmed by the owner in writing; auction window announced | 9 |
 | Sun 8 Nov 2026, 06:45 UTC (was Wed 4 Nov; first Mon 26 Oct) | Gate 2's 30 days complete: every graduation scanned within three hours, counted from batch 192 on 9 Oct 06:45:51 UTC, the owner's choice of 14 Oct. Earlier windows broke on 29–30 Sep and 2 Oct (85 graduations scanned late, none missed, `docs/reviews/2026-10-03-gate2-coverage.md`), on 5 Oct (two graduations four minutes late) and on 8–9 Oct, when the public RPC's Cloudflare challenge stopped every commit for 11 h 25 min; each time the owner kept the condition and the scanner was changed. One day before gate 14, so no slack: a further break moves the launch | 2 |
 | Mon 9 Nov 2026 | Owner confirms gates 1–13 closed in writing | 14 |
-| **Tue 10 Nov 2026, 01:00 UTC** (12:00 Melbourne) | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
+| **Thu 12 Nov 2026, 01:00 UTC** (12:00 Melbourne) | `KAY9Genesis.launch()` signed; auction runs 24 h; migrate, lock and settle are permissionless afterwards | — |
 
 What is *not* on this calendar is anything that depends on money the project does not have: the
 independent-operator move in §6 has a precondition, not a date, and stays that way.
